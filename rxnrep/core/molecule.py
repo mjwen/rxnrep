@@ -59,15 +59,22 @@ class Molecule:
         return cls(m, s)
 
     @classmethod
-    def from_sdf(cls, s: str, sanitize: bool = True):
+    def from_sdf(cls, s: str, sanitize: bool = True, remove_H: bool = False):
         """
         Create a molecule for a sdf molecule block.
+
+        We choose to set the default of `remove_H` to `False` beause SDF definition of
+        explicit and implicit hydrogens is a bit different from what in smiles: it is
+        not true that hydrogens specified in SDF are explicit; whether a
+        hydrogen is explict or implicit depends on the charge(CHG), valence(VAL) and
+        radicals(RAD) specified in the SDF file.
 
         Args:
             s: SDF mol block string. .
             sanitize: whether to sanitize the molecule
+            remove_H: whether to remove hydrogens read from SDF
         """
-        m = Chem.MolFromMolBlock(s, sanitize=sanitize, removeHs=False)
+        m = Chem.MolFromMolBlock(s, sanitize=sanitize, removeHs=remove_H)
         if m is None:
             raise MoleculeCreationError(s)
         return cls(m)
@@ -80,11 +87,11 @@ class Molecule:
         return self._mol
 
     @property
-    def id(self) -> str:
+    def id(self) -> Union[str, None]:
         """
         Returns a string identification (name) of the molecule.
         """
-        return str(self._id)
+        return self._id
 
     @property
     def formal_charge(self) -> int:
