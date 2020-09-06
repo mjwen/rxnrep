@@ -18,10 +18,10 @@ class Molecule:
 
     Args:
         mol: rdkit molecule.
-        id: a string identification (name) of the molecule.
+        id: an identification of the molecule.
     """
 
-    def __init__(self, mol: Chem.Mol, id: Optional[str] = None):
+    def __init__(self, mol: Chem.Mol, id: Optional[Union[int, str]] = None):
 
         self._mol = mol
         self._id = id
@@ -63,7 +63,7 @@ class Molecule:
         """
         Create a molecule for a sdf molecule block.
 
-        We choose to set the default of `remove_H` to `False` beause SDF definition of
+        We choose to set the default of `remove_H` to `False` because SDF definition of
         explicit and implicit hydrogens is a bit different from what in smiles: it is
         not true that hydrogens specified in SDF are explicit; whether a
         hydrogen is explict or implicit depends on the charge(CHG), valence(VAL) and
@@ -87,9 +87,9 @@ class Molecule:
         return self._mol
 
     @property
-    def id(self) -> Union[str, None]:
+    def id(self) -> Union[int, str, None]:
         """
-        Returns a string identification (name) of the molecule.
+        Returns the identifier of the molecule.
         """
         return self._id
 
@@ -395,17 +395,11 @@ class Molecule:
 
 class MoleculeCreationError(Exception):
     def __init__(self, msg=None):
+        super(MoleculeCreationError, self).__init__(f"Cannot create molecule for: {msg}.")
         self.msg = msg
-        super(MoleculeCreationError, self).__init__(msg)
-
-    def __repr__(self):
-        return f"Cannot create molecule for: {self.msg}"
 
 
 class MoleculeError(Exception):
     def __init__(self, msg=None):
-        self.msg = msg
         super(MoleculeError, self).__init__(msg)
-
-    def __repr__(self):
-        return f"{self.msg}"
+        self.msg = msg

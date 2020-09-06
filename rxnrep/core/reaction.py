@@ -19,7 +19,7 @@ class Reaction:
             (reactant_atom_index: (product_index, product_atom_index)).
         sanity_check: check the correctness of the reactions, e.g. mass conservation,
             charge conservation...
-        id: a string identifier of the reaction
+        id: an identifier of the reaction
     """
 
     def __init__(
@@ -29,7 +29,7 @@ class Reaction:
         reagents: Optional[List[Molecule]] = None,
         atom_mapping: Optional[List[Dict[int, Tuple[int, int]]]] = None,
         sanity_check: bool = True,
-        id: Optional[str] = None,
+        id: Optional[Union[int, str]] = None,
     ):
 
         self._reactants = reactants
@@ -54,9 +54,9 @@ class Reaction:
         return self._reagents
 
     @property
-    def id(self) -> Union[str, None]:
+    def id(self) -> Union[int, str, None]:
         """
-        Returns a string identification (name) of the reaction.
+        Returns the identifier of the reaction.
         """
         return self._id
 
@@ -330,10 +330,33 @@ class Reaction:
     #     return bond_mapping
 
 
+def smiles_to_reaction(smiles: str, id: Optional[Union[int, str]] = None):
+    """
+    Convert a reaction given in smiles to :class:`Reaction`.
+
+    Args:
+        smiles: a smiles representation of a reaction, where the reactants, reagents,
+            and products are separated by `>`. For example:
+            '[C:1](=[O:2])-[OD1].[N!H0:3]>>[C:1](=[O:2])[N:3]'
+
+        id: identifier of the reaction.
+    """
+
+    reactants, reagents, products = smiles.split(">")
+
+    rcts = [Molecule.from_smiles(s) for s in reactants.split(".")]
+    if reagents != "":
+        rgts = [Molecule.from_smiles(s) for s in reagents.split(".")]
+    else:
+        rgts = []
+    prdts = [Molecule.from_smiles(s) for s in products.split(".")]
+
+    reaction = Reaction(rcts, prdts, rgts, sanity_check=False, id=id)
+
+    return reaction
+
+
 class ReactionSanityCheckError(Exception):
     def __init__(self, msg=None):
-        self.msg = msg
         super(ReactionSanityCheckError, self).__init__(msg)
-
-    def __repr__(self):
-        return self.msg
+        self.msg = msg

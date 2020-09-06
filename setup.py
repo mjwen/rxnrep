@@ -20,7 +20,7 @@ setup(
     name="rxnrep",
     version=get_version(),
     packages=find_packages(),
-    install_requires=["numpy", "click"],
+    install_requires=["numpy"],
     author="Mingjian Wen",
     author_email="wenxx151@gmail.com",
     url="https://github.com/mjwen/rxnrep",
