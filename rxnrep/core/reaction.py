@@ -135,15 +135,16 @@ class Reaction:
         products = defaultdict(list)
         for i, mp in enumerate(self._atom_mapping):
             for r_atom, (p_molecule, p_atom) in mp.items():
-                reactants[i].append(r_atom)
-                products[p_molecule].append(p_atom)
+                if p_molecule is not None:
+                    reactants[i].append(r_atom)
+                    products[p_molecule].append(p_atom)
 
         # check every reactant is mapped
         for i, m in enumerate(self._reactants):
             if list(range(m.num_atoms)) != sorted(reactants[i]):
                 raise ReactionSanityCheckError(
                     f"Failed `check_atom_mapping()` for reaction {self.id}. "
-                    f"Reactant {i} has {m.num_atoms} atoms; but mapped atoms for it "
+                    f"Reactant {i} has {m.num_atoms} atoms, but mapped atoms for it "
                     f"is {reactants[i]}."
                 )
 
@@ -152,8 +153,8 @@ class Reaction:
             if list(range(m.num_atoms)) != sorted(products[i]):
                 raise ReactionSanityCheckError(
                     f"Failed `check_atom_mapping()` for reaction {self.id}. "
-                    f"Product {i} has {m.num_atoms} atoms; but mapped atoms for it "
-                    f"is {reactants[i]}."
+                    f"Product {i} has {m.num_atoms} atoms, but mapped atoms for it "
+                    f"is {products[i]}."
                 )
 
     #
