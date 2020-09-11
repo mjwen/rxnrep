@@ -1,8 +1,45 @@
+import copy
 import multiprocessing
 import numpy as np
 from rdkit import Chem
-import copy
+import pandas as pd
 from typing import List, Tuple, Dict, Union, Set
+
+
+def get_atom_property(m: Chem.Mol) -> pd.DataFrame:
+    """
+    Get the property (e.g. valence, number H) of all atoms in a molecule.
+
+    Args:
+        m: rdkit molecule
+
+    Returns:
+        property: property of molecules in a pandas DataFrame
+    """
+    prop = []
+    for i, atom in enumerate(m.GetAtoms()):
+        # exclude H
+        if atom.GetSymbol() == "H":
+            continue
+        mol_prop = {
+            "index": i,
+            "atom map number": atom.GetAtomMapNum(),
+            "species": atom.GetSymbol(),
+            "num implicit H": atom.GetNumImplicitHs(),
+            "num explicit H": atom.GetNumExplicitHs(),
+            "num H (with graph H)": atom.GetTotalNumHs(includeNeighbors=True),
+            "num H (without graph H)": atom.GetTotalNumHs(includeNeighbors=False),
+            "implicit valence": atom.GetImplicitValence(),
+            "explict valence": atom.GetExplicitValence(),
+            "total valence": atom.GetTotalValence(),
+            "num radicals": atom.GetNumRadicalElectrons(),
+            "formal charge": atom.GetFormalCharge(),
+            "is aromatic": atom.GetIsAromatic(),
+        }
+        prop.append(mol_prop)
+    property = pd.DataFrame(prop)
+
+    return property
 
 
 def check_molecule_atom_mapped(m: Chem.Mol) -> bool:
@@ -226,11 +263,8 @@ def canonicalize_smiles_reaction(
         return None, str(e).rstrip()
 
     # Step 3, create new products
-    try:
-        bond_changes = get_reaction_bond_change(reactants, products)
-        new_products = edit_molecule(reactants, bond_changes)
-    except MoleculeCreationError as e:
-        return None, str(e).rstrip()
+    bond_changes = get_reaction_bond_change(reactants, products)
+    new_products = edit_molecule(reactants, bond_changes)
 
     # write canonicalized reaction to smiles
     reactants_smi = Chem.MolToSmiles(set_all_H_to_explicit(reactants))
@@ -318,7 +352,12 @@ def adjust_reagents(reaction: str) -> str:
 
     reactants_smi = ".".join([Chem.MolToSmiles(m) for m in new_reactants])
     products_smi = ".".join([Chem.MolToSmiles(m) for m in new_products])
-    reagents_smi = ".".join([reagents_smi] + [Chem.MolToSmiles(m) for m in new_reagents])
+    if reagents_smi == "":
+        reagents_smi = ".".join([Chem.MolToSmiles(m) for m in new_reagents])
+    else:
+        reagents_smi = ".".join(
+            [reagents_smi] + [Chem.MolToSmiles(m) for m in new_reagents]
+        )
 
     reaction = ">".join([reactants_smi, reagents_smi, products_smi])
 
@@ -398,6 +437,13 @@ def get_reaction_bond_change(
     """
     Get the changes of the bonds to make the products from the reactants.
 
+    Bond changes include:
+
+    1. lost bond: bonds in reactants but not in products (note bonds whose both atoms
+        are not in the product are not considered)
+    2  add bond: bonds not in reactants but in products
+    2. alter bonds: bonds in both reactants and products, both their bond type changes
+
     Args:
         reactant: rdkit molecule
         product: rdkit molecule
@@ -414,22 +460,25 @@ def get_reaction_bond_change(
             a single, double, triple, and aromatic bond, respectively.
     """
 
-    # bonds in reactant (only consider bonds whose atoms are mapped)
+    reactant_map_numbers = get_mol_atom_mapping(reactant)
+    product_map_numbers = get_mol_atom_mapping(product)
+
+    # bonds in reactant (only consider bonds at least one atom is in the product)
     bonds_rct = {}
     for bond in reactant.GetBonds():
         bond_atoms = [bond.GetBeginAtom(), bond.GetEndAtom()]
-        if bond_atoms[0].HasProp("molAtomMapNumber") and bond_atoms[1].HasProp(
-            "molAtomMapNumber"
+        if (bond_atoms[0].GetAtomMapNum() in product_map_numbers) or (
+            bond_atoms[1].GetAtomMapNum() in product_map_numbers
         ):
             num_pair = tuple(sorted([a.GetAtomMapNum() for a in bond_atoms]))
             bonds_rct[num_pair] = bond.GetBondTypeAsDouble()
 
-    # bonds in product (only consider bonds whose atoms are mapped)
+    # bonds in product (only consider bonds at least one atom is in the product)
     bonds_prdt = {}
     for bond in product.GetBonds():
         bond_atoms = [bond.GetBeginAtom(), bond.GetEndAtom()]
-        if bond_atoms[0].HasProp("molAtomMapNumber") and bond_atoms[1].HasProp(
-            "molAtomMapNumber"
+        if (bond_atoms[0].GetAtomMapNum() in reactant_map_numbers) or (
+            bond_atoms[1].GetAtomMapNum() in reactant_map_numbers
         ):
             num_pair = tuple(sorted([a.GetAtomMapNum() for a in bond_atoms]))
             bonds_prdt[num_pair] = bond.GetBondTypeAsDouble()
@@ -503,15 +552,16 @@ def edit_molecule(mol: Chem.Mol, edits: Set[Tuple[int, int, float]]) -> Chem.Mol
 
     new_mol = rw_mol.GetMol()
 
+    # Sanitize after editing
+    # adjust aromatic for atoms on longer in ring
+    for atom in new_mol.GetAtoms():
+        if not atom.IsInRing():
+            atom.SetIsAromatic(False)
+    # other sanitize (e.g. adjust num implicit H)
+    Chem.SanitizeMol(new_mol)
+
     # After editing, we set all hydrogen to explicit
     new_mol = set_all_H_to_explicit(new_mol)
-
-    # check validity of created new mol by writing to smile and read back (sanity check
-    # is performed when reading it back)
-    new_mol_smi = Chem.MolToSmiles(new_mol)
-    new_mol = Chem.MolFromSmiles(new_mol_smi)
-    if new_mol is None:
-        raise MoleculeCreationError("Cannot get correct mol after editing")
 
     return new_mol
 
