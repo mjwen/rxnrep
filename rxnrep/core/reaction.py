@@ -14,9 +14,6 @@ class Reaction:
         reactants: reactants of a reaction
         products: products of a reaction
         reagents: optional reagents of a reaction
-        atom_mapping: atom mapping between the reactants and the products. Each dict is
-            the atom mapping for a reactant. (int, (int, int)) means
-            (reactant_atom_index: (product_index, product_atom_index)).
         sanity_check: check the correctness of the reactions, e.g. mass conservation,
             charge conservation...
         id: an identifier of the reaction
@@ -27,7 +24,6 @@ class Reaction:
         reactants: List[Molecule],
         products: List[Molecule],
         reagents: Optional[List[Molecule]] = None,
-        atom_mapping: Optional[List[Dict[int, Tuple[int, int]]]] = None,
         sanity_check: bool = True,
         id: Optional[Union[int, str]] = None,
     ):
@@ -35,11 +31,12 @@ class Reaction:
         self._reactants = reactants
         self._products = products
         self._reagents = reagents
-        self._atom_mapping = atom_mapping
         self._id = id
 
         if sanity_check:
-            self.sanity_check()
+            self.check_composition()
+            self.check_charge()
+            self.check_atom_map_number()
 
     @property
     def reactants(self) -> List[Molecule]:
@@ -59,32 +56,6 @@ class Reaction:
         Returns the identifier of the reaction.
         """
         return self._id
-
-    def get_atom_mapping(self) -> List[Dict[int, Tuple[int, int]]]:
-        """
-        Returns the atom mapping between reactants and products.
-        """
-        return self._atom_mapping
-
-    def set_atom_mapping(self, mapping: List[Dict[int, Tuple[int, int]]]):
-        """
-        Set the atom mapping between reactants and products.
-
-        Args:
-            mapping: each dict is the atom mapping for a reactant. (int, (int, int))
-                means (reactant_atom_index: (product_index, product_atom_index)).
-        """
-        self._atom_mapping = mapping
-        self.check_atom_mapping()
-
-    def sanity_check(self):
-        """
-        Check the correctness of the reaction.
-        """
-        self.check_composition()
-        self.check_charge()
-        if self._atom_mapping is not None:
-            self.check_atom_mapping()
 
     def check_composition(self):
         """
@@ -109,7 +80,7 @@ class Reaction:
                 pc += f"{s}{products_comp[s]}"
 
             raise ReactionSanityCheckError(
-                f"Failed `check_composition()` for reaction {self.id}. "
+                f"Failed `check_composition()` for reaction `{self.id}`. "
                 f"Reactants composition is {rc}, while products composition is {pc}."
             )
 
@@ -121,43 +92,56 @@ class Reaction:
         products_charge = sum([m.charge for m in self._products])
         if reactants_charge != products_charge:
             raise ReactionSanityCheckError(
-                f"Failed `check_charge()` for reaction {self.id}. "
+                f"Failed `check_charge()` for reaction `{self.id}`. "
                 f"The sum of reactant charges ({reactants_charge}) "
                 f"does not equal the sum of product charges ({products_charge})."
             )
 
-    def check_atom_mapping(self):
+    def check_atom_map_number(self):
         """
-        Check the correctness of atom mapping: every reactant and product atom is
+        Check the correctness of atom map number: every reactant and product atom is
         mapped, and each should have one and only one map.
         """
-        reactants = defaultdict(list)
-        products = defaultdict(list)
-        for i, mp in enumerate(self._atom_mapping):
-            for r_atom, (p_molecule, p_atom) in mp.items():
-                if p_molecule is not None:
-                    reactants[i].append(r_atom)
-                    products[p_molecule].append(p_atom)
+        reactants_map = []
+        products_map = []
 
         # check every reactant is mapped
-        for i, m in enumerate(self._reactants):
-            if list(range(m.num_atoms)) != sorted(reactants[i]):
+        for i, m in enumerate(self.reactants):
+            map_number = m.get_atom_map_number()
+            if None in map_number.values():
                 raise ReactionSanityCheckError(
-                    f"Failed `check_atom_mapping()` for reaction {self.id}. "
-                    f"Reactant {i} has {m.num_atoms} atoms, but mapped atoms for it "
-                    f"is {reactants[i]}."
+                    f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
+                    f"Reactant {i} has atoms without atom map number."
                 )
+            reactants_map.extend(map_number.values())
 
         # check every product is mapped
-        for i, m in enumerate(self._products):
-            if list(range(m.num_atoms)) != sorted(products[i]):
+        for i, m in enumerate(self.products):
+            map_number = m.get_atom_map_number()
+            if None in map_number.values():
                 raise ReactionSanityCheckError(
-                    f"Failed `check_atom_mapping()` for reaction {self.id}. "
-                    f"Product {i} has {m.num_atoms} atoms, but mapped atoms for it "
-                    f"is {products[i]}."
+                    f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
+                    f"Products {i} has atoms without atom map number."
                 )
+            products_map.extend(map_number.values())
 
-    #
+        # check the map is unique
+        if len(reactants_map) != len(set(reactants_map)):
+            raise ReactionSanityCheckError(
+                f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
+                f"Reactants have atoms with the same map number."
+            )
+        if len(products_map) != len(set(products_map)):
+            raise ReactionSanityCheckError(
+                f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
+                f"Products have atoms with the same map number."
+            )
+        if set(reactants_map) != set(products_map):
+            raise ReactionSanityCheckError(
+                f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
+                f"Reactants and products have different map numbers."
+            )
+
     # def get_broken_bond(self):
     #     """
     #     Returns:

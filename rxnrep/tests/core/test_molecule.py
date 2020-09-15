@@ -193,3 +193,14 @@ class TestMolecule:
 
         m = create_sdf_molecule(option=3)
         self.assert_mol_property_with_all_H(m, None)
+
+    def test_atom_map_number(self):
+        m = create_smiles_molecule()
+        assert m.get_atom_map_number() == {0: None, 1: None, 2: None}
+
+        m.set_atom_map_number({0: 2, 1: 1, 2: 3})
+        assert m.get_atom_map_number() == {0: 2, 1: 1, 2: 3}
+
+        smiles = "[N:2]([H])[CH:1][CH+:3]"
+        m = Molecule.from_smiles(smiles)
+        assert m.get_atom_map_number() == {0: 2, 1: 1, 2: 3}

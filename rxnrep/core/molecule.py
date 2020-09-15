@@ -39,7 +39,7 @@ class Molecule:
         """
         m = Chem.MolFromSmiles(s, sanitize=sanitize)
         if m is None:
-            raise MoleculeCreationError(s)
+            raise MoleculeError(f"Cannot create molecule for: {s}")
         return cls(m, s)
 
     @classmethod
@@ -53,7 +53,7 @@ class Molecule:
         """
         m = Chem.MolFromSmarts(s)
         if m is None:
-            raise MoleculeCreationError(s)
+            raise MoleculeError(f"Cannot create molecule for: {s}")
         if sanitize:
             Chem.SanitizeMol(m)
         return cls(m, s)
@@ -76,7 +76,7 @@ class Molecule:
         """
         m = Chem.MolFromMolBlock(s, sanitize=sanitize, removeHs=remove_H)
         if m is None:
-            raise MoleculeCreationError(s)
+            raise MoleculeError(f"Cannot create molecule for: {s}")
         return cls(m)
 
     @property
@@ -205,6 +205,51 @@ class Molecule:
 
         return np.asarray(coords)
 
+    def get_atom_map_number(self) -> Dict[int, int]:
+        """
+        Get the atom map number of the rdkit molecule.
+
+        Returns:
+
+            Atom map number for each atom (atom_index, map_number). If an atom is not
+            mapped, the map number is set to `None`.
+        """
+
+        map_number = {}
+        for i, atom in enumerate(self._mol.GetAtoms()):
+            if atom.HasProp("molAtomMapNumber"):
+                map_number[i] = atom.GetAtomMapNum()
+            else:
+                map_number[i] = None
+
+        return map_number
+
+    def set_atom_map_number(self, map_number: Dict[int, int]):
+        """
+        Set the atom map number of the rdkit molecule.
+
+        Args:
+            Atom map number for each atom. If a value is `None`, the atom map number
+            in the rdkit molecule is cleared.
+        """
+        for idx, number in map_number.items():
+            if idx >= self.num_atoms:
+                raise MoleculeError(
+                    f"Cannot set atom map number of atom {idx} (starting from 0) for "
+                    f"a molecule has a total number of {self.num_atoms} atoms."
+                )
+
+            atom = self._mol.GetAtomWithIdx(idx)
+
+            if number is None:
+                atom.ClearProp("molAtomMapNumber")
+            elif number <= 0:
+                raise MoleculeError(
+                    f"Expect atom map number larger than 0, but got  {number}."
+                )
+            else:
+                atom.SetAtomMapNum(number)
+
     def generate_coords(self) -> np.ndarray:
         """
         Generate 3D coordinates for an rdkit molecule by embedding it.
@@ -268,7 +313,7 @@ class Molecule:
     ) -> str:
         """
         Convert molecule to an sdf representation.
-        
+
         Args:
             filename: if not None, write to the path.
             kekulize: whether to kekulize the mol
@@ -391,12 +436,6 @@ class Molecule:
         self._mol = Chem.RemoveHs(self._mol, implicitOnly=not implicit_only)
 
         return self
-
-
-class MoleculeCreationError(Exception):
-    def __init__(self, msg=None):
-        super(MoleculeCreationError, self).__init__(f"Cannot create molecule for: {msg}.")
-        self.msg = msg
 
 
 class MoleculeError(Exception):

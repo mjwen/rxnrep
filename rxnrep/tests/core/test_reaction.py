@@ -4,12 +4,12 @@ from rxnrep.core.reaction import Reaction, ReactionSanityCheckError
 
 def create_reaction(add_H=False):
     """
-    Create a reaction: CH3CH2+ + CH3CH2- --> CH3+ + CH3CH2CH2-
+    Create a reaction: CH3CH2+ + CH3CH2 --> CH3 + CH3CH2CH2+
     """
-    m1 = Molecule.from_smiles("C[CH2+]")
-    m2 = Molecule.from_smiles("C[CH2-]")
-    m3 = Molecule.from_smiles("[CH3+]")
-    m4 = Molecule.from_smiles("CC[CH2-]")
+    m1 = Molecule.from_smiles("[CH3:3][CH2+:1]")
+    m2 = Molecule.from_smiles("[CH3:2][CH2:4]")
+    m3 = Molecule.from_smiles("[CH3:3]")
+    m4 = Molecule.from_smiles("[CH3:1][CH2:2][CH2+:4]")
     mols = [m1, m2, m3, m4]
 
     if add_H:
@@ -17,9 +17,7 @@ def create_reaction(add_H=False):
             m.add_H()
 
     rxn = Reaction(
-        reactants=[m1, m2],
-        products=[m3, m4],
-        id="CH3CH2+ + CH3CH2- --> CH3+ + CH3CH2CH2-",
+        reactants=[m1, m2], products=[m3, m4], id="some text as id", sanity_check=False
     )
 
     return rxn, mols
@@ -31,7 +29,7 @@ class TestReaction:
         rxn, mols = create_reaction(add_H)
         assert rxn.reactants == [mols[0], mols[1]]
         assert rxn.products == [mols[2], mols[3]]
-        assert rxn.id == "CH3CH2+ + CH3CH2- --> CH3+ + CH3CH2CH2-"
+        assert rxn.id == "some text as id"
 
         # let it fail charge check
         mols[0].charge = 0
@@ -55,3 +53,31 @@ class TestReaction:
 
     def test_with_H(self):
         self.assert_reaction_property(add_H=True)
+
+    def test_atom_map_number(self):
+        rxn, mols = create_reaction(add_H=False)
+        rxn.check_atom_map_number()
+
+        # let atom have no atom map number
+        mols[0].set_atom_map_number({0: None})
+        try:
+            rxn.check_atom_map_number()
+        except ReactionSanityCheckError as e:
+            assert "check_atom_map_number" in str(e)
+        mols[0].set_atom_map_number({0: 3})  # set back
+
+        # let atom have the same map number
+        mols[0].set_atom_map_number({0: 1})
+        try:
+            rxn.check_atom_map_number()
+        except ReactionSanityCheckError as e:
+            assert "check_atom_map_number" in str(e)
+        mols[0].set_atom_map_number({0: 3})  # set back
+
+        # let reactants and products have different atom map number
+        mols[0].set_atom_map_number({0: 5})
+        try:
+            rxn.check_atom_map_number()
+        except ReactionSanityCheckError as e:
+            assert "check_atom_map_number" in str(e)
+        mols[0].set_atom_map_number({0: 3})  # set back
