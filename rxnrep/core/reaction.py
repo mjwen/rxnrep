@@ -107,7 +107,7 @@ class Reaction:
 
         # check every reactant is mapped
         for i, m in enumerate(self.reactants):
-            map_number = m.get_atom_map_number()
+            map_number = m.get_atom_map_number_dict()
             if None in map_number.values():
                 raise ReactionSanityCheckError(
                     f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
@@ -117,7 +117,7 @@ class Reaction:
 
         # check every product is mapped
         for i, m in enumerate(self.products):
-            map_number = m.get_atom_map_number()
+            map_number = m.get_atom_map_number_dict()
             if None in map_number.values():
                 raise ReactionSanityCheckError(
                     f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
