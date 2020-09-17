@@ -334,6 +334,8 @@ class GlobalFeaturizer(BaseFeaturizer):
                 f"update the `feature_name()` function. "
             )
 
+        return names
+
     def __call__(
         self, mol, charge: Optional[int] = None, environment: Optional[str] = None
     ):

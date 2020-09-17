@@ -27,6 +27,7 @@ class Molecule:
         self._id = id
 
         self._charge = None
+        self._environment = None
 
     @classmethod
     def from_smiles(cls, s: str, sanitize: bool = True):
@@ -204,6 +205,20 @@ class Molecule:
         ]
 
         return np.asarray(coords)
+
+    @property
+    def environment(self) -> str:
+        """
+        Return the computation environment of the molecule, e.g. solvent model.
+        """
+        return self._environment
+
+    @environment.setter
+    def environment(self, value: str):
+        """
+        Set the computation environment of the molecule, e.g. solvent model.
+        """
+        self._environment = value
 
     def get_atom_map_number_dict(self) -> Dict[int, int]:
         """
