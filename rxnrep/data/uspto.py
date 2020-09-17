@@ -1,6 +1,6 @@
-import logging
 import multiprocessing
 import functools
+import logging
 from pathlib import Path
 import pandas as pd
 import dgl
@@ -231,3 +231,14 @@ class USPTODataset(BaseDataset):
         logger.info("Finish building graphs and featurizing...")
 
         return self.reactions
+
+
+def collate_fn(samples):
+    # get the reactants, products, and labels of a set of N reactions
+    reactants, products, labels = map(list, zip(*samples))
+
+    # graphs has a length of 2N; the first N are the reactants and the second N are
+    # the products
+    graphs = dgl.batch(reactants + products)
+
+    return graphs, labels

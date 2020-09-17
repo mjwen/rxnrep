@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Callable, Tuple, Optional, Dict, Any
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
-from rxnrep.data.transformers import HeteroGraphFeatureStandardScaler
+from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
 
 logger = logging.getLogger(__name__)
 
