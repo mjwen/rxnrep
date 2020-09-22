@@ -196,11 +196,13 @@ class TestMolecule:
 
     def test_atom_map_number(self):
         m = create_smiles_molecule()
-        assert m.get_atom_map_number_dict() == {0: None, 1: None, 2: None}
+        assert m.get_atom_map_number() == [None, None, None]
 
         m.set_atom_map_number({0: 2, 1: 1, 2: 3})
-        assert m.get_atom_map_number_dict() == {0: 2, 1: 1, 2: 3}
+        assert m.get_atom_map_number(zero_based=False) == [2, 1, 3]
+        assert m.get_atom_map_number(zero_based=True) == [1, 0, 2]
 
         smiles = "[N:2]([H])[CH:1][CH+:3]"
         m = Molecule.from_smiles(smiles)
-        assert m.get_atom_map_number_dict() == {0: 2, 1: 1, 2: 3}
+        assert m.get_atom_map_number(zero_based=False) == [2, 1, 3]
+        assert m.get_atom_map_number(zero_based=True) == [1, 0, 2]

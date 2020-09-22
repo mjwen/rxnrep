@@ -220,27 +220,14 @@ class Molecule:
         """
         self._environment = value
 
-    def get_atom_map_number_dict(self) -> Dict[int, int]:
+    def get_atom_map_number(self, zero_based: bool = True) -> List[Union[int, None]]:
         """
         Get the atom map number of the rdkit molecule.
 
-        Returns:
-            Atom map number for each atom (atom_index, map_number). If an atom is not
-            mapped, the map number is set to `None`.
-        """
 
-        map_number = {}
-        for i, atom in enumerate(self._mol.GetAtoms()):
-            if atom.HasProp("molAtomMapNumber"):
-                map_number[i] = atom.GetAtomMapNum()
-            else:
-                map_number[i] = None
-
-        return map_number
-
-    def get_atom_map_number_list(self) -> List[int]:
-        """
-        Get the atom map number of the rdkit molecule.
+        Args:
+            zero_based: whether to convert the atom map number to zero based.
+                If `True`, atom map number will be zero based, otherwise, one based.
 
         Returns:
             Atom map number for each atom. Index in the returned list is the atom index.
@@ -253,6 +240,9 @@ class Molecule:
                 map_number.append(atom.GetAtomMapNum())
             else:
                 map_number.append(None)
+
+        if zero_based:
+            map_number = [v - 1 if v is not None else None for v in map_number]
 
         return map_number
 
