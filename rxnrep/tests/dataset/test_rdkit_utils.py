@@ -63,7 +63,10 @@ def test_edit_molecule():
     edits = {(0, 1, 0.0), (1, 3, 1.0)}
     edited_mol = edit_molecule(reactant, edits)
     edited_mol = Chem.MolToSmiles(edited_mol)
-
+    # TODO modify this test or the way we do bond edits.
+    #  this does not pass because we let all H be implicit before bond edits and
+    #  let them be explicit after bond edits. This alters the number of H. Number of
+    #  radicals does not change before and after bond edits.
     assert edited_mol == "[CH2+:2][CH2:4][CH3:3].[CH3:1].[K+].[Na+:5]"
 
 

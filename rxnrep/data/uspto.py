@@ -56,14 +56,17 @@ def build_hetero_graph_and_featurize_one_reaction(
 
         return g
 
-    reactant_graphs = [featurize_one_mol(m.rdkit_mol) for m in reaction.reactants]
-    product_graphs = [featurize_one_mol(m.rdkit_mol) for m in reaction.products]
+    reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
+    product_graphs = [featurize_one_mol(m) for m in reaction.products]
 
-    # combine small graphs to form one big graph for reactans and products
-    atom_map_number = [m.get_atom_map_number_list() for m in reaction.reactants]
-    reactants = combine_graphs(reactant_graphs, atom_map_number)
-    atom_map_number = [m.get_atom_map_number_list() for m in reaction.products]
-    products = combine_graphs(product_graphs, atom_map_number)
+    # combine small graphs to form one big graph for reactants and products
+    atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
+    bond_map_number = reaction.get_reactants_bond_map_number()
+    reactants = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
+
+    atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
+    bond_map_number = reaction.get_products_atom_map_number()
+    products = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
     return reactants, products
 
@@ -237,8 +240,9 @@ def collate_fn(samples):
     # get the reactants, products, and labels of a set of N reactions
     reactants, products, labels = map(list, zip(*samples))
 
-    # graphs has a length of 2N; the first N are the reactants and the second N are
-    # the products
-    graphs = dgl.batch(reactants + products)
+    batched_reactant_graphs = dgl.batch(reactants)
+    batched_product_graphs = dgl.batch(products)
 
-    return graphs, labels
+    # TODO batch labels
+
+    return batched_reactant_graphs, batched_product_graphs, labels
