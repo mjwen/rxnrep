@@ -5,9 +5,8 @@ import itertools
 from collections import defaultdict
 import dgl
 import torch
-import numpy as np
 from rdkit import Chem
-from typing import List
+from typing import List, Tuple
 
 
 def create_hetero_molecule_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.DGLGraph:
@@ -149,32 +148,38 @@ def create_hetero_complete_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.
 
 
 def combine_graphs(
-    graphs: List[dgl.DGLGraph], atom_map_number: List[List[int]]
+    graphs: List[dgl.DGLGraph],
+    atom_map_number: List[List[int]],
+    bond_map_number: List[List[int]],
 ) -> dgl.DGLGraph:
     """
     Combine a sequence of dgl graphs and their features to form a new graph.
 
     This is different from batching where the nodes and features are concatenated.
-    Here we reorder atom nodes according the atom map number.
+    Here we reorder atom nodes according the atom map number, and reorder bond nodes
+    according to bond map numbers.
 
     Args:
         graphs: a sequence of dgl graphs
         atom_map_number: the order of atoms for the combined dgl graph. Each inner list
-            gives the order of the atoms for a graph in graphs.
+            gives the order of the atoms for a graph in graphs. Should start from 0.
+        bond_map_number: the order of bonds for the combined dgl graph. Each inner list
+            gives the order of the bonds for a graph in graphs. Should start from 0.
+            A value of `None` means the bond is not mapped between the reactants and
+            the products.
 
     Returns:
         dgl graph
     """
 
-    if len(graphs) == 1:
-        return graphs[0]
+    # create bond node reorder map number for unchanged, changed, and artificial bonds
+    bond_map_number = get_bond_node_reorder_map_number(bond_map_number)
 
-    atom_map_number = convert_atom_map_number(graphs, atom_map_number)
+    # Batch graph structure for each relation graph
 
     relations = graphs[0].canonical_etypes
     ntypes = graphs[0].ntypes
 
-    # Batch graph structure for each relation graph
     edge_dict = defaultdict(list)
     num_nodes_dict = defaultdict(int)
 
@@ -184,14 +189,16 @@ def combine_graphs(
             u, v = g.edges(order="eid", etype=rel)
 
             if srctype == "atom":
-                # convert atom map number (do not need to add u since atom map is global)
                 src = torch.tensor([atom_map_number[i][j] for j in u])
+            elif srctype == "bond":
+                src = torch.tensor([bond_map_number[i][j] for j in u])
             else:
                 src = u + num_nodes_dict[srctype]
 
             if dsttype == "atom":
-                # convert atom map number (do not need to add u since atom map is global)
                 dst = torch.tensor([atom_map_number[i][j] for j in v])
+            elif dsttype == "bond":
+                dst = torch.tensor([bond_map_number[i][j] for j in v])
             else:
                 dst = v + num_nodes_dict[dsttype]
 
@@ -210,7 +217,13 @@ def combine_graphs(
 
     # prepare for reordering atom features
     atom_map_number_list = list(itertools.chain.from_iterable(atom_map_number))
-    reorder = [atom_map_number_list.index(i) for i in range(len(atom_map_number_list))]
+    bond_map_number_list = list(itertools.chain.from_iterable(bond_map_number))
+    atom_reorder = [
+        atom_map_number_list.index(i) for i in range(len(atom_map_number_list))
+    ]
+    bond_reorder = [
+        bond_map_number_list.index(i) for i in range(len(bond_map_number_list))
+    ]
 
     for ntype in graphs[0].ntypes:
         feat_dicts = [g.nodes[ntype].data for g in graphs if g.number_of_nodes(ntype) > 0]
@@ -222,42 +235,108 @@ def combine_graphs(
             keys = feat_dicts[0].keys()
             new_feats = {k: torch.cat([fd[k] for fd in feat_dicts], 0) for k in keys}
 
-            # reorder atom features according to atom_map_number
+            # reorder atom features
             if ntype == "atom":
-                new_feats = {k: v[reorder] for k, v in new_feats.items()}
+                new_feats = {k: v[atom_reorder] for k, v in new_feats.items()}
+
+            # reorder bond features
+            elif ntype == "bond":
+                new_feats = {k: v[bond_reorder] for k, v in new_feats.items()}
 
         new_g.nodes[ntype].data.update(new_feats)
 
     return new_g
 
 
-def convert_atom_map_number(
-    graphs: List[dgl.DGLGraph], atom_map_number: List[List[int]],
-) -> List[List[int]]:
+def get_bond_node_reorder_map_number(bond_map_number: List[List[int]]) -> List[List[int]]:
     """
-    Convert the atom map number from 1 based to 0 based.
+    Get the reorder map number for bond nodes.
 
-    Before that, check the correctness the atom map number to ensure that
-    (1) it has the same size as the total number of atom nodes in the graphs and
-    (2) the map numbers are unique.
+    In a graph, there are three possible categories of bond nodes:
+
+    1. unchanged bond nodes: bonds exist in both the reactants and the products.
+    2. changed bond nodes: lost bonds in reactants or added bonds in products.
+       not exist in both the reactants and products.
+    3. artificial bond nodes: for molecules with no bonds (e.g. a single atom molecule),
+       we create an artificial bond node and connect it to atom 0
+       (see create_hetero_molecule_graph() for more).
+
+    In `bond_map_number`, we only have map number for unchanged bonds (None for changed
+    bonds). This function creates reorder map number for all bonds. Specifically,
+
+    1. unchanged bonds nodes have map number from 0 to N_un-1;
+    2. changed bonds have map number from N_un to N;
+    3. artificial bonds have map number from N to N+N_art-1;
+    where N_un is the number of unchanged bonds, N, is the number of bonds (unchanged
+    plus changed) and N_art is the number of artificial bond nodes.
 
     Args:
-        graphs: a sequence of dgl graphs
-        atom_map_number: the order of atoms for the combined dgl graph. Each inner list
-            gives the order of the atoms for a graph in graphs.
+        bond_map_number: the bond map number for all molecules in the reactants or
+            products; each inner list is for a molecule.
 
     Returns:
-        converted_atom_map_number: same as the input atom_map_number
+        reorder_map_number: bond node reorder map number. similar to `bond_map_number`,
+            but with map numbers for changed and artificial bonds.
     """
-    num_nodes = sum([g.num_nodes("atom") for g in graphs])
+    num_unchanged, num_changed, _ = get_num_bond_nodes_information(bond_map_number)
 
-    # convert to 0 based
-    new_atom_map_number = [list(np.asarray(x) - 1) for x in atom_map_number]
+    # (starting) node index for changed and artificial bonds
+    changed_index = num_unchanged
+    artificial_index = num_unchanged + num_changed
 
-    map_num_1d = [x for x in itertools.chain.from_iterable(new_atom_map_number)]
-    if set(map_num_1d) != set(range(num_nodes)):
-        raise ValueError(
-            f"Incorrect atom map numbers. Expect unique ones, but got {atom_map_number}."
-        )
+    reorder_map_number = []
+    for number in bond_map_number:
+        if len(number) == 0:
+            # artificial bond
+            reorder = [artificial_index]  # we created only one artificial bond node
+            artificial_index += 1
+        else:
+            reorder = []
+            for n in number:
+                if n is None:
+                    # changed bond
+                    reorder.append(changed_index)
+                    changed_index += 1
+                else:
+                    # unchanged bond
+                    reorder.append(n)
+        reorder_map_number.append(reorder)
 
-    return new_atom_map_number
+    return reorder_map_number
+
+
+def get_num_bond_nodes_information(
+    bond_map_number: List[List[int]],
+) -> Tuple[int, int, int]:
+    """
+    Get information of the bond nodes.
+
+    In a graph, there are three possible categories of bond nodes:
+
+    1. unchanged bond nodes: bonds exist in both the reactants and the products.
+    2. changed bond nodes: lost bonds in reactants or added bonds in products.
+       not exist in both the reactants and products.
+    3. artificial bond nodes: for molecules with no bonds (e.g. a single atom molecule),
+       we create an artificial bond node and connect it to atom 0
+       (see create_hetero_molecule_graph() for more).
+
+    Args:
+        bond_map_number: the bond map number for all molecules in the reactants or
+            products; each inner list is for a molecule.
+
+    Returns:
+        num_unchanged_bond_nodes:
+        num_changed_bond_nodes:
+        num_artificial_bond_nodes:
+    """
+
+    bond_map_number_list = list(itertools.chain.from_iterable(bond_map_number))
+    num_unchanged_bond_nodes = len([x for x in bond_map_number_list if x is not None])
+    num_changed_bond_nodes = len(bond_map_number_list) - num_unchanged_bond_nodes
+    # bond map number of artificial bonds is empty
+    has_artificial_bonds = [
+        True if len(bonds) == 0 else False for bonds in bond_map_number
+    ]
+    num_artificial_bond_nodes = sum(has_artificial_bonds)
+
+    return num_unchanged_bond_nodes, num_changed_bond_nodes, num_artificial_bond_nodes
