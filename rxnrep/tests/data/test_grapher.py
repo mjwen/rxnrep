@@ -9,6 +9,34 @@ from rxnrep.data.grapher import (
 )
 
 
+def create_hetero_graph_C(self_loop=False):
+    """
+    Create a single atom molecule C.
+
+    atom_feats:
+        [[0,1,2,3]]
+
+    bond_feats:
+        None
+
+    global_feats:
+        [[0,1]]
+    """
+    m = Chem.MolFromSmiles("[C]")
+    feats = {
+        "atom": torch.arange(4).reshape(1, 4),
+        "bond": torch.tensor([], dtype=torch.int32).reshape(0, 3),
+        "global": torch.arange(2).reshape(1, 2),
+    }
+
+    g = create_hetero_molecule_graph(m, self_loop)
+
+    for ntype, ft in feats.items():
+        g.nodes[ntype].data.update({"feat": ft})
+
+    return g
+
+
 def create_hetero_graph_CO2(self_loop=False):
     """
     Create a CO2 and add features.
@@ -79,7 +107,8 @@ def get_atom_to_bond_map(g):
     atom_to_bond_map = dict()
     for i in range(natoms):
         bonds = g.successors(i, "a2b")
-        atom_to_bond_map[i] = sorted(list(bonds))
+        if len(bonds) > 0:
+            atom_to_bond_map[i] = sorted(list(bonds))
     return atom_to_bond_map
 
 
@@ -102,15 +131,13 @@ def get_hetero_self_loop_map(g, ntype):
 
 
 def test_create_hetero_molecule_graph():
-    def assert_graph(self_loop):
-
-        m = Chem.MolFromSmiles("O=C=O")
+    def assert_graph(m, ref_b2a_map, self_loop):
         g = create_hetero_molecule_graph(m, self_loop)
 
         # number of atoms
-        na = 3
+        na = m.GetNumAtoms()
         # number of bonds
-        nb = 2
+        nb = m.GetNumBonds()
         # number of edges between atoms and bonds
         ne = 2 * nb
 
@@ -133,7 +160,6 @@ def test_create_hetero_molecule_graph():
         assert num_nodes == ref_num_nodes
         assert num_edges == ref_num_edges
 
-        ref_b2a_map = {0: [0, 1], 1: [1, 2]}
         ref_a2b_map = defaultdict(list)
         for b, atoms in ref_b2a_map.items():
             for a in atoms:
@@ -149,8 +175,16 @@ def test_create_hetero_molecule_graph():
             for nt, n in zip(nodes, num_nodes):
                 assert get_hetero_self_loop_map(g, nt) == {i: [i] for i in range(n)}
 
-    assert_graph(False)
-    assert_graph(True)
+    m = Chem.MolFromSmiles("O=C=O")
+    ref_b2a_map = {0: [0, 1], 1: [1, 2]}
+    assert_graph(m, ref_b2a_map, False)
+    assert_graph(m, ref_b2a_map, True)
+
+    # test single atom molecules (no bonds)
+    m = Chem.MolFromSmiles("[C]")
+    ref_b2a_map = {}
+    assert_graph(m, ref_b2a_map, False)
+    assert_graph(m, ref_b2a_map, True)
 
 
 def test_get_num_bond_nodes_information():
@@ -191,7 +225,7 @@ def test_get_bond_node_reorder_map_number():
 
 def test_combine_graphs():
     def assert_graph_struct(self_loop):
-        m = Chem.MolFromSmiles("O=C=O")
+        g = create_hetero_graph_CO2(self_loop)
         na = 3  # num atoms
         nb = 2  # num bonds
         n_graph = 3  # number of graphs to combine to create new graph
@@ -200,7 +234,6 @@ def test_combine_graphs():
         nb = nb * n_graph  # num bonds in new graph
         ne = 2 * nb  # num of edges between atoms and bonds in new graph
 
-        g = create_hetero_molecule_graph(m, self_loop)
         atom_map_number = [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
         #
         # Give the atom_map_number, bonds would be

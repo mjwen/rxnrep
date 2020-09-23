@@ -32,24 +32,16 @@ def create_hetero_molecule_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.
         A dgl graph
     """
     num_atoms = mol.GetNumAtoms()
-
-    # bonds
     num_bonds = mol.GetNumBonds()
 
-    # If no bonds (e.g. H+), create an artifact bond and connect it to the 1st atom
-    if num_bonds == 0:
-        num_bonds = 1
-        a2b = [(0, 0)]
-        b2a = [(0, 0)]
-    else:
-        a2b = []
-        b2a = []
-        for b in range(num_bonds):
-            bond = mol.GetBondWithIdx(b)
-            u = bond.GetBeginAtomIdx()
-            v = bond.GetEndAtomIdx()
-            b2a.extend([[b, u], [b, v]])
-            a2b.extend([[u, b], [v, b]])
+    a2b = []
+    b2a = []
+    for b in range(num_bonds):
+        bond = mol.GetBondWithIdx(b)
+        u = bond.GetBeginAtomIdx()
+        v = bond.GetEndAtomIdx()
+        b2a.extend([[b, u], [b, v]])
+        a2b.extend([[u, b], [v, b]])
 
     a2g = [(a, 0) for a in range(num_atoms)]
     g2a = [(0, a) for a in range(num_atoms)]
@@ -107,16 +99,11 @@ def create_hetero_complete_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.
     num_atoms = mol.GetNumAtoms()
     num_bonds = num_atoms * (num_atoms - 1) // 2
 
-    if num_bonds == 0:
-        num_bonds = 1
-        a2b = [(0, 0)]
-        b2a = [(0, 0)]
-    else:
-        a2b = []
-        b2a = []
-        for b, (u, v) in enumerate(itertools.combinations(range(num_atoms), 2)):
-            b2a.extend([[b, u], [b, v]])
-            a2b.extend([[u, b], [v, b]])
+    a2b = []
+    b2a = []
+    for b, (u, v) in enumerate(itertools.combinations(range(num_atoms), 2)):
+        b2a.extend([[b, u], [b, v]])
+        a2b.extend([[u, b], [v, b]])
 
     a2g = [(a, 0) for a in range(num_atoms)]
     g2a = [(0, a) for a in range(num_atoms)]
@@ -252,23 +239,17 @@ def get_bond_node_reorder_map_number(bond_map_number: List[List[int]]) -> List[L
     """
     Get the reorder map number for bond nodes.
 
-    In a graph, there are three possible categories of bond nodes:
+    In a graph, there are two possible categories of bond nodes:
 
     1. unchanged bond nodes: bonds exist in both the reactants and the products.
     2. changed bond nodes: lost bonds in reactants or added bonds in products.
        not exist in both the reactants and products.
-    3. artificial bond nodes: for molecules with no bonds (e.g. a single atom molecule),
-       we create an artificial bond node and connect it to atom 0
-       (see create_hetero_molecule_graph() for more).
 
-    In `bond_map_number`, we only have map number for unchanged bonds (None for changed
+    In `bond_map_number`, we only have map number for unchanged bonds (`None` for changed
     bonds). This function creates reorder map number for all bonds. Specifically,
 
     1. unchanged bonds nodes have map number from 0 to N_un-1;
-    2. changed bonds have map number from N_un to N;
-    3. artificial bonds have map number from N to N+N_art-1;
-    where N_un is the number of unchanged bonds, N, is the number of bonds (unchanged
-    plus changed) and N_art is the number of artificial bond nodes.
+    2. changed bonds have map number from N_un to N-1;
 
     Args:
         bond_map_number: the bond map number for all molecules in the reactants or
@@ -276,49 +257,38 @@ def get_bond_node_reorder_map_number(bond_map_number: List[List[int]]) -> List[L
 
     Returns:
         reorder_map_number: bond node reorder map number. similar to `bond_map_number`,
-            but with map numbers for changed and artificial bonds.
+            but with map numbers for changed bonds.
     """
-    num_unchanged, num_changed, _ = get_num_bond_nodes_information(bond_map_number)
+    num_unchanged, num_changed = get_num_bond_nodes_information(bond_map_number)
 
-    # (starting) node index for changed and artificial bonds
+    # (starting) node index for changed bonds
     changed_index = num_unchanged
-    artificial_index = num_unchanged + num_changed
 
     reorder_map_number = []
     for number in bond_map_number:
-        if len(number) == 0:
-            # artificial bond
-            reorder = [artificial_index]  # we created only one artificial bond node
-            artificial_index += 1
-        else:
-            reorder = []
-            for n in number:
-                if n is None:
-                    # changed bond
-                    reorder.append(changed_index)
-                    changed_index += 1
-                else:
-                    # unchanged bond
-                    reorder.append(n)
+        reorder = []
+        for n in number:
+            if n is None:
+                # changed bond
+                reorder.append(changed_index)
+                changed_index += 1
+            else:
+                # unchanged bond
+                reorder.append(n)
         reorder_map_number.append(reorder)
 
     return reorder_map_number
 
 
-def get_num_bond_nodes_information(
-    bond_map_number: List[List[int]],
-) -> Tuple[int, int, int]:
+def get_num_bond_nodes_information(bond_map_number: List[List[int]],) -> Tuple[int, int]:
     """
     Get information of the bond nodes.
 
-    In a graph, there are three possible categories of bond nodes:
+    In a graph, there are two possible categories of bond nodes:
 
     1. unchanged bond nodes: bonds exist in both the reactants and the products.
     2. changed bond nodes: lost bonds in reactants or added bonds in products.
-       not exist in both the reactants and products.
-    3. artificial bond nodes: for molecules with no bonds (e.g. a single atom molecule),
-       we create an artificial bond node and connect it to atom 0
-       (see create_hetero_molecule_graph() for more).
+       Not exist in both the reactants and products.
 
     Args:
         bond_map_number: the bond map number for all molecules in the reactants or
@@ -327,16 +297,10 @@ def get_num_bond_nodes_information(
     Returns:
         num_unchanged_bond_nodes:
         num_changed_bond_nodes:
-        num_artificial_bond_nodes:
     """
 
     bond_map_number_list = list(itertools.chain.from_iterable(bond_map_number))
     num_unchanged_bond_nodes = len([x for x in bond_map_number_list if x is not None])
     num_changed_bond_nodes = len(bond_map_number_list) - num_unchanged_bond_nodes
-    # bond map number of artificial bonds is empty
-    has_artificial_bonds = [
-        True if len(bonds) == 0 else False for bonds in bond_map_number
-    ]
-    num_artificial_bond_nodes = sum(has_artificial_bonds)
 
-    return num_unchanged_bond_nodes, num_changed_bond_nodes, num_artificial_bond_nodes
+    return num_unchanged_bond_nodes, num_changed_bond_nodes
