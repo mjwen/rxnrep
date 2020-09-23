@@ -54,7 +54,7 @@ class TestReaction:
     def test_with_H(self):
         self.assert_reaction_property(add_H=True)
 
-    def test_atom_map_number(self):
+    def test_check_atom_map_number(self):
         rxn, mols = create_reaction(add_H=False)
         rxn.check_atom_map_number()
 
@@ -82,12 +82,38 @@ class TestReaction:
             assert "check_atom_map_number" in str(e)
         mols[0].set_atom_map_number({0: 3})  # set back
 
-    def test_get_reactants_bond_map_number(self):
-        rxn, mols = create_reaction()
-        bond_map_number = rxn.get_reactants_bond_map_number()
-        assert bond_map_number == [[None], [0]]
+    def test_get_num_bonds(self):
+        rxn, _ = create_reaction()
+        assert rxn.get_num_unchanged_bonds() == 1
+        assert rxn.get_num_lost_bonds() == 1
+        assert rxn.get_num_added_bonds() == 1
 
-    def test_get_products_bond_map_number(self):
-        rxn, mols = create_reaction()
-        bond_map_number = rxn.get_products_bond_map_number()
+    def test_get_atom_map_number(self):
+        rxn, _ = create_reaction()
+
+        # reactants
+        map_number = rxn.get_reactants_atom_map_number(zero_based=False)
+        assert map_number == [[3, 1], [2, 4]]
+        map_number = rxn.get_reactants_atom_map_number(zero_based=True)
+        assert map_number == [[2, 0], [1, 3]]
+
+        # products
+        map_number = rxn.get_products_atom_map_number(zero_based=False)
+        assert map_number == [[3], [1, 2, 4]]
+        map_number = rxn.get_products_atom_map_number(zero_based=True)
+        assert map_number == [[2], [0, 1, 3]]
+
+    def test_get_bond_map_number(self):
+        rxn, _ = create_reaction()
+
+        # reactants
+        bond_map_number = rxn.get_reactants_bond_map_number(for_changed=False)
+        assert bond_map_number == [[None], [0]]
+        bond_map_number = rxn.get_reactants_bond_map_number(for_changed=True)
+        assert bond_map_number == [[1], [0]]
+
+        # products
+        bond_map_number = rxn.get_products_bond_map_number(for_changed=False)
         assert bond_map_number == [[], [None, 0]]
+        bond_map_number = rxn.get_products_bond_map_number(for_changed=True)
+        assert bond_map_number == [[], [1, 0]]
