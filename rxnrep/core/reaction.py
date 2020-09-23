@@ -1,4 +1,6 @@
 import logging
+import itertools
+import numpy as np
 from collections import defaultdict
 from rxnrep.core.molecule import Molecule
 from typing import List, Tuple, Dict, Optional, Union
@@ -56,6 +58,236 @@ class Reaction:
         Returns the identifier of the reaction.
         """
         return self._id
+
+    def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
+        """
+        Get the atom map number of the reactant molecules.
+
+        Each inner list is for one reactant molecule.
+
+        Args:
+            zero_based: whether to convert the atom map number to zero based.
+                If `True`, all atom map numbers will subtract their minimum value.
+
+        """
+        return self._get_atom_map_number(self.reactants, zero_based)
+
+    def get_products_atom_map_number(self, zero_based=False) -> List[List[int]]:
+        """
+        Get the atom map number of the product molecules.
+
+        Each inner list is for one product molecule.
+
+        Args:
+            zero_based: whether to convert the atom map number to zero based.
+                If `True`, all atom map numbers will subtract their minimum value.
+
+        """
+        return self._get_atom_map_number(self.products, zero_based)
+
+    @staticmethod
+    def _get_atom_map_number(molecules: List[Molecule], zero_based=False):
+        """
+        `molecules` typically should be all the reactants or products.
+        """
+        atom_map_number = [m.get_atom_map_number() for m in molecules]
+        if zero_based:
+            minimum = int(np.min(np.concatenate(atom_map_number)))
+            atom_map_number = [[x - minimum for x in num] for num in atom_map_number]
+
+        return atom_map_number
+
+    def get_reactants_bond_map_number(self) -> List[List[int]]:
+        """
+        Get the bond map number of the reactant molecules.
+
+        Each inner list is for one reactant molecule. The bonds are divided into two
+        categories:
+        1) not altered bonds: bonds exist in both the reactants and the products.
+        2) lost bonds: bonds in the reactants but not in the products.
+
+        For bonds that are not altered, a unique map number (starting from 0) is created
+        for each bond. Since lost bonds do not exist in the products, there is no
+        meaningful bond map number. So, we set their bond map number to `None`.
+        """
+        return self._get_bond_map_number(mode="reactants")
+
+    def get_products_bond_map_number(self) -> List[List[int]]:
+        """
+        Get the bond map number of the product molecules.
+
+        Each inner list is for one product molecule. The bonds are divided into two
+        categories:
+        1) not altered bonds: bonds exist in both the reactants and the products.
+        2) added bonds: bonds not in the reactants but in the products.
+
+        For bonds that are not altered, a unique map number (starting from 0) is created
+        for each bond. Since lost bonds do not exist in the products, there is no
+        meaningful bond map number. So, we set their bond map number to `None`.
+        """
+        return self._get_bond_map_number(mode="products")
+
+    def _get_bond_map_number(self, mode="reactants") -> List[List[int]]:
+        """
+        If  `mode=="reactants"`, this generate the bond map for the reactant molecules;
+        If  `mode=="products"`, this generate the bond map for the product molecules.
+
+        """
+        reactants_bonds = self._get_bonds(self.reactants)
+        products_bonds = self._get_bonds(self.products)
+
+        reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
+        product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
+        not_altered_bonds = reactant_bonds_set & product_bonds_set
+
+        # the unique bond map number is generated as the index of the sorted array
+        sorted_bonds = sorted(not_altered_bonds)
+
+        if mode == "reactants":
+            target_bonds = reactants_bonds
+        elif mode == "products":
+            target_bonds = products_bonds
+        else:
+            raise ValueError("not supported mode")
+
+        bond_map_number = []  # map number for all molecules
+        for bonds in target_bonds:
+            number = []  # map number for a one molecule
+            for b in bonds:
+                if b in not_altered_bonds:
+                    number.append(sorted_bonds.index(b))
+                else:
+                    number.append(None)
+            bond_map_number.append(number)
+
+        return bond_map_number
+
+    # def get_reactants_bond_map_number_tuple_index(
+    #     self, zero_based: bool = False
+    # ) -> Dict[Tuple[int, int], Union[int, None]]:
+    #     """
+    #     Create bond map number for all the bonds in the reactant molecules.
+    #     Each bond is index by a tuple (atom1, atom2), where atom1 and atom 2 are the
+    #     atom map number of the two atoms forming the bond.
+    #
+    #     The bonds are divided into two categories:
+    #
+    #     1) not altered bonds: bonds exist in bonds reactants and products.
+    #     2) lost bonds: bonds in the reactants but not in the products.
+    #
+    #     The set of not altered bonds are ordered, and the index of the bond in the
+    #     ordered list is the bond map number. Since lost bonds do not exist in the
+    #     products, there is no meaningful bond map number. So, we set their bond map
+    #     number to `None`.
+    #
+    #     Args:
+    #         zero_based: whether to convert the bond index to zero based.
+    #             If `True`, all bond indices (atom map number) are converted to zero based.
+    #
+    #     Returns:
+    #         Each entry of the dict `(atom1, atom2): bond_map_number` gives the bond map
+    #         number for one bond, where `(atom1, atom2)` is the bond index.
+    #         `bond_map_number` is `None` if the bond is lost in the reaction.
+    #     """
+    #     reactant_bonds = set(self._get_bonds(self.reactants, zero_based))
+    #     product_bonds = set(self._get_bonds(self.products, zero_based))
+    #     not_altered_bonds = reactant_bonds & product_bonds
+    #     lost_bonds = reactant_bonds - not_altered_bonds
+    #
+    #     bond_map_number = {b: i for i, b in enumerate(sorted(not_altered_bonds))}
+    #     for b in lost_bonds:
+    #         bond_map_number[b] = None
+    #
+    #     return bond_map_number
+    #
+    # def get_products_bond_map_number_tuple_index(
+    #     self, zero_based: bool = False
+    # ) -> Dict[Tuple[int, int], Union[int, None]]:
+    #     """
+    #     Create bond map number for all the bonds in the reactant molecules.
+    #     Each bond is index by a tuple (atom1, atom2), where atom1 and atom 2 are the
+    #     atom map number of the two atoms forming the bond.
+    #
+    #     The bonds are divided into two categories:
+    #
+    #     1) not altered bonds: bonds exist in bonds reactants and products.
+    #     2) added bonds: bonds not in the reactants but in the products.
+    #
+    #     The set of not altered bonds are ordered, and the index of the bond in the
+    #     ordered list is the bond map number. Since added bonds do not exist in the
+    #     reactant, there is no meaningful bond map number. So, we set their bond map
+    #     number to `None`.
+    #
+    #     Args:
+    #         zero_based: whether to convert the bond index to zero based.
+    #             If `True`, all bond indices (atom map number) are converted to zero based.
+    #
+    #     Returns:
+    #         Each entry of the dict `(atom1, atom2): bond_map_number` gives the bond map
+    #         number for one bond, where `(atom1, atom2)` is the bond index.
+    #         `bond_map_number` is `None` if the bond is created in the reaction.
+    #     """
+    #     reactant_bonds = set(self._get_bonds(self.reactants, zero_based))
+    #     product_bonds = set(self._get_bonds(self.products, zero_based))
+    #     not_altered_bonds = reactant_bonds & product_bonds
+    #     added_bonds = product_bonds - not_altered_bonds
+    #
+    #     bond_map_number = {b: i for i, b in enumerate(sorted(not_altered_bonds))}
+    #     for b in added_bonds:
+    #         bond_map_number[b] = None
+    #
+    #     return bond_map_number
+
+    # def get_changed_bonds(
+    #     self, zero_based: bool = False
+    # ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+    #     """
+    #     Get changed bonds in the reaction, i.e. lost bonds and added bonds.
+    #
+    #     Args:
+    #         zero_based: whether to convert the bond index to zero based.
+    #             If `True`, all bond indices (atom map number) are converted to zero based.
+    #
+    #     Returns:
+    #         lost_bonds: [(atom1, atom2)], each tuple denote a lost bond. Note the atom
+    #         index is  the atom map number.
+    #         added_bonds: [(atom1, atom2)], each tuple denote an added bond. Note the atom
+    #         index is the atom map number.
+    #     """
+    #     reactant_bonds = set(self._get_bonds(self.reactants, zero_based))
+    #     product_bonds = set(self._get_bonds(self.products, zero_based))
+    #     not_altered_bonds = reactant_bonds & product_bonds
+    #     lost_bonds = list(reactant_bonds - not_altered_bonds)
+    #     added_bonds = list(product_bonds - not_altered_bonds)
+    #
+    #     return lost_bonds, added_bonds
+
+    @staticmethod
+    def _get_bonds(
+        molecules: List[Molecule], zero_based: bool = False
+    ) -> List[List[Tuple[int, int]]]:
+        """
+        Get all the bonds in the molecules. Each bond is index as (atom1, atom2),
+        where atom1 and atom2 are the atom map number for that atom.
+
+        Args:
+            zero_based: whether to convert the bond index to zero based.
+                If `True`, all bond indices (atom map number) are converted to zero based.
+        """
+        all_bonds = []
+        for m in molecules:
+            atom_map = m.get_atom_map_number()
+            all_bonds.append(
+                [tuple(sorted([atom_map[b[0]], atom_map[b[1]]])) for b in m.bonds]
+            )
+
+        if zero_based:
+            minimum = int(np.min(np.concatenate(all_bonds)))
+            all_bonds = [
+                [(b[0] - minimum, b[1] - minimum) for b in bonds] for bonds in all_bonds
+            ]
+
+        return all_bonds
 
     def check_composition(self):
         """
@@ -141,123 +373,6 @@ class Reaction:
                 f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
                 f"Reactants and products have different map numbers."
             )
-
-    def get_changed_bonds(
-        self, zero_based: bool = True
-    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
-        """
-        Get changed bonds in the reaction, i.e. lost bonds and added bonds.
-
-        Args:
-            zero_based: whether to convert the bond index to zero based.
-                If `True`, all bond indices (atom map number) are converted to zero based.
-
-        Returns:
-            lost_bonds: [(atom1, atom2)], each tuple denote a lost bond. Note the atom
-            index is  the atom map number.
-            added_bonds: [(atom1, atom2)], each tuple denote an added bond. Note the atom
-            index is the atom map number.
-        """
-        reactant_bonds = set(self._get_bonds(self.reactants, zero_based))
-        product_bonds = set(self._get_bonds(self.products, zero_based))
-        not_altered_bonds = reactant_bonds & product_bonds
-        lost_bonds = list(reactant_bonds - not_altered_bonds)
-        added_bonds = list(product_bonds - not_altered_bonds)
-
-        return lost_bonds, added_bonds
-
-    def get_reactants_bond_map_number(
-        self, zero_based: bool = True
-    ) -> Dict[Tuple[int, int], Union[int, None]]:
-        """
-        Create bond map number for all the bonds in the reactant molecules.
-
-        The bonds are divided into two categories:
-
-        1) not altered bonds: bonds exist in bonds reactants and products.
-        2) lost bonds: bonds in the reactants but not in the products.
-
-        The set of not altered bonds are ordered, and the index of the bond in the
-        ordered list is the bond map number. Since lost bonds do not exist in the
-        products, there is no meaningful bond map number. So, we set their bond map
-        number to `None`.
-
-        Args:
-            zero_based: whether to convert the bond index to zero based.
-                If `True`, all bond indices (atom map number) are converted to zero based.
-
-        Returns:
-            Each entry of the dict `(atom1, atom2): bond_map_number` gives the bond map
-            number for one bond, where `(atom1, atom2)` is the bond index.
-            `bond_map_number` is `None` if the bond is lost in the reaction.
-        """
-        reactant_bonds = set(self._get_bonds(self.reactants, zero_based))
-        product_bonds = set(self._get_bonds(self.products, zero_based))
-        not_altered_bonds = reactant_bonds & product_bonds
-        lost_bonds = reactant_bonds - not_altered_bonds
-
-        bond_map_number = {b: i for i, b in enumerate(sorted(not_altered_bonds))}
-        for b in lost_bonds:
-            bond_map_number[b] = None
-
-        return bond_map_number
-
-    def get_products_bond_map_number(
-        self, zero_based: bool = True
-    ) -> Dict[Tuple[int, int], Union[int, None]]:
-        """
-        Create bond map number for all the bonds in the reactant molecules.
-
-        The bonds are divided into two categories:
-
-        1) not altered bonds: bonds exist in bonds reactants and products.
-        2) added bonds: bonds not in the reactants but in the products.
-
-        The set of not altered bonds are ordered, and the index of the bond in the
-        ordered list is the bond map number. Since added bonds do not exist in the
-        reactant, there is no meaningful bond map number. So, we set their bond map
-        number to `None`.
-
-        Args:
-            zero_based: whether to convert the bond index to zero based.
-                If `True`, all bond indices (atom map number) are converted to zero based.
-
-        Returns:
-            Each entry of the dict `(atom1, atom2): bond_map_number` gives the bond map
-            number for one bond, where `(atom1, atom2)` is the bond index.
-            `bond_map_number` is `None` if the bond is created in the reaction.
-        """
-        reactant_bonds = set(self._get_bonds(self.reactants, zero_based))
-        product_bonds = set(self._get_bonds(self.products, zero_based))
-        not_altered_bonds = reactant_bonds & product_bonds
-        added_bonds = product_bonds - not_altered_bonds
-
-        bond_map_number = {b: i for i, b in enumerate(sorted(not_altered_bonds))}
-        for b in added_bonds:
-            bond_map_number[b] = None
-
-        return bond_map_number
-
-    @staticmethod
-    def _get_bonds(
-        molecules: List[Molecule], zero_based: bool = True
-    ) -> List[Tuple[int, int]]:
-        """
-        Get all the bonds in the molecules. Each bond is index as (atom1, atom2),
-        where atom1 and atom2 are the indices of the atoms forming the bonds. The
-        indices are given in atom map number.
-
-        Args:
-            zero_based: whether to convert the bond index to zero based.
-                If `True`, all bond indices (atom map number) are converted to zero based.
-        """
-        bonds = []
-        for m in molecules:
-            atom_map = m.get_atom_map_number(zero_based=zero_based)
-            bonds.extend(
-                [tuple(sorted([atom_map[b[0]], atom_map[b[1]]])) for b in m.bonds]
-            )
-        return bonds
 
 
 def smiles_to_reaction(smiles: str, id: Optional[Union[int, str]] = None):

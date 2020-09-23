@@ -82,23 +82,12 @@ class TestReaction:
             assert "check_atom_map_number" in str(e)
         mols[0].set_atom_map_number({0: 3})  # set back
 
-    def test_get_changed_bonds(self):
-        rxn, mols = create_reaction(add_H=False)
-
-        lost_bonds, added_bonds = rxn.get_changed_bonds(zero_based=False)
-        assert lost_bonds == [(1, 3)]
-        assert added_bonds == [(1, 2)]
-
-        lost_bonds, added_bonds = rxn.get_changed_bonds(zero_based=True)
-        assert lost_bonds == [(0, 2)]
-        assert added_bonds == [(0, 1)]
-
     def test_get_reactants_bond_map_number(self):
-        rxn, mols = create_reaction(add_H=False)
-        bond_map_number = rxn.get_reactants_bond_map_number(zero_based=True)
-        assert bond_map_number == {(1, 3): 0, (0, 2): None}
+        rxn, mols = create_reaction()
+        bond_map_number = rxn.get_reactants_bond_map_number()
+        assert bond_map_number == [[None], [0]]
 
     def test_get_products_bond_map_number(self):
-        rxn, mols = create_reaction(add_H=False)
-        bond_map_number = rxn.get_products_bond_map_number(zero_based=True)
-        assert bond_map_number == {(1, 3): 0, (0, 1): None}
+        rxn, mols = create_reaction()
+        bond_map_number = rxn.get_products_bond_map_number()
+        assert bond_map_number == [[], [None, 0]]
