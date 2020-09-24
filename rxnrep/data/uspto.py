@@ -61,11 +61,11 @@ def build_hetero_graph_and_featurize_one_reaction(
 
     # combine small graphs to form one big graph for reactants and products
     atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
-    bond_map_number = reaction.get_reactants_bond_map_number()
+    bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
     reactants = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
 
     atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
-    bond_map_number = reaction.get_products_atom_map_number()
+    bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
     products = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
     return reactants, products

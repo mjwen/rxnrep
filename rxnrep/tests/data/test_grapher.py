@@ -1,7 +1,11 @@
 from collections import defaultdict
 from rdkit import Chem
 import torch
-from rxnrep.data.grapher import create_hetero_molecule_graph, combine_graphs
+from rxnrep.data.grapher import (
+    create_hetero_molecule_graph,
+    combine_graphs,
+    create_reaction_graph,
+)
 
 
 def create_hetero_graph_C(self_loop=False):
@@ -331,3 +335,69 @@ def test_combine_graph_feature():
     assert torch.equal(graph.nodes["atom"].data["feat"], ref_atom_feats)
     assert torch.equal(graph.nodes["bond"].data["feat"], ref_bond_feats)
     assert torch.equal(graph.nodes["global"].data["feat"], ref_global_feats)
+
+
+def test_create_reaction_graph():
+    """Create a reaction: CH3CH2+ + CH3CH2CH2 --> CH3 + CH3CH2CH2CH2+
+
+    m1:
+        2
+    C2-----C0
+
+    m2:
+        0      1
+    C1-----C3-----C4
+
+    m3:
+
+    C2
+
+    m4:
+        0      1      2
+    C1-----C3-----C4-----C0
+
+    combined union graph (the bond index is assigned to mimic combine_graphs() function)
+    
+              2
+          C2-----C0
+                  |
+                  |  3
+        0      1  |
+    C1-----C3-----C4
+    """
+
+    m1 = Chem.MolFromSmiles("[CH3:3][CH2+:1]")
+    m2 = Chem.MolFromSmiles("[CH3:2][CH2:4][CH2:5]")
+    m3 = Chem.MolFromSmiles("[CH3:3]")
+    m4 = Chem.MolFromSmiles("[CH3:2][CH2:4][CH2:5][CH2+:1]")
+
+    g1 = create_hetero_molecule_graph(m1)
+    g2 = create_hetero_molecule_graph(m2)
+    g3 = create_hetero_molecule_graph(m3)
+    g4 = create_hetero_molecule_graph(m4)
+
+    reactant_atom_map = [[2, 0], [1, 3, 4]]
+    reactant_bond_map = [[2], [0, 1]]
+    product_atom_map = [[2], [1, 3, 4, 0]]
+    product_bond_map = [[], [0, 1, 2]]
+
+    reactant = combine_graphs([g1, g2], reactant_atom_map, reactant_bond_map)
+    product = combine_graphs([g3, g4], product_atom_map, product_bond_map)
+
+    g = create_reaction_graph(
+        reactant, product, num_unchanged_bonds=2, num_lost_bonds=1, num_added_bonds=1
+    )
+
+    b2a = get_bond_to_atom_map(g)
+    a2b = get_atom_to_bond_map(g)
+
+    # referece bond to atom and atom to bond map
+    ref_b2a_map = {0: [1, 3], 1: [3, 4], 2: [0, 2], 3: [0, 4]}
+    ref_a2b_map = defaultdict(list)
+    for b, atoms in ref_b2a_map.items():
+        for a in atoms:
+            ref_a2b_map[a].append(b)
+    ref_a2b_map = {a: sorted(bonds) for a, bonds in ref_a2b_map.items()}
+
+    assert b2a == ref_b2a_map
+    assert a2b == ref_a2b_map
