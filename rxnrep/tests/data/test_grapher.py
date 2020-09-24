@@ -1,12 +1,7 @@
 from collections import defaultdict
 from rdkit import Chem
 import torch
-from rxnrep.data.grapher import (
-    create_hetero_molecule_graph,
-    get_num_bond_nodes_information,
-    get_bond_node_reorder_map_number,
-    combine_graphs,
-)
+from rxnrep.data.grapher import create_hetero_molecule_graph, combine_graphs
 
 
 def create_hetero_graph_C(self_loop=False):
@@ -187,43 +182,7 @@ def test_create_hetero_molecule_graph():
     assert_graph(m, ref_b2a_map, True)
 
 
-def test_get_num_bond_nodes_information():
-    def assert_one(map_number, ref_unchanged, ref_changed, ref_artificial):
-        unchanged, changed, artificial = get_num_bond_nodes_information(map_number)
-        assert unchanged == ref_unchanged
-        assert changed == ref_changed
-        assert artificial == ref_artificial
-
-    # case 1: all bonds are mapped
-    assert_one([[2, 1], [0, 3]], 4, 0, 0)
-
-    # case 2 some are not mapped
-    assert_one([[2, 1, None], [0, 3, None], [None]], 4, 3, 0)
-
-    # case 3 some has no bond
-    assert_one([[2, 1, None], [0, 3], []], 4, 1, 1)
-    assert_one([[2, 1, None], [], [0, None, 3], []], 4, 2, 2)
-
-
-def test_get_bond_node_reorder_map_number():
-
-    # case 1: all bonds are mapped
-    bond_map_number = [[2, 1], [0, 3]]
-    reorder = get_bond_node_reorder_map_number(bond_map_number)
-    assert reorder == bond_map_number
-
-    # case 2 some are not mapped
-    bond_map_number = [[2, 1, None], [0, 3, None], [None]]
-    reorder = get_bond_node_reorder_map_number(bond_map_number)
-    assert reorder == [[2, 1, 4], [0, 3, 5], [6]]
-
-    # case 3 some has no bond
-    bond_map_number = [[2, 1, None], [], [0, None, 3], []]
-    reorder = get_bond_node_reorder_map_number(bond_map_number)
-    assert reorder == [[2, 1, 4], [6], [0, 5, 3], [7]]
-
-
-def test_combine_graphs():
+def test_combine_graphs_CO2():
     def assert_graph_struct(self_loop):
         g = create_hetero_graph_CO2(self_loop)
         na = 3  # num atoms
@@ -291,22 +250,83 @@ def test_combine_graphs():
     assert_graph_struct(True)
 
 
+def test_combine_graphs_C():
+    """Single atom molecule without bond nodes."""
+
+    def assert_graph_struct(self_loop):
+        g = create_hetero_graph_C(self_loop)
+        na = 1  # num atoms
+        nb = 0  # num bonds
+        n_graph = 3  # number of graphs to combine to create new graph
+
+        na = na * n_graph  # num atoms in new graph
+        nb = nb * n_graph  # num bonds in new graph
+        ne = 2 * nb  # num of edges between atoms and bonds in new graph
+
+        atom_map_number = [[1], [0], [2]]
+        bond_map_number = [[], [], []]
+        g = combine_graphs([g] * n_graph, atom_map_number, bond_map_number)
+
+        nodes = ["atom", "bond", "global"]
+        num_nodes = [g.number_of_nodes(n) for n in nodes]
+        ref_num_nodes = [na, nb, n_graph]
+
+        if self_loop:
+            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b", "a2a", "b2b", "g2g"]
+            num_edges = [g.number_of_edges(e) for e in edges]
+            ref_num_edges = [ne, ne, na, na, nb, nb, na, nb, n_graph]
+
+        else:
+            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b"]
+            num_edges = [g.number_of_edges(e) for e in edges]
+            ref_num_edges = [ne, ne, na, na, nb, nb]
+
+        assert set(g.ntypes) == set(nodes)
+        assert set(g.etypes) == set(edges)
+        assert num_nodes == ref_num_nodes
+        assert num_edges == ref_num_edges
+
+        ref_b2a_map = {}
+
+        ref_a2b_map = defaultdict(list)
+        for b, atoms in ref_b2a_map.items():
+            for a in atoms:
+                ref_a2b_map[a].append(b)
+        ref_a2b_map = {a: sorted(bonds) for a, bonds in ref_a2b_map.items()}
+
+        b2a_map = get_bond_to_atom_map(g)
+        a2b_map = get_atom_to_bond_map(g)
+        assert ref_b2a_map == b2a_map
+        assert ref_a2b_map == a2b_map
+
+        if self_loop:
+            for nt, n in zip(nodes, num_nodes):
+                assert get_hetero_self_loop_map(g, nt) == {i: [i] for i in range(n)}
+
+    assert_graph_struct(False)
+    assert_graph_struct(True)
+
+
 def test_combine_graph_feature():
+    """Two CO2 and one C molecules."""
     g1 = create_hetero_graph_CO2()
     g2 = create_hetero_graph_CO2()
-    g3 = create_hetero_graph_CO2()
+    g3 = create_hetero_graph_C()
 
     # see `assert_graph_struct()` for how the bond map number is obtained
-    atom_map_number = [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
-    bond_map_number = [[1, 4], [0, 2], [3, 5]]
+    atom_map_number = [[1, 4, 6], [0, 2, 5], [3]]
+    bond_map_number = [[1, 3], [0, 2], []]
     graph = combine_graphs([g1, g2, g3], atom_map_number, bond_map_number)
 
-    a = torch.arange(12).reshape(3, 4)
-    b = torch.arange(6).reshape(2, 3)
-    g = torch.arange(2).reshape(1, 2)
-    ref_atom_feats = torch.cat([a, a, a])[[3, 0, 4, 6, 1, 7, 8, 5, 2]]
-    ref_bond_feats = torch.cat([b, b, b])[[2, 0, 3, 4, 1, 5]]
-    ref_global_feats = torch.cat([g, g, g])
+    a1 = torch.arange(12).reshape(3, 4)
+    b1 = torch.arange(6).reshape(2, 3)
+    g1 = torch.arange(2).reshape(1, 2)
+    a2 = torch.arange(4).reshape(1, 4)
+    b2 = torch.arange(0).reshape(0, 3)
+    g2 = torch.arange(2).reshape(1, 2)
+    ref_atom_feats = torch.cat([a1, a1, a2])[[3, 0, 4, 6, 1, 5, 2]]
+    ref_bond_feats = torch.cat([b1, b1, b2])[[2, 0, 3, 1]]
+    ref_global_feats = torch.cat([g1, g1, g2])
 
     assert torch.equal(graph.nodes["atom"].data["feat"], ref_atom_feats)
     assert torch.equal(graph.nodes["bond"].data["feat"], ref_bond_feats)

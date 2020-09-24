@@ -159,15 +159,12 @@ def combine_graphs(
         dgl graph
     """
 
-    # create bond node reorder map number for unchanged, changed, and artificial bonds
-    bond_map_number = get_bond_node_reorder_map_number(bond_map_number)
-
     # Batch graph structure for each relation graph
 
     relations = graphs[0].canonical_etypes
     ntypes = graphs[0].ntypes
 
-    edge_dict = defaultdict(list)
+    edges_dict = defaultdict(list)
     num_nodes_dict = defaultdict(int)
 
     for i, g in enumerate(graphs):
@@ -176,29 +173,27 @@ def combine_graphs(
             u, v = g.edges(order="eid", etype=rel)
 
             if srctype == "atom":
-                src = torch.tensor([atom_map_number[i][j] for j in u])
+                src = [atom_map_number[i][j] for j in u]
             elif srctype == "bond":
-                src = torch.tensor([bond_map_number[i][j] for j in u])
+                src = [bond_map_number[i][j] for j in u]
             else:
                 src = u + num_nodes_dict[srctype]
+                src = list(src.numpy())
 
             if dsttype == "atom":
-                dst = torch.tensor([atom_map_number[i][j] for j in v])
+                dst = [atom_map_number[i][j] for j in v]
             elif dsttype == "bond":
-                dst = torch.tensor([bond_map_number[i][j] for j in v])
+                dst = [bond_map_number[i][j] for j in v]
             else:
                 dst = v + num_nodes_dict[dsttype]
+                dst = list(dst.numpy())
 
-            edge_dict[rel].append((src, dst))
+            edges_dict[rel].extend([(s, d) for s, d in zip(src, dst)])
 
         for ntype in ntypes:
             num_nodes_dict[ntype] += g.number_of_nodes(ntype)
 
-    for rel in relations:
-        src, dst = zip(*edge_dict[rel])
-        edge_dict[rel] = (torch.cat(src), torch.cat(dst))
-
-    new_g = dgl.heterograph(edge_dict)
+    new_g = dgl.heterograph(edges_dict)
 
     # Batch node feature
 
@@ -233,74 +228,3 @@ def combine_graphs(
         new_g.nodes[ntype].data.update(new_feats)
 
     return new_g
-
-
-def get_bond_node_reorder_map_number(bond_map_number: List[List[int]]) -> List[List[int]]:
-    """
-    Get the reorder map number for bond nodes.
-
-    In a graph, there are two possible categories of bond nodes:
-
-    1. unchanged bond nodes: bonds exist in both the reactants and the products.
-    2. changed bond nodes: lost bonds in reactants or added bonds in products.
-       not exist in both the reactants and products.
-
-    In `bond_map_number`, we only have map number for unchanged bonds (`None` for changed
-    bonds). This function creates reorder map number for all bonds. Specifically,
-
-    1. unchanged bonds nodes have map number from 0 to N_un-1;
-    2. changed bonds have map number from N_un to N-1;
-
-    Args:
-        bond_map_number: the bond map number for all molecules in the reactants or
-            products; each inner list is for a molecule.
-
-    Returns:
-        reorder_map_number: bond node reorder map number. similar to `bond_map_number`,
-            but with map numbers for changed bonds.
-    """
-    num_unchanged, num_changed = get_num_bond_nodes_information(bond_map_number)
-
-    # (starting) node index for changed bonds
-    changed_index = num_unchanged
-
-    reorder_map_number = []
-    for number in bond_map_number:
-        reorder = []
-        for n in number:
-            if n is None:
-                # changed bond
-                reorder.append(changed_index)
-                changed_index += 1
-            else:
-                # unchanged bond
-                reorder.append(n)
-        reorder_map_number.append(reorder)
-
-    return reorder_map_number
-
-
-def get_num_bond_nodes_information(bond_map_number: List[List[int]],) -> Tuple[int, int]:
-    """
-    Get information of the bond nodes.
-
-    In a graph, there are two possible categories of bond nodes:
-
-    1. unchanged bond nodes: bonds exist in both the reactants and the products.
-    2. changed bond nodes: lost bonds in reactants or added bonds in products.
-       Not exist in both the reactants and products.
-
-    Args:
-        bond_map_number: the bond map number for all molecules in the reactants or
-            products; each inner list is for a molecule.
-
-    Returns:
-        num_unchanged_bond_nodes:
-        num_changed_bond_nodes:
-    """
-
-    bond_map_number_list = list(itertools.chain.from_iterable(bond_map_number))
-    num_unchanged_bond_nodes = len([x for x in bond_map_number_list if x is not None])
-    num_changed_bond_nodes = len(bond_map_number_list) - num_unchanged_bond_nodes
-
-    return num_unchanged_bond_nodes, num_changed_bond_nodes
