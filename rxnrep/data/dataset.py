@@ -1,10 +1,12 @@
 import logging
 import dgl
+import torch
 from pathlib import Path
 from typing import List, Callable, Tuple, Optional, Dict, Any
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
 from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
+from rxnrep.utils import to_path
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,6 @@ class BaseDataset:
     def __init__(
         self,
         reactions: List[Reaction],
-        labels: List[List[int]],
         atom_featurizer: Callable,
         bond_featurizer: Callable,
         global_featurizer: Callable,
@@ -26,37 +27,48 @@ class BaseDataset:
     ):
 
         self.raw_reactions = reactions
-        self.raw_labels = labels
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
         self.state_dict_filename = state_dict_filename
         self.nprocs = num_processes
 
-        self.reactions = None
-        self.labels = None
-
-        self._feature_size = None
-        self._feature_name = None
+        self._species = None
         self._feature_scaler_mean = None
         self._feature_scaler_std = None
 
-        self._species = None
         self._failed = None
+
+        # recovery state info
+        if state_dict_filename is not None:
+            state_dict_filename = torch.load(str(to_path(state_dict_filename)))
+            self.load_state_dict(state_dict_filename)
 
     @property
     def feature_size(self) -> Dict[str, int]:
         """
         Return the size of the features for each node type: {node_type, feature_size}.
         """
-        return self._feature_size
+        size = {
+            "atom": self.atom_featurizer.feature_size,
+            "bond": self.bond_featurizer.feature_size,
+            "global": self.global_featurizer.feature_size,
+        }
+
+        return size
 
     @property
     def feature_name(self) -> Dict[str, List[str]]:
         """
         Return the name of the features for each node type, {node_type, feature_name}.
         """
-        return self._feature_name
+        name = {
+            "atom": self.atom_featurizer.feature_name,
+            "bond": self.bond_featurizer.feature_name,
+            "global": self.global_featurizer.feature_name,
+        }
+
+        return name
 
     def get_failed(self) -> List[bool]:
         """
@@ -91,15 +103,11 @@ class BaseDataset:
     #
     #     return molecules
 
-    def get_graphs(self) -> List[dgl.DGLGraph]:
+    def get_molecule_graphs(self) -> List[dgl.DGLGraph]:
         """
-        Get all the graphs in the dataset.
+        Get all the molecule graphs in the dataset.
         """
-        graphs = []
-        for reactants, products in self.reactions:
-            graphs.extend([reactants, products])
-
-        return graphs
+        raise NotImplementedError
 
     def get_species(self) -> List[str]:
         """
@@ -137,10 +145,10 @@ class BaseDataset:
                 mean=self._feature_scaler_mean, std=self._feature_scaler_std
             )
 
-        graphs = self.get_graphs()
+        graphs = self.get_molecule_graphs()
         feature_scaler(graphs)  # graph features are updated inplace
 
-        # save the mean and stdev of the feature scaler
+        # save the mean and stdev of the feature scaler (should set after calling scaler)
         if self.state_dict_filename is None:
             self._feature_scaler_mean = feature_scaler.mean
             self._feature_scaler_std = feature_scaler.std
@@ -152,8 +160,6 @@ class BaseDataset:
     def load_state_dict(self, d: Dict[str, Any]):
         try:
             self._species = d["species"]
-            self._feature_size = d["feature_size"]
-            self._feature_name = d["feature_name"]
             self._feature_scaler_mean = d["feature_scaler_mean"]
             self._feature_scaler_std = d["feature_scaler_std"]
         except KeyError as e:
@@ -163,45 +169,15 @@ class BaseDataset:
         assert (
             self._species is not None
         ), "Corrupted state_dict file. Expect `species` to be a list, got `None`."
-        assert (
-            self._feature_size is not None
-        ), "Corrupted state_dict file. Expect `feature_size` to be a dict, got `None`."
-        assert (
-            self._feature_name is not None
-        ), "Corrupted state_dict file. Expect `feature_name` to be a dict got `None`."
 
     def state_dict(self):
         d = {
             "species": self._species,
-            "feature_size": self._feature_size,
-            "feature_name": self._feature_name,
             "feature_scaler_mean": self._feature_scaler_mean,
             "feature_scaler_std": self._feature_scaler_std,
         }
 
         return d
-
-    def __getitem__(self, item: int) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, Any]:
-        """Get data point with index.
-
-        Args:
-            item: data point index
-
-        Returns:
-            reactants: reactants of the reactions
-            products: products of the reactions
-            label: label for the reaction
-        """
-        reactants, products = self.reactions[item]
-        label = self.labels[item]
-
-        return reactants, products, label
-
-    def __len__(self) -> int:
-        """
-        Returns length of dataset (i.e. number of reactions)
-        """
-        return len(self.reactions)
 
 
 class Subset(BaseDataset):

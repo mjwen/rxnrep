@@ -8,7 +8,11 @@ import torch
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
-from rxnrep.data.grapher import create_hetero_molecule_graph, combine_graphs
+from rxnrep.data.grapher import (
+    create_hetero_molecule_graph,
+    combine_graphs,
+    create_reaction_graph,
+)
 from rxnrep.utils import to_path
 from typing import List, Callable, Tuple, Optional, Union, Any
 
@@ -35,7 +39,7 @@ def build_hetero_graph_and_featurize_one_reaction(
     atom_featurizer: Callable,
     bond_featurizer: Callable,
     global_featurizer: Callable,
-) -> Tuple[dgl.DGLGraph, dgl.DGLGraph]:
+) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
     def featurize_one_mol(m: Molecule):
 
         rdkit_mol = m.rdkit_mol
@@ -62,13 +66,22 @@ def build_hetero_graph_and_featurize_one_reaction(
     # combine small graphs to form one big graph for reactants and products
     atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
     bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
-    reactants = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
+    reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
 
     atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
     bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
-    products = combine_graphs(product_graphs, atom_map_number, bond_map_number)
+    products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
-    return reactants, products
+    # combine reaction graph from the combined reactant graph and product graph
+    reaction_g = create_reaction_graph(
+        reactants_g,
+        products_g,
+        reaction.get_num_unchanged_bonds(),
+        reaction.get_num_lost_bonds(),
+        reaction.get_num_added_bonds(),
+    )
+
+    return reactants_g, products_g, reaction_g
 
 
 class USPTODataset(BaseDataset):
@@ -105,7 +118,6 @@ class USPTODataset(BaseDataset):
 
         super(USPTODataset, self).__init__(
             reactions,
-            labels,
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
@@ -117,12 +129,8 @@ class USPTODataset(BaseDataset):
         self._failed = failed
         self.labels = labels
 
-        # recovery state info
-        if state_dict_filename is not None:
-            state_dict_filename = torch.load(str(to_path(state_dict_filename)))
-            self.load_state_dict(state_dict_filename)
-
-        self.build_graph_and_featurize()
+        # convert reactions to dgl graphs
+        self.reaction_graphs = self.build_graph_and_featurize()
 
         if transform_features:
             self.scale_features()
@@ -169,15 +177,18 @@ class USPTODataset(BaseDataset):
 
         return succeed_reactions, succeed_labels, failed
 
-    def build_graph_and_featurize(self) -> List[Tuple[dgl.DGLGraph, dgl.DGLGraph]]:
+    def build_graph_and_featurize(
+        self,
+    ) -> List[Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]]:
         """
         Build DGL graphs for molecules in the reactions and then featurize the molecules.
 
-        Each reaction is represented by two graphs, one for reactants and the other for
-        products.
+        Each reaction is represented by three graphs, one for reactants, one for
+        products, and the other for the union of the reactants and products.
 
         Returns:
-            a list of (reactants, products), reactants and products are dgl graphs.
+            Each tuple represents on reaction, containing dgl graphs of the reactants,
+            products, and their union.
         """
 
         logger.info("Starting building graphs and featurizing...")
@@ -194,7 +205,7 @@ class USPTODataset(BaseDataset):
 
         # build graph and featurize
         if self.nprocs == 1:
-            reactions = [
+            reaction_graphs = [
                 build_hetero_graph_and_featurize_one_reaction(
                     rxn,
                     atom_featurizer=atom_featurizer,
@@ -211,38 +222,61 @@ class USPTODataset(BaseDataset):
                 global_featurizer=self.global_featurizer,
             )
             with multiprocessing.Pool(self.nprocs) as p:
-                reactions = p.map(func, self.reactions)
+                reaction_graphs = p.map(func, self.raw_reactions)
 
-        self.reactions = reactions
-
-        # keep record of feature size and name info
-        self._feature_size = {}
-        self._feature_name = {}
-        featurizers = {
-            "atom": self.atom_featurizer,
-            "bond": self.bond_featurizer,
-            "global": self.global_featurizer,
-        }
-        for name, feater in featurizers.items():
-            ft_name = feater.feature_name
-            ft_size = feater.feature_size
-            self._feature_size[name] = ft_size
-            self._feature_name[name] = ft_name
-            logger.info(f"{name} feature size: {ft_size}")
-            logger.info(f"{name} feature name: {ft_name}")
+        # log feature name and size
+        for k in self.feature_name:
+            ft_name = self.feature_name[k]
+            ft_size = self.feature_size[k]
+            logger.info(f"{k} feature name: {ft_name}")
+            logger.info(f"{k} feature size: {ft_size}")
 
         logger.info("Finish building graphs and featurizing...")
 
-        return self.reactions
+        return reaction_graphs
+
+    def get_molecule_graphs(self) -> List[dgl.DGLGraph]:
+        """
+        Get all the molecule graphs in the dataset.
+        """
+        graphs = []
+        for reactants_g, products_g, _ in self.reaction_graphs:
+            graphs.extend([reactants_g, products_g])
+
+        return graphs
+
+    def __getitem__(
+        self, item: int
+    ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
+        """Get data point with index.
+
+        Args:
+            item: data point index
+
+        Returns:
+            reactants_g: reactants graph of the reactions
+            products_g: products graph of the reactions
+            reaction_g: union graph of the reactants and products
+            label: label for the reaction
+        """
+        reactants_g, products_g, reaction_g = self.reaction_graphs[item]
+        label = self.labels[item]
+
+        return reactants_g, products_g, reaction_g, label
+
+    def __len__(self) -> int:
+        """
+        Returns length of dataset (i.e. number of reactions)
+        """
+        return len(self.reaction_graphs)
 
 
 def collate_fn(samples):
-    # get the reactants, products, and labels of a set of N reactions
-    reactants, products, labels = map(list, zip(*samples))
+    reactants_g, products_g, reaction_g, labels = map(list, zip(*samples))
 
-    batched_reactant_graphs = dgl.batch(reactants)
-    batched_product_graphs = dgl.batch(products)
+    batched_molecule_graphs = dgl.batch(reactants_g + products_g)
+    batched_reaction_graphs = dgl.batch(reactants_g)
 
     # TODO batch labels
 
-    return batched_reactant_graphs, batched_product_graphs, labels
+    return batched_molecule_graphs, batched_reaction_graphs, labels
