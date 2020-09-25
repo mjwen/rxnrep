@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def process_one_reaction_from_input_file(
     smiles_reaction: str, label: str
-) -> Tuple[Reaction, Any]:
+) -> Tuple[Union[Reaction, None], Any]:
     # create reaction
     try:
         reaction = smiles_to_reaction(smiles_reaction, smiles_reaction)
@@ -212,7 +212,7 @@ class USPTODataset(BaseDataset):
                     bond_featurizer=self.bond_featurizer,
                     global_featurizer=self.global_featurizer,
                 )
-                for rxn in self.raw_reactions
+                for rxn in self.reactions
             ]
         else:
             func = functools.partial(
@@ -222,7 +222,7 @@ class USPTODataset(BaseDataset):
                 global_featurizer=self.global_featurizer,
             )
             with multiprocessing.Pool(self.nprocs) as p:
-                reaction_graphs = p.map(func, self.raw_reactions)
+                reaction_graphs = p.map(func, self.reactions)
 
         # log feature name and size
         for k in self.feature_name:
@@ -245,24 +245,14 @@ class USPTODataset(BaseDataset):
 
         return graphs
 
-    def __getitem__(
-        self, item: int
-    ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
+    def __getitem__(self, item: int):
         """Get data point with index.
-
-        Args:
-            item: data point index
-
-        Returns:
-            reactants_g: reactants graph of the reactions
-            products_g: products graph of the reactions
-            reaction_g: union graph of the reactants and products
-            label: label for the reaction
         """
         reactants_g, products_g, reaction_g = self.reaction_graphs[item]
+        reaction = self.reactions[item]
         label = self.labels[item]
 
-        return reactants_g, products_g, reaction_g, label
+        return reactants_g, products_g, reaction_g, reaction, label
 
     def __len__(self) -> int:
         """
@@ -272,11 +262,34 @@ class USPTODataset(BaseDataset):
 
 
 def collate_fn(samples):
-    reactants_g, products_g, reaction_g, labels = map(list, zip(*samples))
+    reactants_g, products_g, reaction_g, reactions, labels = map(list, zip(*samples))
 
     batched_molecule_graphs = dgl.batch(reactants_g + products_g)
     batched_reaction_graphs = dgl.batch(reactants_g)
 
+    # metadata used to split global and bond features
+    reactant_num_molecules = []
+    product_num_molecules = []
+    num_unchanged_bonds = []
+    reactant_num_bonds = []
+    product_num_bonds = []
+    for rxn in reactions:
+        num_unchanged = rxn.get_num_unchanged_bonds()
+        num_lost = rxn.get_num_lost_bonds()
+        num_added = rxn.get_num_added_bonds()
+        reactant_num_molecules.append(len(rxn.reactants))
+        product_num_molecules.append(len(rxn.products))
+        num_unchanged_bonds.append(num_unchanged)
+        reactant_num_bonds.append(num_unchanged + num_lost)
+        product_num_bonds.append(num_unchanged + num_added)
+    metadata = {
+        "reactant_num_molecules": reactant_num_molecules,
+        "product_num_molecules": product_num_molecules,
+        "num_unchanged_bonds": num_unchanged_bonds,
+        "reactant_num_bonds": reactant_num_bonds,
+        "product_num_bonds": product_num_bonds,
+    }
+
     # TODO batch labels
 
-    return batched_molecule_graphs, batched_reaction_graphs, labels
+    return batched_molecule_graphs, batched_reaction_graphs, labels, metadata

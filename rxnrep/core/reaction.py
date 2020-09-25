@@ -35,6 +35,10 @@ class Reaction:
         self._reagents = reagents
         self._id = id
 
+        self._num_unchanged_bonds = None
+        self._num_lost_bonds = None
+        self._num_added_bonds = None
+
         if sanity_check:
             self.check_composition()
             self.check_charge()
@@ -67,40 +71,47 @@ class Reaction:
         of bonds exist in both the reactants and the products. If a bond changes its
         bond type (e.g. from single to double), it is still considered as unchanged.
         """
-        reactants_bonds = self._get_bonds(self.reactants)
-        products_bonds = self._get_bonds(self.products)
-        reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
-        product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
-        unchanged_bonds = reactant_bonds_set & product_bonds_set
-        num_unchanged = len(unchanged_bonds)
+        if self._num_unchanged_bonds is None:
+            reactants_bonds = self._get_bonds(self.reactants)
+            products_bonds = self._get_bonds(self.products)
+            reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
+            product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
+            unchanged_bonds = reactant_bonds_set & product_bonds_set
+            num_unchanged = len(unchanged_bonds)
 
-        return num_unchanged
+            self._num_unchanged_bonds = num_unchanged
+
+        return self._num_unchanged_bonds
 
     def get_num_lost_bonds(self) -> int:
         """
         Get the number of lost bonds in the reactants during the reaction.
         """
-        reactants_bonds = self._get_bonds(self.reactants)
-        products_bonds = self._get_bonds(self.products)
-        reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
-        product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
-        unchanged_bonds = reactant_bonds_set & product_bonds_set
-        num_lost = len(reactant_bonds_set - unchanged_bonds)
+        if self._num_lost_bonds is None:
+            reactants_bonds = self._get_bonds(self.reactants)
+            products_bonds = self._get_bonds(self.products)
+            reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
+            product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
+            unchanged_bonds = reactant_bonds_set & product_bonds_set
+            num_lost = len(reactant_bonds_set - unchanged_bonds)
+            self._num_lost_bonds = num_lost
 
-        return num_lost
+        return self._num_lost_bonds
 
     def get_num_added_bonds(self) -> int:
         """
         Get the number of added bonds in the products during the reaction.
         """
-        reactants_bonds = self._get_bonds(self.reactants)
-        products_bonds = self._get_bonds(self.products)
-        reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
-        product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
-        unchanged_bonds = reactant_bonds_set & product_bonds_set
-        num_added = len(product_bonds_set - unchanged_bonds)
+        if self._num_added_bonds is None:
+            reactants_bonds = self._get_bonds(self.reactants)
+            products_bonds = self._get_bonds(self.products)
+            reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
+            product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
+            unchanged_bonds = reactant_bonds_set & product_bonds_set
+            num_added = len(product_bonds_set - unchanged_bonds)
+            self._num_added_bonds = num_added
 
-        return num_added
+        return self._num_added_bonds
 
     def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
         """

@@ -26,7 +26,7 @@ class BaseDataset:
         num_processes: int = 1,
     ):
 
-        self.raw_reactions = reactions
+        self.reactions = reactions
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
@@ -89,7 +89,7 @@ class BaseDataset:
         Get all the molecules in the dataset.
         """
         molecules = []
-        for rxn in self.raw_reactions:
+        for rxn in self.reactions:
             molecules.extend(rxn.reactants + rxn.products)
 
         return molecules
