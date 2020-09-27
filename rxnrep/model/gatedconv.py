@@ -2,8 +2,9 @@ import torch
 from torch import nn
 import logging
 from dgl import function as fn
-from bondnet.layer.hgatconv import NodeAttentionLayer
-from bondnet.layer.utils import LinearN
+
+# from bondnet.layer.hgatconv import NodeAttentionLayer
+from rxnrep.model.utils import FCNN
 from typing import Callable, Union, Dict
 import dgl
 
@@ -60,15 +61,15 @@ class GatedGCNConv(nn.Module):
         use_bias = [True] * num_fc_layers
 
         # A, B, ... I are phi_1, phi_2, ..., phi_9 in the BonDNet paper
-        self.A = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.B = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.C = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.D = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.E = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.F = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.G = LinearN(output_dim, out_sizes, acts, use_bias)
-        self.H = LinearN(output_dim, out_sizes, acts, use_bias)
-        self.I = LinearN(input_dim, out_sizes, acts, use_bias)
+        self.A = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.B = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.C = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.D = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.E = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.F = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.G = FCNN(output_dim, out_sizes, acts, use_bias)
+        self.H = FCNN(output_dim, out_sizes, acts, use_bias)
+        self.I = FCNN(input_dim, out_sizes, acts, use_bias)
 
         if self.batch_norm:
             self.bn_node_h = nn.BatchNorm1d(output_dim)
@@ -266,12 +267,12 @@ class GatedGCNConv1(GatedGCNConv):
         out_sizes = [output_dim] * num_fc_layers
         acts = [activation] * (num_fc_layers - 1) + [nn.Identity()]
         use_bias = [True] * num_fc_layers
-        self.A = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.B = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.C = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.D = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.E = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.F = LinearN(input_dim, out_sizes, acts, use_bias)
+        self.A = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.B = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.C = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.D = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.E = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.F = FCNN(input_dim, out_sizes, acts, use_bias)
 
         if self.batch_norm:
             self.bn_node_h = nn.BatchNorm1d(output_dim)
@@ -407,15 +408,15 @@ class GatedGCNConv2(GatedGCNConv):
         out_sizes = [output_dim] * num_fc_layers
         acts = [activation] * (num_fc_layers - 1) + [nn.Identity()]
         use_bias = [True] * num_fc_layers
-        self.A = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.B = LinearN(input_dim, out_sizes, acts, use_bias)
-        # self.C = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.D = LinearN(input_dim, out_sizes, acts, use_bias)
-        self.E = LinearN(input_dim, out_sizes, acts, use_bias)
-        # self.F = LinearN(input_dim, out_sizes, acts, use_bias)
-        # self.G = LinearN(output_dim, out_sizes, acts, use_bias)
-        # self.H = LinearN(output_dim, out_sizes, acts, use_bias)
-        # self.I = LinearN(input_dim, out_sizes, acts, use_bias)
+        self.A = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.B = FCNN(input_dim, out_sizes, acts, use_bias)
+        # self.C = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.D = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.E = FCNN(input_dim, out_sizes, acts, use_bias)
+        # self.F = FCNN(input_dim, out_sizes, acts, use_bias)
+        # self.G = FCNN(output_dim, out_sizes, acts, use_bias)
+        # self.H = FCNN(output_dim, out_sizes, acts, use_bias)
+        # self.I = FCNN(input_dim, out_sizes, acts, use_bias)
 
         if self.batch_norm:
             self.bn_node_h = nn.BatchNorm1d(output_dim)

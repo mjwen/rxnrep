@@ -1,4 +1,5 @@
 import torch.nn as nn
+from typing import List, Callable
 
 
 class UnifySize(nn.Module):
@@ -34,28 +35,35 @@ class UnifySize(nn.Module):
         return {k: self.linears[k](x) for k, x in feats.items()}
 
 
-#
-# class LinearN(nn.Module):
-#     """
-#     N stacked linear layers.
-#
-#     Args:
-#         in_size (int): input feature size
-#         out_sizes (list): size of each layer
-#         activations (list): activation function of each layer
-#         use_bias (list): whether to use bias for the linear layer
-#     """
-#
-#     def __init__(self, in_size, out_sizes, activations, use_bias):
-#         super(LinearN, self).__init__()
-#
-#         self.fc_layers = nn.ModuleList()
-#         for out, act, b in zip(out_sizes, activations, use_bias):
-#             self.fc_layers.append(nn.Linear(in_size, out, bias=b))
-#             self.fc_layers.append(act)
-#             in_size = out
-#
-#     def forward(self, x):
-#         for layer in self.fc_layers:
-#             x = layer(x)
-#         return x
+class FCNN(nn.Module):
+    """
+    A fully connected neural network.
+
+    Args:
+        in_size: input feature size
+        out_sizes: size of each layer
+        activations: activation function of each layer. If an element is `None`,
+            then activation is not applied for that layer.
+        use_bias: whether to use bias for each layer
+    """
+
+    def __init__(
+        self,
+        in_size: int,
+        out_sizes: List[int],
+        activations: List[Callable],
+        use_bias: List[bool],
+    ):
+        super(FCNN, self).__init__()
+
+        self.fc_layers = nn.ModuleList()
+        for out, act, b in zip(out_sizes, activations, use_bias):
+            self.fc_layers.append(nn.Linear(in_size, out, bias=b))
+            if act is not None:
+                self.fc_layers.append(act)
+            in_size = out
+
+    def forward(self, x):
+        for layer in self.fc_layers:
+            x = layer(x)
+        return x

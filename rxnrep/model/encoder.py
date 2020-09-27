@@ -52,7 +52,7 @@ class ReactionEncoder(nn.Module):
     ):
         super(ReactionEncoder, self).__init__()
 
-        # assign default values
+        # set default values
         if molecule_conv_layer_sizes is None:
             molecule_conv_layer_sizes = [64, 64, 32]
         if isinstance(molecule_activation, str):
