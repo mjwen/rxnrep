@@ -268,7 +268,7 @@ def collate_fn(samples):
     reactants_g, products_g, reaction_g, reactions, labels = map(list, zip(*samples))
 
     batched_molecule_graphs = dgl.batch(reactants_g + products_g)
-    batched_reaction_graphs = dgl.batch(reactants_g)
+    batched_reaction_graphs = dgl.batch(reaction_g)
 
     # metadata used to split global and bond features
     reactant_num_molecules = []

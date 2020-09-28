@@ -21,7 +21,7 @@ def create_label_bond_type_decoder(metadata: Dict[str, List[int]]) -> torch.Tens
     ):
         labels.extend([0] * unchanged + [1] * lost + [2] * added)
 
-    labels = torch.tensor(labels, dtype=torch.int32)
+    labels = torch.tensor(labels, dtype=torch.int64)
 
     return labels
 

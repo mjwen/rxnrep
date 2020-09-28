@@ -94,15 +94,6 @@ class BaseDataset:
 
         return molecules
 
-    # def get_rdkit_molecules(self) -> List[Chem.Mol]:
-    #     """
-    #     Get all the molecules (rdkit molecules) in the dataset.
-    #     """
-    #     molecules = self.get_molecules()
-    #     molecules = [m.rdkit_mol for m in molecules]
-    #
-    #     return molecules
-
     def get_molecule_graphs(self) -> List[dgl.DGLGraph]:
         """
         Get all the molecule graphs in the dataset.

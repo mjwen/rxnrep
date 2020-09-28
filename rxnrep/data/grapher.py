@@ -298,14 +298,16 @@ def create_reaction_graph(
     src, dst = products_graph.edges(order="eid", etype=rel)
     for u, v in zip(src, dst):
         if v >= num_unchanged_bonds:  # select added bonds
-            v += num_lost_bonds  # shift bond nodes to be after lost bonds
+            # NOTE, should not v += num_lost_bonds. doing this will alter dst.
+            v = v + num_lost_bonds  # shift bond nodes to be after lost bonds
             a2b.append((u, v))
 
     rel = ("bond", "b2a", "atom")
     src, dst = products_graph.edges(order="eid", etype=rel)
     for u, v in zip(src, dst):
         if u >= num_unchanged_bonds:  # select added bonds
-            u += num_lost_bonds  # shift bond nodes to be after lost bonds
+            # NOTE, should not u += num_lost_bonds. doing this will alter src.
+            u = u + num_lost_bonds  # shift bond nodes to be after lost bonds
             b2a.append((u, v))
 
     # Construct edges between global and atoms (bonds)
