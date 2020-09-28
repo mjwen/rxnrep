@@ -131,3 +131,9 @@ dmypy.json
 # IDEs
 .idea/
 .vscode/
+
+# data files
+*.yaml
+*.csv
+*.tsv
+*.pkl

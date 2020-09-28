@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 import pandas as pd
 import dgl
-import torch
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
@@ -28,7 +27,7 @@ def process_one_reaction_from_input_file(
     except MoleculeError:
         return None, None
 
-    # process label
+    # TODO process label
     label = label
 
     return reaction, label
@@ -39,12 +38,13 @@ def build_hetero_graph_and_featurize_one_reaction(
     atom_featurizer: Callable,
     bond_featurizer: Callable,
     global_featurizer: Callable,
+    self_loop=False,
 ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
     def featurize_one_mol(m: Molecule):
 
         rdkit_mol = m.rdkit_mol
         # create graph
-        g = create_hetero_molecule_graph(rdkit_mol)
+        g = create_hetero_molecule_graph(rdkit_mol, self_loop)
 
         # featurize molecules
         atom_feats = atom_featurizer(rdkit_mol)
@@ -79,6 +79,7 @@ def build_hetero_graph_and_featurize_one_reaction(
         reaction.get_num_unchanged_bonds(),
         reaction.get_num_lost_bonds(),
         reaction.get_num_added_bonds(),
+        self_loop,
     )
 
     return reactants_g, products_g, reaction_g
@@ -160,7 +161,7 @@ class USPTODataset(BaseDataset):
             args = zip(smiles_reactions, labels)
             with multiprocessing.Pool(nprocs) as p:
                 rxn_lb = p.starmap(process_one_reaction_from_input_file, args)
-        reactions, labels = map(list, *zip(rxn_lb))
+        reactions, labels = map(list, zip(*rxn_lb))
 
         failed = []
         succeed_reactions = []
@@ -211,6 +212,7 @@ class USPTODataset(BaseDataset):
                     atom_featurizer=atom_featurizer,
                     bond_featurizer=self.bond_featurizer,
                     global_featurizer=self.global_featurizer,
+                    self_loop=True,
                 )
                 for rxn in self.reactions
             ]
@@ -220,6 +222,7 @@ class USPTODataset(BaseDataset):
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
+                self_loop=True,
             )
             with multiprocessing.Pool(self.nprocs) as p:
                 reaction_graphs = p.map(func, self.reactions)
@@ -271,8 +274,8 @@ def collate_fn(samples):
     reactant_num_molecules = []
     product_num_molecules = []
     num_unchanged_bonds = []
-    reactant_num_bonds = []
-    product_num_bonds = []
+    num_lost_bonds = []
+    num_added_bonds = []
     for rxn in reactions:
         num_unchanged = rxn.get_num_unchanged_bonds()
         num_lost = rxn.get_num_lost_bonds()
@@ -280,14 +283,14 @@ def collate_fn(samples):
         reactant_num_molecules.append(len(rxn.reactants))
         product_num_molecules.append(len(rxn.products))
         num_unchanged_bonds.append(num_unchanged)
-        reactant_num_bonds.append(num_unchanged + num_lost)
-        product_num_bonds.append(num_unchanged + num_added)
+        num_lost_bonds.append(num_lost)
+        num_added_bonds.append(num_added)
     metadata = {
         "reactant_num_molecules": reactant_num_molecules,
         "product_num_molecules": product_num_molecules,
         "num_unchanged_bonds": num_unchanged_bonds,
-        "reactant_num_bonds": reactant_num_bonds,
-        "product_num_bonds": product_num_bonds,
+        "num_lost_bonds": num_lost_bonds,
+        "num_added_bonds": num_added_bonds,
     }
 
     # TODO batch labels

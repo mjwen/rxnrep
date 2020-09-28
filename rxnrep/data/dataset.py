@@ -2,7 +2,7 @@ import logging
 import dgl
 import torch
 from pathlib import Path
-from typing import List, Callable, Tuple, Optional, Dict, Any
+from typing import List, Callable, Optional, Dict, Any, Union
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
 from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
@@ -22,7 +22,7 @@ class BaseDataset:
         atom_featurizer: Callable,
         bond_featurizer: Callable,
         global_featurizer: Callable,
-        state_dict_filename: Optional[str, Path] = None,
+        state_dict_filename: Optional[Union[str, Path]] = None,
         num_processes: int = 1,
     ):
 

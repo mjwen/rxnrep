@@ -85,19 +85,10 @@ class GatedGCNConv(nn.Module):
     @staticmethod
     def reduce_fn_a2b(nodes):
         """
-        Reduce `Eh_j` from atom nodes to bond nodes.
-
-        Expand dim 1 such that every bond has two atoms connecting to it.
-        This is to deal with the special case of single atom graph (e.g. H+).
-        For such graph, an artificial bond is created and connected to the atom in
-        `grapher`. Here, we expand it to let each bond connecting to two atoms.
-        This is necessary because, otherwise, the reduce_fn wil not work since
-        dimension mismatch.
+        Do not reduce `Eh_j` from atom nodes to bond nodes, we need the full tensor later.
         """
-        x = nodes.mailbox["Eh_j"]
-        if x.shape[1] == 1:
-            x = x.repeat_interleave(2, dim=1)
-
+        x = nodes.mailbox["Eh_j_tmp"]
+        y = x.shape
         return {"Eh_j": x}
 
     @staticmethod
@@ -178,7 +169,7 @@ class GatedGCNConv(nn.Module):
         # Copy Eh to bond nodes, without reduction.
         # This is the first arrow in: Eh_j -> bond node -> atom i node
         # The second arrow is done in self.message_fn and self.reduce_fn below
-        g.update_all(fn.copy_u("Eh", "Eh_j"), self.reduce_fn_a2b, etype="a2b")
+        g.update_all(fn.copy_u("Eh", "Eh_j_tmp"), self.reduce_fn_a2b, etype="a2b")
 
         g.multi_update_all(
             {

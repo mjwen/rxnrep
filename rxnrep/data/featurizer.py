@@ -117,7 +117,7 @@ def global_num_bonds(mol):
 
 def global_molecule_weight(mol):
     pt = GetPeriodicTable()
-    return sum([pt.GetAtomicWeight(a.GetAtomicNum()) for a in mol.GetAtoms()])
+    return [sum([pt.GetAtomicWeight(a.GetAtomicNum()) for a in mol.GetAtoms()])]
 
 
 def global_molecule_charge(mol):
@@ -162,7 +162,7 @@ class BondFeaturizer(BaseFeaturizer):
 
         mol = Chem.MolFromSmiles("CO")
         ring = mol.GetRingInfo()
-        bond = mol.GetAtomWithIdx(0)
+        bond = mol.GetBondWithIdx(0)
 
         names = (
             ["in_ring"] * len(bond_is_in_ring(bond))
@@ -198,7 +198,7 @@ class BondFeaturizer(BaseFeaturizer):
 
         num_bonds = mol.GetNumBonds()
         if num_bonds == 0:
-            feats = [[0.0 for _ in range(self.feature_size)]]
+            feats = torch.tensor([], dtype=torch.float32).reshape(0, self.feature_size)
         else:
             ring = mol.GetRingInfo()
             feats = []
@@ -209,7 +209,7 @@ class BondFeaturizer(BaseFeaturizer):
                 ft += bond_is_dative(bond)
                 feats.append(ft)
 
-        feats = torch.tensor(feats, dtype=torch.float32)
+            feats = torch.tensor(feats, dtype=torch.float32)
 
         return feats
 
@@ -237,13 +237,14 @@ class AtomFeaturizer(BaseFeaturizer):
             + ["total degree"] * len(atom_total_degree_one_hot(atom))
             + ["is in ring"] * len(atom_is_in_ring(atom))
             + ["is in ring of size"] * len(atom_in_ring_of_size_one_hot(0, ring))
-            + ["total num H"] * len(atom_total_num_H_one_hot(include_neighbors=True))
+            + ["total num H"]
+            * len(atom_total_num_H_one_hot(atom, include_neighbors=True))
         )
 
         # Create a dummy molecule to make sure feature size is correct.
         # This is to avoid the case where we updated the __call__() function but forgot
         # the `feature_name()`
-        feat_size = self(mol, self.allowed_atom_type).shape[1]
+        feat_size = self(mol, self.allowable_atom_type).shape[1]
         if len(names) != feat_size:
             raise RuntimeError(
                 f"Feature size calculated from feature name ({len(names)}) not equal to "
@@ -265,7 +266,7 @@ class AtomFeaturizer(BaseFeaturizer):
         """
 
         # keep track of runtime argument
-        self.allowed_atom_type = allowable_atom_type
+        self.allowable_atom_type = allowable_atom_type
 
         ring = mol.GetRingInfo()
 
@@ -276,7 +277,7 @@ class AtomFeaturizer(BaseFeaturizer):
             ft += atom_total_degree_one_hot(atom)
             ft += atom_is_in_ring(atom)
             ft += atom_in_ring_of_size_one_hot(i, ring)
-            ft += atom_total_num_H_one_hot(include_neighbors=True)
+            ft += atom_total_num_H_one_hot(atom, include_neighbors=True)
             feats.append(ft)
 
         feats = torch.tensor(feats, dtype=torch.float32)
@@ -349,7 +350,7 @@ class GlobalFeaturizer(BaseFeaturizer):
             2D tensor of shape (1, D), where D is the feature size.
         """
 
-        ft = global_num_atoms() + global_num_bonds() + global_molecule_weight()
+        ft = global_num_atoms(mol) + global_num_bonds(mol) + global_molecule_weight(mol)
 
         # If `allowable_charge` is not `None` at instantiation, use this feature;
         # otherwise, ignore it.

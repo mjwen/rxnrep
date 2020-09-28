@@ -206,6 +206,14 @@ def create_reaction_features(
     bond_feats = molecule_feats["bond"]
     global_feats = molecule_feats["global"]
 
+    reactant_num_molecules = metadata["reactant_num_molecules"]
+    product_num_molecules = metadata["product_num_molecules"]
+    num_unchanged_bonds = metadata["num_unchanged_bonds"]
+    num_lost_bonds = metadata["num_lost_bonds"]
+    num_added_bonds = metadata["num_added_bonds"]
+    reactant_num_bonds = [i + j for i, j in zip(num_unchanged_bonds, num_lost_bonds)]
+    product_num_bonds = [i + j for i, j in zip(num_unchanged_bonds, num_added_bonds)]
+
     # Atom difference feats
     size = len(atom_feats) // 2  # same number of atom nodes in reactants and products
     reactant_atom_feats = atom_feats[:size]
@@ -213,28 +221,28 @@ def create_reaction_features(
     diff_atom_feats = product_atom_feats - reactant_atom_feats
 
     # Bond difference feats
-    total_num_reactant_bonds = sum(metadata["reactant_num_bonds"])
+    total_num_reactant_bonds = sum(reactant_num_bonds)
     reactant_bond_feats = bond_feats[:total_num_reactant_bonds]
     product_bond_feats = bond_feats[total_num_reactant_bonds:]
 
     # feats of each reactant (product), list of 2D tensor
-    reactant_bond_feats = torch.split(reactant_bond_feats, metadata["reactant_num_bonds"])
-    product_bond_feats = torch.split(product_bond_feats, metadata["product_num_bonds"])
+    reactant_bond_feats = torch.split(reactant_bond_feats, reactant_num_bonds)
+    product_bond_feats = torch.split(product_bond_feats, product_num_bonds)
 
     # calculate difference feats
     diff_bond_feats = []
     for i, (r_ft, p_ft) in enumerate(zip(reactant_bond_feats, product_bond_feats)):
-        num_unchanged_bond = metadata["num_unchanged_bonds"][i]
-        unchanged_bond_feats = p_ft[:num_unchanged_bond] - r_ft[:num_unchanged_bond]
-        lost_bond_feats = -r_ft[num_unchanged_bond:]
-        added_bond_feats = p_ft[num_unchanged_bond:]
+        n_unchanged = num_unchanged_bonds[i]
+        unchanged_bond_feats = p_ft[:n_unchanged] - r_ft[:n_unchanged]
+        lost_bond_feats = -r_ft[n_unchanged:]
+        added_bond_feats = p_ft[n_unchanged:]
         feats = torch.cat([unchanged_bond_feats, lost_bond_feats, added_bond_feats])
         diff_bond_feats.append(feats)
     diff_bond_feats = torch.cat(diff_bond_feats)
 
     # Global difference feats
 
-    total_num_reactant_molecules = sum(metadata["reactant_num_molecules"])
+    total_num_reactant_molecules = sum(reactant_num_molecules)
     reactant_global_feats = global_feats[:total_num_reactant_molecules]
     product_global_feats = global_feats[total_num_reactant_molecules:]
 
@@ -242,14 +250,10 @@ def create_reaction_features(
     # Note, each reactant (product) graph holds all the molecules in the
     # reactant (products), and thus has multiple global features.
     mean_reactant_global_feats = dgl.ops.segment.segment_reduce(
-        torch.tensor(metadata["reactant_num_molecules"]),
-        reactant_global_feats,
-        reducer="mean",
+        torch.tensor(reactant_num_molecules), reactant_global_feats, reducer="mean",
     )
     mean_product_global_feats = dgl.ops.segment.segment_reduce(
-        torch.tensor(metadata["product_num_molecules"]),
-        product_global_feats,
-        reducer="mean",
+        torch.tensor(product_num_molecules), product_global_feats, reducer="mean",
     )
     diff_global_feats = mean_product_global_feats - mean_reactant_global_feats
 

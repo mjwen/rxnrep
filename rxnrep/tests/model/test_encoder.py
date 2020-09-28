@@ -20,8 +20,8 @@ def test_create_reaction_features():
         "reactant_num_molecules": [2, 1],
         "product_num_molecules": [2, 2],
         "num_unchanged_bonds": [1, 2],
-        "reactant_num_bonds": [2, 3],
-        "product_num_bonds": [2, 2],
+        "num_lost_bonds": [1, 1],
+        "num_added_bonds": [1, 0],
     }
 
     # feats
