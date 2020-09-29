@@ -17,7 +17,7 @@ from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturi
 from rxnrep.data.splitter import train_validation_test_split
 from rxnrep.model.decoder import create_label_bond_type_decoder
 from rxnrep.model.model import ReactionRepresentation
-from rxnrep.model.metric import F1
+from rxnrep.model.metric import ClassificationMetrics
 from rxnrep.scripts.utils import (
     EarlyStopping,
     seed_torch,
@@ -66,7 +66,7 @@ def parse_args():
 
     # training
     parser.add_argument("--start-epoch", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=1000, help="number of epochs")
+    parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
     parser.add_argument("--batch-size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
@@ -103,19 +103,14 @@ def parse_args():
     return args
 
 
-def train(optimizer, model, data_loader, loss_fn, metric_fn, device=None):
-    """
-    Args:
-        metric_fn (function): the function should be using a `sum` reduction method.
-    """
-
-    nodes = ["atom", "bond", "global"]
+def train(optimizer, model, data_loader, loss_fn, device=None):
 
     model.train()
 
+    nodes = ["atom", "bond", "global"]
+    metric = ClassificationMetrics(num_classes=3)
+
     epoch_loss = 0.0
-    accuracy = 0.0
-    count = 0.0
 
     for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
         feats = {nt: mol_graphs.nodes[nt].data["feat"] for nt in nodes}
@@ -136,30 +131,21 @@ def train(optimizer, model, data_loader, loss_fn, metric_fn, device=None):
         epoch_loss += loss.detach().item()
 
         pred_class = torch.argmax(pred, dim=1)
-        accuracy += metric_fn(pred_class, target).detach().item()
-        count += len(target)
+        metric.step(pred_class, target)
 
     epoch_loss /= it + 1
-    accuracy /= count
+    metric.compute_metric_values(class_reduction="weighted")
 
-    return epoch_loss, accuracy
+    return epoch_loss, metric
 
 
-def evaluate(model, data_loader, metric_fn, device=None):
-    """
-    Evaluate the accuracy of an validation set of test set.
-
-    Args:
-        metric_fn (function): the function should be using a `sum` reduction method.
-    """
-
-    nodes = ["atom", "bond", "global"]
-
+def evaluate(model, data_loader, device=None):
     model.eval()
 
+    nodes = ["atom", "bond", "global"]
+    metric = ClassificationMetrics(num_classes=3)
+
     with torch.no_grad():
-        accuracy = 0.0
-        count = 0.0
 
         for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
             feats = {nt: mol_graphs.nodes[nt].data["feat"] for nt in nodes}
@@ -173,10 +159,11 @@ def evaluate(model, data_loader, metric_fn, device=None):
             pred = output["bond_type_logits"]  # shape (N, 3)
 
             pred_class = torch.argmax(pred, dim=1)
-            accuracy += metric_fn(pred_class, target).detach().item()
-            count += len(target)
+            metric.step(pred_class, target)
 
-    return accuracy / count
+    metric.compute_metric_values(class_reduction="weighted")
+
+    return metric
 
 
 def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
@@ -301,13 +288,11 @@ def main_worker(gpu, world_size, args):
         ddp_model = DDP(model, device_ids=[args.gpu])
         model = ddp_model
 
-    ### optimizer, loss, and metric
+    ### optimizer and loss function
     optimizer = torch.optim.Adam(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
-
     loss_func = CrossEntropyLoss(reduction="mean")
-    metric = F1()
 
     ### learning rate scheduler and stopper
     scheduler = ReduceLROnPlateau(
@@ -339,7 +324,10 @@ def main_worker(gpu, world_size, args):
 
     # start training
     if not args.distributed or (args.distributed and args.gpu == 0):
-        print("\n\n# Epoch     Loss         TrainAcc        ValAcc     Time (s)")
+        print(
+            "\n\n# Epoch     Loss      Train[acc|prec|rec|f1]    "
+            "Val[acc|prec|rec|f1]   Time"
+        )
         sys.stdout.flush()
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -351,9 +339,7 @@ def main_worker(gpu, world_size, args):
             train_sampler.set_epoch(epoch)
 
         # train
-        loss, train_acc = train(
-            optimizer, model, train_loader, loss_func, metric, args.gpu
-        )
+        loss, train_metric = train(optimizer, model, train_loader, loss_func, args.gpu)
 
         # bad, we get nan
         if np.isnan(loss):
@@ -362,17 +348,17 @@ def main_worker(gpu, world_size, args):
             sys.exit(1)
 
         # evaluate
-        val_acc = evaluate(model, val_loader, metric, args.gpu)
+        val_metric = evaluate(model, val_loader, args.gpu)
 
-        if stopper.step(val_acc):
+        if stopper.step(val_metric.f1):
             pickle_dump(best, args.output_file)  # save results for hyperparam tune
             break
 
-        scheduler.step(val_acc)
+        scheduler.step(val_metric.f1)
 
-        is_best = val_acc < best
+        is_best = val_metric.f1 < best
         if is_best:
-            best = val_acc
+            best = val_metric.f1
 
         # save checkpoint
         if not args.distributed or (args.distributed and args.gpu == 0):
@@ -383,14 +369,14 @@ def main_worker(gpu, world_size, args):
                 state_dict_objs,
                 misc_objs,
                 is_best,
-                msg=f"epoch: {epoch}, score {val_acc}",
+                msg=f"epoch: {epoch}, score {val_metric.f1}",
             )
 
             tt = time.time() - ti
 
             print(
-                "{:5d}   {:12.6e}   {:12.6e}   {:12.6e}   {:.2f}".format(
-                    epoch, loss, train_acc, val_acc, tt
+                "{:5d}   {:12.6e}   {}   {}   {:.2f}".format(
+                    epoch, loss, str(train_metric), str(val_metric), tt
                 )
             )
             if epoch % 10 == 0:
@@ -398,18 +384,18 @@ def main_worker(gpu, world_size, args):
 
     # load best to calculate test accuracy
     if args.gpu is None:
-        checkpoint = load_checkpoints(state_dict_objs, filename="best_checkpoint.pkl")
+        load_checkpoints(state_dict_objs, filename="best_checkpoint.pkl")
     else:
         # Map model to be loaded to specified single  gpu.
         loc = "cuda:{}".format(args.gpu)
-        checkpoint = load_checkpoints(
+        load_checkpoints(
             state_dict_objs, map_location=loc, filename="best_checkpoint.pkl"
         )
 
     if not args.distributed or (args.distributed and args.gpu == 0):
-        test_acc = evaluate(model, test_loader, metric, args.gpu)
+        test_metric = evaluate(model, test_loader, args.gpu)
 
-        print("\n#TestAcc: {:12.6e} \n".format(test_acc))
+        print(f"\n#Test Metric: {str(test_metric)}\n")
         print("\nFinish training at:", datetime.now())
 
 
