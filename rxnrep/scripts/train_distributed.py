@@ -72,7 +72,7 @@ def parse_args():
     parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
     parser.add_argument("--restore", type=int, default=0, help="restore checkpoints")
     parser.add_argument(
-        "--dataset-state-dict-filename", type=str, default="dataset_state_dict.pkl"
+        "--dataset-state-dict-filename", type=str, default="dataset_state_dict.yaml"
     )
     # gpu
     parser.add_argument(
@@ -199,7 +199,7 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
 
     # save dataset state dict for retraining or prediction
     if not args.distributed or (args.distributed and args.gpu == 0):
-        torch.save(dataset.state_dict(), args.dataset_state_dict_filename)
+        dataset.save_state_dict(args.dataset_state_dict_filename)
         print(
             "Trainset size: {}, valset size: {}: testset size: {}.".format(
                 len(trainset), len(valset), len(testset)

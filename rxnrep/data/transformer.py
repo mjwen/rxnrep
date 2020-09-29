@@ -112,9 +112,9 @@ class HeteroGraphFeatureStandardScaler:
             for nt in node_types:
                 X = torch.cat(node_feats[nt]).numpy()
                 feats, mean, std = _transform(X, copy=False)
-                node_feats[nt] = torch.from_numpy(feats).type(dtype)
-                self._mean[nt] = torch.from_numpy(mean).type(dtype)
-                self._std[nt] = torch.from_numpy(std).type(dtype)
+                node_feats[nt] = torch.as_tensor(feats, dtype=dtype)
+                self._mean[nt] = torch.as_tensor(mean, dtype=dtype)
+                self._std[nt] = torch.as_tensor(std, dtype=dtype)
 
         # assign data back to graph
         for nt in node_types:

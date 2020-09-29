@@ -35,11 +35,11 @@ class ClassificationMetrics:
 
     def compute_metric_values(self, class_reduction="weighted"):
         result = accuracy_precision_recall_fbeta_from_state_scores(
-            torch.from_numpy(self.true_positives),
-            torch.from_numpy(self.false_positives),
-            torch.from_numpy(self.true_negatives),
-            torch.from_numpy(self.false_negatives),
-            torch.from_numpy(self.supports),
+            torch.as_tensor(self.true_positives),
+            torch.as_tensor(self.false_positives),
+            torch.as_tensor(self.true_negatives),
+            torch.as_tensor(self.false_negatives),
+            torch.as_tensor(self.supports),
             beta=1.0,
             class_reduction=class_reduction,
         )

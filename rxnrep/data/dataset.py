@@ -6,7 +6,7 @@ from typing import List, Callable, Optional, Dict, Any, Union
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
 from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
-from rxnrep.utils import to_path
+from rxnrep.utils import to_path, yaml_dump, yaml_load, convert_tensor_to_list
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,6 @@ class BaseDataset:
 
         # recovery state info
         if state_dict_filename is not None:
-            state_dict_filename = torch.load(str(to_path(state_dict_filename)))
             self.load_state_dict(state_dict_filename)
 
     @property
@@ -148,22 +147,88 @@ class BaseDataset:
         logger.info(f"Feature scaler std: {self._feature_scaler_std}")
         logger.info(f"Finish scaling features...")
 
-    def load_state_dict(self, d: Dict[str, Any]):
+    def load_state_dict(self, filename: Optional[Union[str, Path]] = None):
+        """
+        Load state dict from a yaml file.
+
+        Args:
+            filename: path of the file to load the data
+        """
+
+        def to_tensor(d: Dict[str, torch.Tensor], dtype: str = "float32"):
+            dtype = getattr(torch, dtype)
+            new_d = {k: torch.as_tensor(v, dtype=dtype) for k, v in d.items()}
+            return new_d
+
+        filename = self.state_dict_filename if filename is None else filename
+        filename = to_path(filename)
+        d = yaml_load(filename)
+
         try:
-            self._species = d["species"]
-            self._feature_scaler_mean = d["feature_scaler_mean"]
-            self._feature_scaler_std = d["feature_scaler_std"]
+            species = d["species"]
+            scaler_mean = d["feature_scaler_mean"]
+            scaler_std = d["feature_scaler_std"]
+            dtype = d["dtype"]
+
+            # convert tensors
+            if dtype is not None:
+                scaler_mean = to_tensor(scaler_mean, dtype)
+                scaler_std = to_tensor(scaler_std, dtype)
+
+            self._species = species
+            self._feature_scaler_mean = scaler_mean
+            self._feature_scaler_std = scaler_std
+
         except KeyError as e:
             raise ValueError(f"Corrupted state_dict (file): {str(e)}")
 
-        # sanity check: species, feature size, and feature name should not be None
+        # sanity check: species should not be None
         assert (
             self._species is not None
         ), "Corrupted state_dict file. Expect `species` to be a list, got `None`."
 
+    def save_state_dict(self, filename: Optional[Union[str, Path]] = None):
+        """
+        Save the state dict to a yaml file.
+
+        The data type of tensors are saved as a key `dtype`, which can be used in
+        load_state_dict to convert the corresponding fields to tensor.
+
+        Args:
+            filename: path to save the file
+        """
+
+        def get_dtype(d: Dict[str, torch.Tensor]):
+            key = list(d.keys())[0]
+            dtype = d[key].dtype
+            return dtype
+
+        filename = self.state_dict_filename if filename is None else filename
+        filename = to_path(filename)
+
+        # convert tensors to list if they exists
+        tensor_fields = ["feature_scaler_mean", "feature_scaler_std"]
+        d = {}
+        dtype = None
+        for k, v in self.state_dict().items():
+            if k in tensor_fields and v is not None:
+                dtype = get_dtype(v)
+                v = convert_tensor_to_list(v)
+            d[k] = v
+
+        # get a string representation of the later part of a dtype, e.g. torch.float32
+        if dtype is not None:
+            dtype = str(dtype).split(".")[1]
+
+        d["dtype"] = dtype
+
+        yaml_dump(d, filename)
+
     def state_dict(self):
         d = {
             "species": self._species,
+            "feature_name": self.feature_name,
+            "feature_size": self.feature_size,
             "feature_scaler_mean": self._feature_scaler_mean,
             "feature_scaler_std": self._feature_scaler_std,
         }

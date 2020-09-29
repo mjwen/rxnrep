@@ -1,9 +1,10 @@
 import os
 import pickle
 import yaml
+import torch
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Union, Any
 
 logger = logging.getLogger(__name__)
 
@@ -44,3 +45,26 @@ def pickle_load(filename):
     with open(to_path(filename), "rb") as f:
         obj = pickle.load(f)
     return obj
+
+
+def convert_tensor_to_list(data: Any) -> Any:
+    """
+    Convert a tensor file in a data structure to list (list of list of ...).
+
+    Args:
+        data: data to convert, of type torch.Tensor, dict, list, tuple ...
+
+    Returns:
+
+        the same data structure, but with tensors converted.
+    """
+    if isinstance(data, torch.Tensor):
+        return data.numpy().tolist()
+    elif isinstance(data, tuple):
+        return (convert_tensor_to_list(v) for v in data)
+    elif isinstance(data, list):
+        return [convert_tensor_to_list(v) for v in data]
+    elif isinstance(data, dict):
+        return {k: convert_tensor_to_list(v) for k, v in data.items()}
+    else:
+        return data
