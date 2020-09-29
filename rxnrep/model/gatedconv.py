@@ -88,7 +88,6 @@ class GatedGCNConv(nn.Module):
         Do not reduce `Eh_j` from atom nodes to bond nodes, we need the full tensor later.
         """
         x = nodes.mailbox["Eh_j_tmp"]
-        y = x.shape
         return {"Eh_j": x}
 
     @staticmethod

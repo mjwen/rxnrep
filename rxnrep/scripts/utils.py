@@ -1,4 +1,3 @@
-import copy
 import random
 import os
 import shutil
@@ -59,7 +58,7 @@ def save_checkpoints(
         filename (str): filename for the checkpoint
 
     """
-    objects = copy.copy(misc_objects)
+    objects = misc_objects.copy()
     for k, obj in state_dict_objects.items():
         objects[k] = obj.state_dict()
     torch.save(objects, filename)
@@ -75,10 +74,12 @@ def load_checkpoints(state_dict_objects, map_location=None, filename="checkpoint
 
     Args:
         state_dict_objects (dict): A dictionary of objects to save. The object should
-            have state_dict() (e.g. model, optimizer, ...)
+            have load_state_dict() (e.g. model, optimizer, ...)
     """
     checkpoints = torch.load(str(filename), map_location)
     for k, obj in state_dict_objects.items():
         state_dict = checkpoints.pop(k)
         obj.load_state_dict(state_dict)
-    return checkpoints
+    misc_objects = checkpoints
+
+    return misc_objects

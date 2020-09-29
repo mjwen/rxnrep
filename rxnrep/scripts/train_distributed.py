@@ -70,7 +70,7 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
-    parser.add_argument("--restore", type=int, default=0, help="read checkpoints")
+    parser.add_argument("--restore", type=int, default=0, help="restore checkpoints")
     parser.add_argument(
         "--dataset-state-dict-filename", type=str, default="dataset_state_dict.pkl"
     )
@@ -185,7 +185,7 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
         state_dict_filename = None
 
     dataset = USPTODataset(
-        args.dataset_filename,
+        filename=args.dataset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
@@ -395,8 +395,8 @@ def main_worker(gpu, world_size, args):
     if not args.distributed or (args.distributed and args.gpu == 0):
         test_metric = evaluate(model, test_loader, args.gpu)
 
-        print(f"\n#Test Metric: {str(test_metric)}\n")
-        print("\nFinish training at:", datetime.now())
+        print(f"\n#Test Metric: {str(test_metric)}")
+        print(f"\nFinish training at: {datetime.now()}")
 
 
 def main():
