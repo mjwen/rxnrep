@@ -2,44 +2,71 @@ import copy
 import multiprocessing
 import numpy as np
 from rdkit import Chem
-import pandas as pd
-from typing import List, Tuple, Dict, Union, Set
+from typing import List, Tuple, Dict, Union, Set, Any
 
 
-def get_atom_property(m: Chem.Mol) -> pd.DataFrame:
+def get_atom_property(m: Chem.Mol, include_H: bool = True) -> List[Dict[str, Any]]:
     """
     Get the property (e.g. valence, number H) of all atoms in a molecule.
 
     Args:
         m: rdkit molecule
+        include_H: whether to get the properties for H atoms
 
     Returns:
-        property: property of molecules in a pandas DataFrame
+        [{property_name, property_value}], each dict holds the property of an atom.
     """
     prop = []
     for i, atom in enumerate(m.GetAtoms()):
-        # exclude H
-        if atom.GetSymbol() == "H":
+        if not include_H and atom.GetSymbol() == "H":
             continue
-        mol_prop = {
-            "index": i,
-            "atom map number": atom.GetAtomMapNum(),
-            "species": atom.GetSymbol(),
-            "num implicit H": atom.GetNumImplicitHs(),
-            "num explicit H": atom.GetNumExplicitHs(),
-            "num H (with graph H)": atom.GetTotalNumHs(includeNeighbors=True),
-            "num H (without graph H)": atom.GetTotalNumHs(includeNeighbors=False),
-            "implicit valence": atom.GetImplicitValence(),
-            "explict valence": atom.GetExplicitValence(),
-            "total valence": atom.GetTotalValence(),
-            "num radicals": atom.GetNumRadicalElectrons(),
-            "formal charge": atom.GetFormalCharge(),
-            "is aromatic": atom.GetIsAromatic(),
+        atom_prop = {
+            "atom_index": i,
+            "atom_map_number": atom.GetAtomMapNum(),
+            "specie": atom.GetSymbol(),
+            "num_implicit_H": atom.GetNumImplicitHs(),
+            "num_explicit_H": atom.GetNumExplicitHs(),
+            "total_num_H(include_graph_H)": atom.GetTotalNumHs(includeNeighbors=True),
+            "total_num_H(exclude_graph_H)": atom.GetTotalNumHs(includeNeighbors=False),
+            "implicit_valence": atom.GetImplicitValence(),
+            "explict_valence": atom.GetExplicitValence(),
+            "total_valence": atom.GetTotalValence(),
+            "num_radicals": atom.GetNumRadicalElectrons(),
+            "formal_charge": atom.GetFormalCharge(),
+            "is_aromatic": atom.GetIsAromatic(),
         }
-        prop.append(mol_prop)
-    property = pd.DataFrame(prop)
+        prop.append(atom_prop)
 
-    return property
+    return prop
+
+
+def get_atom_property_as_dict(
+    mol: Chem.Mol, include_H: bool = True
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Get the property (e.g. valence, number H) of all atoms in a molecule, and return a
+    dict with atom map number as the key to index the atom.
+
+    Args:
+        mol: rdkit molecule to get properties
+
+    Returns:
+        {atom_map_number: {property_name, property_value}}, each inner dict holds the
+        property of an atom, with atom map number of the atom as the key.
+    """
+    props_of_all_atoms = get_atom_property(mol, include_H)
+
+    props_dict = {}
+    for atom_props in props_of_all_atoms:
+        atom_map_number = atom_props["atom_map_number"]
+        if atom_map_number is None:
+            raise AtomMapNumberError(
+                "Cannot create atom property dict for molecule some atoms of which do "
+                "not have atom map number."
+            )
+        props_dict[atom_map_number] = atom_props
+
+    return props_dict
 
 
 def check_molecule_atom_mapped(m: Chem.Mol) -> bool:
@@ -231,7 +258,7 @@ def canonicalize_smiles_reaction(
     This ensures the reactants and products have the same composition, achieved in the
     below steps:
 
-    1. remove reactant molecules from reactants none of their atoms are present in
+    1. remove reactant molecules from reactants if none of their atoms are present in
        the products
     2. adjust atom mapping between reactants and products and add atom mapping number
        for reactant atoms without a mapping number (although there is no corresponding
@@ -262,9 +289,11 @@ def canonicalize_smiles_reaction(
     except AtomMapNumberError as e:
         return None, str(e).rstrip()
 
-    # Step 3, create new products
+    # Step 3, create new products by editing bonds of the reactants. Some atom properties
+    # (formal charge, and number of radicals) are copied from the products, though
     bond_changes = get_reaction_bond_change(reactants, products)
-    new_products = edit_molecule(reactants, bond_changes)
+    product_atom_properties = get_atom_property_as_dict(products)
+    new_products = edit_molecule(reactants, bond_changes, product_atom_properties)
 
     # write canonicalized reaction to smiles
     reactants_smi = Chem.MolToSmiles(set_all_H_to_explicit(reactants))
@@ -514,7 +543,11 @@ def get_reaction_bond_change(
     return bond_changes
 
 
-def edit_molecule(mol: Chem.Mol, edits: Set[Tuple[int, int, float]]) -> Chem.Mol:
+def edit_molecule(
+    mol: Chem.Mol,
+    edits: Set[Tuple[int, int, float]],
+    atom_props: Dict[int, Dict[str, Any]],
+) -> Chem.Mol:
     """
     Edit a molecule to generate a new one by applying the bond changes.
 
@@ -525,6 +558,8 @@ def edit_molecule(mol: Chem.Mol, edits: Set[Tuple[int, int, float]]) -> Chem.Mol
             forming the bond, and `change_type` can take 0, 1, 2, 3, and 1.5, meaning
             losing a bond, forming a single, double, triple, and aromatic bond,
             respectively.
+        atom_props: {atom_map_number: {property_name, property_value}}. Here the
+            `num_radicals` and `formal_charge` in the property dict is set for each atom.
 
     Returns:
         new_mol: a new molecule after applying the bond edits to the input molecule
@@ -540,6 +575,16 @@ def edit_molecule(mol: Chem.Mol, edits: Set[Tuple[int, int, float]]) -> Chem.Mol
     # Let all explicit H be implicit. This increases the number of implicit H and
     # allows the adjustment of the number of implicit H to satisfy valence rule
     mol = set_all_H_to_implicit(mol)
+
+    # set the formal charge and number of radicals
+    for a in mol.GetAtoms():
+        map_number = a.GetAtomMapNum()
+        # set the properties for atoms whose properties are given
+        if map_number in atom_props:
+            formal_charge = atom_props[map_number]["formal_charge"]
+            num_radicals = atom_props[map_number]["num_radicals"]
+            a.SetFormalCharge(formal_charge)
+            a.SetNumRadicalElectrons(num_radicals)
 
     rw_mol = Chem.RWMol(mol)
 

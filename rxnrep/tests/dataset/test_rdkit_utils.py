@@ -5,6 +5,7 @@ from rxnrep.dataset.rdkit_utils import (
     get_reaction_bond_change,
     edit_molecule,
     canonicalize_smiles_reaction,
+    get_atom_property_as_dict,
 )
 
 
@@ -59,14 +60,11 @@ def test_get_reaction_bond_change():
 
 
 def test_edit_molecule():
-    reactant, _, _ = get_reactant_reagent_and_product()
+    reactant, _, product = get_reactant_reagent_and_product()
     edits = {(0, 1, 0.0), (1, 3, 1.0)}
-    edited_mol = edit_molecule(reactant, edits)
+    product_atom_props = get_atom_property_as_dict(product)
+    edited_mol = edit_molecule(reactant, edits, product_atom_props)
     edited_mol = Chem.MolToSmiles(edited_mol)
-    # TODO modify this test or the way we do bond edits.
-    #  this does not pass because we let all H be implicit before bond edits and
-    #  let them be explicit after bond edits. This alters the number of H. Number of
-    #  radicals does not change before and after bond edits.
     assert edited_mol == "[CH2+:2][CH2:4][CH3:3].[CH3:1].[K+].[Na+:5]"
 
 
