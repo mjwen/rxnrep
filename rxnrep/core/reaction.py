@@ -35,10 +35,6 @@ class Reaction:
         self._reagents = reagents
         self._id = id
 
-        self._num_unchanged_bonds = None
-        self._num_lost_bonds = None
-        self._num_added_bonds = None
-
         if sanity_check:
             self.check_composition()
             self.check_charge()
@@ -62,56 +58,6 @@ class Reaction:
         Returns the identifier of the reaction.
         """
         return self._id
-
-    def get_num_unchanged_bonds(self) -> int:
-        """
-        Get the number of unchanged bonds in the reaction.
-
-        `unchanged` means the connectivity of the molecules. So, this counts the number
-        of bonds exist in both the reactants and the products. If a bond changes its
-        bond type (e.g. from single to double), it is still considered as unchanged.
-        """
-        if self._num_unchanged_bonds is None:
-            reactants_bonds = self._get_bonds(self.reactants)
-            products_bonds = self._get_bonds(self.products)
-            reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
-            product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
-            unchanged_bonds = reactant_bonds_set & product_bonds_set
-            num_unchanged = len(unchanged_bonds)
-
-            self._num_unchanged_bonds = num_unchanged
-
-        return self._num_unchanged_bonds
-
-    def get_num_lost_bonds(self) -> int:
-        """
-        Get the number of lost bonds in the reactants during the reaction.
-        """
-        if self._num_lost_bonds is None:
-            reactants_bonds = self._get_bonds(self.reactants)
-            products_bonds = self._get_bonds(self.products)
-            reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
-            product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
-            unchanged_bonds = reactant_bonds_set & product_bonds_set
-            num_lost = len(reactant_bonds_set - unchanged_bonds)
-            self._num_lost_bonds = num_lost
-
-        return self._num_lost_bonds
-
-    def get_num_added_bonds(self) -> int:
-        """
-        Get the number of added bonds in the products during the reaction.
-        """
-        if self._num_added_bonds is None:
-            reactants_bonds = self._get_bonds(self.reactants)
-            products_bonds = self._get_bonds(self.products)
-            reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
-            product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
-            unchanged_bonds = reactant_bonds_set & product_bonds_set
-            num_added = len(product_bonds_set - unchanged_bonds)
-            self._num_added_bonds = num_added
-
-        return self._num_added_bonds
 
     def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
         """
@@ -191,6 +137,53 @@ class Reaction:
         """
         return self._get_bond_map_number(for_changed, mode="products")
 
+    def get_unchanged_lost_and_added_bonds(
+        self, zero_based: bool = False
+    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]], List[Tuple[int, int]]]:
+        """
+        Get the unchanged, lost, and added bonds in the reaction.
+
+        `unchanged` means the connectivity of the molecules. So, this includes the
+        bonds exist in both the reactants and the products. If a bond changes its
+        bond type (e.g. from single to double), it is still considered as unchanged.
+        `lost` means the bonds in the reactants but not in the products.
+        `added` means the bonds in the products but not in the reactants.
+
+        Each bond is index as (atom1, atom2) where atom1 and atom2 are the atom map
+        numbers of the two atoms forming the two bonds.
+        Args:
+            zero_based: whether to convert the bond index to zero based.
+                If `True`, all bond indices (atom map number) are converted to zero based.
+
+        Returns:
+            (unchanged_bonds, lost_bonds, added_bonds). Each is a list of bond indices,
+                each bond index is given as a tuple (atom1, atom2).
+        """
+        reactants_bonds = self._get_bonds(self.reactants, zero_based)
+        products_bonds = self._get_bonds(self.products, zero_based)
+        reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
+        product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
+
+        unchanged_bonds = reactant_bonds_set & product_bonds_set
+        lost_bonds = reactant_bonds_set - unchanged_bonds
+        added_bonds = product_bonds_set - unchanged_bonds
+
+        unchanged_bonds = list(unchanged_bonds)
+        lost_bonds = list(lost_bonds)
+        added_bonds = list(added_bonds)
+
+        return unchanged_bonds, lost_bonds, added_bonds
+
+    def get_num_unchanged_lost_and_added_bonds(self) -> Tuple[int, int, int]:
+        """
+        Get the number of unchanged, lost, and added bonds in the reaction.
+
+        Returns:
+            (num_unchanged_bonds, num_lost_bonds, num_added_bonds).
+        """
+        unchanged, lost, added = self.get_unchanged_lost_and_added_bonds()
+        return len(unchanged), len(lost), len(added)
+
     @staticmethod
     def _get_atom_map_number(molecules: List[Molecule], zero_based=False):
         """
@@ -213,7 +206,7 @@ class Reaction:
                 for changed bonds are set to `None`. If `True`, their values are set to
                 N_un, ..., N-1, where N_un is the number of unchanged bonds and N is the
                 number of bonds.
-            mode: [`reactants`, `products`]. Generate bond map for the reactant or
+            mode: [`reactants`|`products`]. Generate bond map for the reactant or
                 the product molecules.
         """
         reactants_bonds = self._get_bonds(self.reactants)
@@ -271,7 +264,9 @@ class Reaction:
             )
 
         if zero_based:
-            minimum = int(np.min(np.concatenate(all_bonds)))
+            minimum = int(
+                np.min(np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel())
+            )
             all_bonds = [
                 [(b[0] - minimum, b[1] - minimum) for b in bonds] for bonds in all_bonds
             ]

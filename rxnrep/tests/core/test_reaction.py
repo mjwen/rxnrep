@@ -84,9 +84,10 @@ class TestReaction:
 
     def test_get_num_bonds(self):
         rxn, _ = create_reaction()
-        assert rxn.get_num_unchanged_bonds() == 1
-        assert rxn.get_num_lost_bonds() == 1
-        assert rxn.get_num_added_bonds() == 1
+        num_unchanged, num_lost, num_added = rxn.get_num_unchanged_lost_and_added_bonds()
+        assert num_unchanged == 1
+        assert num_lost == 1
+        assert num_added == 1
 
     def test_get_atom_map_number(self):
         rxn, _ = create_reaction()
