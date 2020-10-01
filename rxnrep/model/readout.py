@@ -215,18 +215,18 @@ class Set2SetThenCat(nn.Module):
     features of different node types to create a representation of the graph.
 
      Args:
-        n_iter: number of LSTM iteration
-        n_layer: number of LSTM layers
-        ntypes: node types to perform Set2Set, e.g. ['atom', 'bond']
+        num_iters: number of LSTM iteration
+        num_layers: number of LSTM layers
+        ntypes: node types to perform Set2Set, e.g. ['atom', 'bond'].
         in_feats: node feature sizes. The order should be the same as `ntypes`.
-        ntypes_direct_cat: node types to which not perform Set2Set, whose feature is
+        ntypes_direct_cat: node types to which not perform Set2Set, whose features are
             directly concatenated. e.g. ['global']
     """
 
     def __init__(
         self,
-        n_iters: int,
-        n_layer: int,
+        num_iters: int,
+        num_layers: int,
         ntypes: List[str],
         in_feats: List[int],
         ntypes_direct_cat: Optional[List[str]] = None,
@@ -238,23 +238,27 @@ class Set2SetThenCat(nn.Module):
         self.layers = nn.ModuleDict()
         for nt, sz in zip(ntypes, in_feats):
             self.layers[nt] = Set2Set(
-                input_dim=sz, n_iters=n_iters, n_layers=n_layer, ntype=nt
+                input_dim=sz, n_iters=num_iters, n_layers=num_layers, ntype=nt
             )
 
     def forward(
         self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Args:
             graph: the graph
             feats: node features with node type as key and the corresponding
                 features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size.
-        Returns:
-            update features. Each tensor is of shape (B, D), where B is the batch size
-                and D is the feature size. Note D could be different for different
-                node type.
+                of nodes of the corresponding node type, and D is the feature size
+                (D could be different for different node features).
 
+        Returns:
+            A tensor representation of the each grpah, of shape
+            (N, 2D_1+2D_2+ ... D_{m-1}, D_m),
+            where N is the batch size (number of graphs), and D_1, D_2 ... are the
+            feature sizes of the nodes to perform the set2set aggregation. The `2`
+            shows up because set2set doubles the feature sizes. ... D_{m-1}, D_m are
+            the feature sizes of the nodes not to perform set2set by direct concatenate.
         """
         rst = []
         for nt in self.ntypes:
