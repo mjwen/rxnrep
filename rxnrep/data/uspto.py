@@ -292,7 +292,7 @@ class USPTODataset(BaseDataset):
         _, lost, added = reaction.get_unchanged_lost_and_added_bonds(zero_based=True)
         changed_atoms = set([i for i in itertools.chain.from_iterable(lost + added)])
 
-        in_reaction_center = torch.zeros(num_atoms, dtype=torch.int64)
+        in_reaction_center = torch.zeros(num_atoms)
         for i in changed_atoms:
             in_reaction_center[i] = 1
 
