@@ -16,7 +16,7 @@ from rxnrep.data.uspto import USPTODataset, collate_fn
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.splitter import train_validation_test_split
 from rxnrep.model.model import ReactionRepresentation
-from rxnrep.model.metric import ClassificationMetrics
+from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
 from rxnrep.scripts.utils import (
     EarlyStopping,
     seed_torch,
@@ -110,11 +110,14 @@ def train(optimizer, model, data_loader, device):
     nodes = ["atom", "bond", "global"]
 
     metrics = {
-        "bond_type": ClassificationMetrics(num_classes=3),
-        "atom_in_reaction_center": ClassificationMetrics(num_classes=2),
+        "bond_type": MultiClassificationMetrics(num_classes=3),
+        "atom_in_reaction_center": BinaryClassificationMetrics(),
     }
 
     epoch_loss = 0.0
+
+    # TODO temporary (should set to the ratio of atoms in center)
+    pos_weight = torch.tensor(4.0).to(device)
 
     for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
         mol_graphs = mol_graphs.to(device)
@@ -123,6 +126,7 @@ def train(optimizer, model, data_loader, device):
         labels = {k: v.to(device) for k, v in labels.items()}
 
         preds = model(mol_graphs, rxn_graphs, feats, metadata)
+        preds["atom_in_reaction_center"] = torch.flatten(preds["atom_in_reaction_center"])
 
         # TODO may be assign different weights for atoms and bonds, giving each
         #  reaction have the same weight?
@@ -130,16 +134,17 @@ def train(optimizer, model, data_loader, device):
             preds["bond_type"], labels["bond_type"], reduction="mean"
         )
         loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
-            torch.flatten(preds["atom_in_reaction_center"]),
+            preds["atom_in_reaction_center"],
             labels["atom_in_reaction_center"],
             reduction="mean",
+            pos_weight=pos_weight,
         )
         loss = loss_bond_type + loss_atom_in_reaction_center
 
+        # update model parameters
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         epoch_loss += loss.detach().item()
 
         # metrics
@@ -147,14 +152,14 @@ def train(optimizer, model, data_loader, device):
         p = torch.argmax(preds["bond_type"], dim=1)
         metrics["bond_type"].step(p, labels["bond_type"])
         # atom in reaction center
-        p = F.sigmoid(preds["atom_in_reaction_center"]) > 0.5
+        p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
         metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
 
     epoch_loss /= it + 1
 
     # compute metric values
-    for _, m in metrics.items():
-        m.compute_metric_values(class_reduction="weighted")
+    metrics["bond_type"].compute_metric_values(class_reduction="weighted")
+    metrics["atom_in_reaction_center"].compute_metric_values()
 
     return epoch_loss, metrics
 
@@ -165,8 +170,8 @@ def evaluate(model, data_loader, device):
     nodes = ["atom", "bond", "global"]
 
     metrics = {
-        "bond_type": ClassificationMetrics(num_classes=3),
-        "atom_in_reaction_center": ClassificationMetrics(num_classes=2),
+        "bond_type": MultiClassificationMetrics(num_classes=3),
+        "atom_in_reaction_center": BinaryClassificationMetrics(),
     }
 
     with torch.no_grad():
@@ -178,18 +183,21 @@ def evaluate(model, data_loader, device):
             labels = {k: v.to(device) for k, v in labels.items()}
 
             preds = model(mol_graphs, rxn_graphs, feats, metadata)
+            preds["atom_in_reaction_center"] = torch.flatten(
+                preds["atom_in_reaction_center"]
+            )
 
             # metrics
             # bond type
             p = torch.argmax(preds["bond_type"], dim=1)
             metrics["bond_type"].step(p, labels["bond_type"])
             # atom in reaction center
-            p = preds["atom_in_reaction_center"] > 0.5
+            p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
             metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
 
     # compute metric values
-    for _, m in metrics.items():
-        m.compute_metric_values(class_reduction="weighted")
+    metrics["bond_type"].compute_metric_values(class_reduction="weighted")
+    metrics["atom_in_reaction_center"].compute_metric_values()
 
     return metrics
 

@@ -2,12 +2,65 @@ import torch
 import numpy as np
 import pytorch_lightning.metrics.functional as plm
 from pytorch_lightning.metrics.functional.reduction import class_reduce
-from typing import Optional
 
 
-class ClassificationMetrics:
+class BinaryClassificationMetrics:
+    def __init__(self):
+        super(MultiClassificationMetrics).__init__()
+        self.tps = 0
+        self.fps = 0
+        self.tns = 0
+        self.fns = 0
+        self.supps = 0
+
+        self.accuracy = None
+        self.precision = None
+        self.recall = None
+        self.f1 = None
+
+    def step(self, pred: torch.Tensor, target: torch.Tensor):
+        """
+        Detach and cast to numpy arrays to avoid keeping the computational graph alive.
+
+        See: https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html#sklearn.metrics.confusion_matrix
+        """
+        cm = plm.confusion_matrix(pred, target, num_classes=2)
+        tn, fp, fn, tp = cm.numpy().ravel()
+
+        self.tps += tp
+        self.fps += fp
+        self.tns += tn
+        self.fns += fn
+
+    def compute_metric_values(self):
+        self.accuracy = (self.tps + self.tns) / (
+            self.tps + self.fps + self.tns + self.fns
+        )
+
+        if self.tps + self.fps == 0:
+            self.precision = 0
+        else:
+            self.precision = self.tps / (self.tps + self.fps)
+
+        if self.tps + self.fns == 0:
+            self.recall = 0
+        else:
+            self.recall = self.tps / (self.tps + self.fns)
+
+        if self.precision + self.recall == 0:
+            self.f1 = 0
+        else:
+            self.f1 = 2 * (self.precision * self.recall) / (self.precision + self.recall)
+
+    def __str__(self):
+        return "[{:.2f}|{:.2f}|{:.2f}|{:.2f}]".format(
+            self.accuracy, self.precision, self.recall, self.f1
+        )
+
+
+class MultiClassificationMetrics:
     def __init__(self, num_classes: int):
-        super(ClassificationMetrics).__init__()
+        super(MultiClassificationMetrics).__init__()
         self.num_classes = num_classes
         self.true_positives = np.zeros(num_classes)
         self.false_positives = np.zeros(num_classes)
@@ -79,23 +132,3 @@ def accuracy_precision_recall_fbeta_from_state_scores(
         fbeta = class_reduce(num, denom, sups, class_reduction=class_reduction)
 
     return accuracy, precision, recall, fbeta
-
-
-def accuracy_precision_recall_fbeta(
-    pred: torch.Tensor,
-    target: torch.Tensor,
-    beta: float,
-    num_classes: Optional[int] = None,
-    class_reduction: str = "micro",
-):
-    """
-    Compute accuracy, precision, recall, and fbeta.
-    """
-
-    tps, fps, tns, fns, sups = plm.stat_scores_multiple_classes(
-        pred=pred, target=target, num_classes=num_classes
-    )
-
-    accuracy_precision_recall_fbeta_from_state_scores(
-        tps, fps, tns, fns, sups, beta, class_reduction
-    )
