@@ -579,22 +579,19 @@ def edit_molecule(
     # set the formal charge and number of radicals
     for a in mol.GetAtoms():
         map_number = a.GetAtomMapNum()
-        # set the properties for atoms whose properties are given
+        # only set the properties for atoms whose properties are given
         if map_number in atom_props:
-            formal_charge = atom_props[map_number]["formal_charge"]
-            num_radicals = atom_props[map_number]["num_radicals"]
-            a.SetFormalCharge(formal_charge)
-            a.SetNumRadicalElectrons(num_radicals)
+            a.SetFormalCharge(atom_props[map_number]["formal_charge"])
+            a.SetNumRadicalElectrons(atom_props[map_number]["num_radicals"])
 
+    # editing bonds
     rw_mol = Chem.RWMol(mol)
-
     for atom1, atom2, change_type in edits:
         bond = rw_mol.GetBondBetweenAtoms(atom1, atom2)
         if bond is not None:
             rw_mol.RemoveBond(atom1, atom2)
         if change_type > 0:
             rw_mol.AddBond(atom1, atom2, bond_change_to_type[change_type])
-
     new_mol = rw_mol.GetMol()
 
     # Sanitize after editing

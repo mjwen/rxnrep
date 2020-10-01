@@ -15,7 +15,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from rxnrep.data.uspto import USPTODataset, collate_fn
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.splitter import train_validation_test_split
-from rxnrep.model.decoder import create_label_bond_type_decoder
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import ClassificationMetrics
 from rxnrep.scripts.utils import (
@@ -114,14 +113,14 @@ def train(optimizer, model, data_loader, loss_fn, device=None):
 
     for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
         feats = {nt: mol_graphs.nodes[nt].data["feat"] for nt in nodes}
-        target = create_label_bond_type_decoder(metadata)
+        target = labels["bond_type"]
 
         if device is not None:
             feats = {k: v.to(device) for k, v in feats.items()}
             target = target.to(device)
 
         output = model(mol_graphs, rxn_graphs, feats, metadata)
-        pred = output["bond_type_logits"]  # shape (N, 3)
+        pred = output["bond_type"]  # shape (N, 3)
 
         loss = loss_fn(pred, target)
         optimizer.zero_grad()
@@ -149,14 +148,14 @@ def evaluate(model, data_loader, device=None):
 
         for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
             feats = {nt: mol_graphs.nodes[nt].data["feat"] for nt in nodes}
-            target = create_label_bond_type_decoder(metadata)
+            target = labels["bond_type"]
 
             if device is not None:
                 feats = {k: v.to(device) for k, v in feats.items()}
                 target = target.to(device)
 
             output = model(mol_graphs, rxn_graphs, feats, metadata)
-            pred = output["bond_type_logits"]  # shape (N, 3)
+            pred = output["bond_type"]  # shape (N, 3)
 
             pred_class = torch.argmax(pred, dim=1)
             metric.step(pred_class, target)

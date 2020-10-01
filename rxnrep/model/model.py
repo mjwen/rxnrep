@@ -79,8 +79,8 @@ class ReactionRepresentation(nn.Module):
 
         # bond type decoder
         bond_feats = feats["bond"]
-        logits = self.bond_type_decoder(bond_feats)
+        bond_type = self.bond_type_decoder(bond_feats)
 
-        prediction = {"bond_type_logits": logits}
+        prediction = {"bond_type": bond_type}
 
         return prediction

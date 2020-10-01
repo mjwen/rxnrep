@@ -1,9 +1,12 @@
 import multiprocessing
 import functools
 import logging
+import itertools
+from collections import defaultdict
 from pathlib import Path
 import pandas as pd
 import dgl
+import torch
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
@@ -73,13 +76,9 @@ def build_hetero_graph_and_featurize_one_reaction(
     products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
     # combine reaction graph from the combined reactant graph and product graph
+    num_unchanged, num_lost, num_added = reaction.get_num_unchanged_lost_and_added_bonds()
     reaction_g = create_reaction_graph(
-        reactants_g,
-        products_g,
-        reaction.get_num_unchanged_bonds(),
-        reaction.get_num_lost_bonds(),
-        reaction.get_num_added_bonds(),
-        self_loop,
+        reactants_g, products_g, num_unchanged, num_lost, num_added, self_loop,
     )
 
     return reactants_g, products_g, reaction_g
@@ -128,13 +127,14 @@ class USPTODataset(BaseDataset):
 
         # set failed and labels
         self._failed = failed
-        self.labels = labels
 
         # convert reactions to dgl graphs
         self.reaction_graphs = self.build_graph_and_featurize()
 
         if transform_features:
             self.scale_features()
+
+        self.labels = {}
 
     @staticmethod
     def read_file(filename, nprocs):
@@ -248,14 +248,75 @@ class USPTODataset(BaseDataset):
 
         return graphs
 
+    @staticmethod
+    def _create_label_bond_type(reaction) -> torch.Tensor:
+        """
+        Label for bond type classification:
+        0: unchanged bond, 1: lost bond, 2: added bond
+
+        Args:
+            reaction: th3 reaction
+
+        Returns:
+            1D tensor of the class for each bond. The order is the same as the bond
+            nodes in the reaction graph.
+       """
+        result = reaction.get_num_unchanged_lost_and_added_bonds()
+        num_unchanged, num_lost, num_added = result
+
+        # Note, reaction graph bond nodes are ordered in the sequence of unchanged bonds,
+        # lost bonds, and added bonds in `create_reaction_graph()`
+        bond_type = [0] * num_unchanged + [1] * num_lost + [2] * num_added
+        bond_type = torch.as_tensor(bond_type, dtype=torch.int64)
+
+        return bond_type
+
+    @staticmethod
+    def _create_label_atom_in_reaction_center(reaction: Reaction) -> torch.Tensor:
+        """
+        Label for atom in reaction center classification:
+
+        Atoms associated with lost bonds in reactants or added bonds in products are in
+        the reaction center, given a class label 1.
+        Other atoms given a class label 0.
+
+        Args:
+            reaction: the reaction
+
+        Returns:
+            1D tensor of the class for each atom. The order is the same as the atom
+            nodes in the reaction graph.
+        """
+        num_atoms = sum([m.num_atoms for m in reaction.reactants])
+
+        _, lost, added = reaction.get_unchanged_lost_and_added_bonds(zero_based=True)
+        changed_atoms = set([i for i in itertools.chain.from_iterable(lost + added)])
+
+        in_reaction_center = torch.zeros(num_atoms, dtype=torch.int64)
+        for i in changed_atoms:
+            in_reaction_center[i] = 1
+
+        return in_reaction_center
+
     def __getitem__(self, item: int):
         """Get data point with index.
         """
         reactants_g, products_g, reaction_g = self.reaction_graphs[item]
         reaction = self.reactions[item]
-        label = self.labels[item]
 
-        return reactants_g, products_g, reaction_g, reaction, label
+        # get labels, create it if it does not exist
+        if item in self.labels:
+            labels = self.labels[item]
+        else:
+            labels = {
+                "bond_type": self._create_label_bond_type(reaction),
+                "atom_in_reaction_center": self._create_label_atom_in_reaction_center(
+                    reaction
+                ),
+            }
+            self.labels[item] = labels
+
+        return reactants_g, products_g, reaction_g, reaction, labels
 
     def __len__(self) -> int:
         """
@@ -270,6 +331,13 @@ def collate_fn(samples):
     batched_molecule_graphs = dgl.batch(reactants_g + products_g)
     batched_reaction_graphs = dgl.batch(reaction_g)
 
+    # labels
+    batched_labels = defaultdict(list)
+    for one_label in labels:
+        for k, v in one_label.items():
+            batched_labels[k].append(v)
+    batched_labels = {k: torch.cat(v) for k, v in batched_labels.items()}
+
     # metadata used to split global and bond features
     reactant_num_molecules = []
     product_num_molecules = []
@@ -277,14 +345,13 @@ def collate_fn(samples):
     num_lost_bonds = []
     num_added_bonds = []
     for rxn in reactions:
-        num_unchanged = rxn.get_num_unchanged_bonds()
-        num_lost = rxn.get_num_lost_bonds()
-        num_added = rxn.get_num_added_bonds()
         reactant_num_molecules.append(len(rxn.reactants))
         product_num_molecules.append(len(rxn.products))
+        num_unchanged, num_lost, num_added = rxn.get_num_unchanged_lost_and_added_bonds()
         num_unchanged_bonds.append(num_unchanged)
         num_lost_bonds.append(num_lost)
         num_added_bonds.append(num_added)
+
     metadata = {
         "reactant_num_molecules": reactant_num_molecules,
         "product_num_molecules": product_num_molecules,
@@ -293,6 +360,4 @@ def collate_fn(samples):
         "num_added_bonds": num_added_bonds,
     }
 
-    # TODO batch labels
-
-    return batched_molecule_graphs, batched_reaction_graphs, labels, metadata
+    return batched_molecule_graphs, batched_reaction_graphs, batched_labels, metadata
