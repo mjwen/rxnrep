@@ -4,29 +4,30 @@ from rxnrep.model.utils import FCNN
 from typing import List
 
 
-class NodeClassificationDecoder(nn.Module):
+class BaseDecoder(nn.Module):
     """
-    A base class implementing classification based on node features (either atom or
-    bond node).
+    A base decoder class to map the features before passing them to sigmoid or softmax
+    layer to compute logits.
+
+    This uses N fully connected layer as the decoder.
 
     Args:
         in_size: input size of the features
+        num_classes: number of classes
         hidden_layer_sizes: size of the hidden layers to transform the features.
             Note, there will be an additional layer applied after this,
             which transforms the features to `num_classes` dimensions.
         activation: activation function applied after the hidden layer
-        num_classes: number of classes
-
     """
 
     def __init__(
         self,
         in_size: int,
+        num_classes: int,
         hidden_layer_sizes: List[int] = None,
         activation: str = "ReLU",
-        num_classes: int = 3,
     ):
-        super(NodeClassificationDecoder, self).__init__()
+        super(BaseDecoder, self).__init__()
 
         # set default values
         if hidden_layer_sizes is None:
@@ -41,25 +42,23 @@ class NodeClassificationDecoder(nn.Module):
 
         self.fc_layers = FCNN(in_size, out_sizes, acts, use_bias)
 
-    def forward(self, feats: torch.Tensor):
+    def forward(self, feats: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            feats: bond features, a 2D tensor of shape (N, D).
+            feats: features, a 2D tensor of shape (N, D), where N is the batch size and
+                D is the feature dimension.
 
         Returns:
-            Updated features, a 2D tensor of shape (N, num_classes),
-            where `num_classes` is the number of classes.
+            Updated features, a 2D tensor of shape (N, num_classes), where `num_classes`
+            is the number of classes.
         """
 
         return self.fc_layers(feats)
 
 
-class BondTypeDecoder(NodeClassificationDecoder):
+class BondTypeDecoder(BaseDecoder):
     """
     A decoder to predict the bond type from bond features.
-
-    The bond features are first `decoded` via a FCNN, and then passed through a via a
-    cross entropy loss.
 
     There are three types of bond:
     1. unchanged bond: bonds exists in both the reactants and the products
@@ -67,40 +66,40 @@ class BondTypeDecoder(NodeClassificationDecoder):
     3. added bonds: bonds in the products created in a reaction
 
     Args:
-        in_size: input size of the bond features
-        hidden_layer_sizes: size of the hidden layers to transform the bond features.
+        in_size: input size of the features
+        num_classes: number of classes
+        hidden_layer_sizes: size of the hidden layers to transform the features.
             Note, there will be an additional layer applied after this,
             which transforms the features to `num_classes` dimensions.
         activation: activation function applied after the hidden layer
-        num_classes: number of bond type classes.
     """
 
     def __init__(
         self,
         in_size: int,
+        num_classes: int = 3,
         hidden_layer_sizes: List[int] = None,
         activation: str = "ReLU",
-        num_classes: int = 3,
     ):
         super(BondTypeDecoder, self).__init__(
-            in_size, hidden_layer_sizes, activation, num_classes
+            in_size, num_classes, hidden_layer_sizes, activation
         )
 
 
-class AtomInReactionCenterDecoder(NodeClassificationDecoder):
+class AtomInReactionCenterDecoder(BaseDecoder):
     """
     A decoder to predict whether an atom is in the reaction center from the atom features.
 
-    The atom features are first `decoded` via a FCNN, and then passed through a binary
-    cross entry loss.
+    The are two classes:
+    0: not in reaction center, 1: in reaction center
 
     Args:
-        in_size: input size of the atom features
-        hidden_layer_sizes: size of the hidden layers to transform the atom features.
+        in_size: input size of the features
+        hidden_layer_sizes: size of the hidden layers to transform the features.
             Note, there will be an additional layer applied after this,
-            which transforms the features to a (N 1) tensor.
+            which transforms the features to `num_classes` dimensions.
         activation: activation function applied after the hidden layer
-        """
+    """
 
     def __init__(
         self,
@@ -110,6 +109,32 @@ class AtomInReactionCenterDecoder(NodeClassificationDecoder):
     ):
         # Note, for binary classification, the sigmoid function takes a scalar,
         # so `num_classes` is set to 1
+        num_classes = 1
         super(AtomInReactionCenterDecoder, self).__init__(
-            in_size, hidden_layer_sizes, activation, num_classes=1
+            in_size, num_classes, hidden_layer_sizes, activation,
+        )
+
+
+class ReactionClusterDecoder(BaseDecoder):
+    """
+    A decoder to predict the clustering labels from reaction features.
+
+    Args:
+        in_size: input size of the features
+        num_classes: number of classes
+        hidden_layer_sizes: size of the hidden layers to transform the features.
+            Note, there will be an additional layer applied after this,
+            which transforms the features to `num_classes` dimensions.
+        activation: activation function applied after the hidden layer
+    """
+
+    def __init__(
+        self,
+        in_size: int,
+        num_classes: int,
+        hidden_layer_sizes: List[int] = None,
+        activation: str = "ReLU",
+    ):
+        super(ReactionClusterDecoder, self).__init__(
+            in_size, num_classes, hidden_layer_sizes, activation,
         )
