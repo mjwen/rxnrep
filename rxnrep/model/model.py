@@ -124,3 +124,39 @@ class ReactionRepresentation(nn.Module):
         }
 
         return predictions
+
+    def get_reaction_features(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ) -> torch.Tensor:
+        # Notes:
+        # We can call this safely, since we do not have any pre-forward and  post-forward
+        # hooks defined in this module.
+        """
+        Get the reaction features, which is the concatenation of atom, bond, and global
+        features: [atom_feats|bond_feats|global_feats]. atom_feats (bond_feats) is
+        are obtained by aggregating all atom features (bond_features) via set2set.
+
+        Args:
+            molecule_graphs:
+            reaction_graphs:
+            feats:
+            metadata:
+
+        Returns:
+            2D tensor of shape (N, D), where N is the number of reactions, and D is
+                the dimension of the features.
+        """
+
+        # encoder
+        feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
+
+        ### graph level decover
+
+        # readout reaction features, a 1D tensor for each reaction
+        rxn_feats = self.set2set(reaction_graphs, feats)
+
+        return rxn_feats

@@ -17,6 +17,7 @@ from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturi
 from rxnrep.data.splitter import train_validation_test_split
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
+from rxnrep.model.clustering import ReactionCluster
 from rxnrep.scripts.utils import (
     EarlyStopping,
     seed_torch,
@@ -103,7 +104,7 @@ def parse_args():
     return args
 
 
-def train(optimizer, model, data_loader, device):
+def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
 
     model.train()
 
@@ -114,11 +115,12 @@ def train(optimizer, model, data_loader, device):
         "atom_in_reaction_center": BinaryClassificationMetrics(),
     }
 
-    epoch_loss = 0.0
-
     # TODO temporary (should set to the ratio of atoms in center)
     pos_weight = torch.tensor(4.0).to(device)
 
+    cluster_labels = reaction_cluster.get_cluster_ids(epoch)
+
+    epoch_loss = 0.0
     for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
         mol_graphs = mol_graphs.to(device)
         rxn_graphs = rxn_graphs.to(device)
@@ -264,7 +266,7 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
     # atom, bond, and global feature size
     feature_size = dataset.feature_size
 
-    return train_loader, val_loader, test_loader, feature_size, train_sampler
+    return train_loader, val_loader, test_loader, feature_size, train_sampler, trainset
 
 
 def main_worker(gpu, world_size, args):
@@ -292,8 +294,19 @@ def main_worker(gpu, world_size, args):
     # two processes (when distributed) starting from the same random weights and biases
     seed_torch()
 
+    ################################################################################
+    #  set up dataset, model, optimizer ...
+    ################################################################################
+
     ### dataset
-    train_loader, val_loader, test_loader, feats_size, train_sampler = load_dataset(args)
+    (
+        train_loader,
+        val_loader,
+        test_loader,
+        feats_size,
+        train_sampler,
+        trainset,
+    ) = load_dataset(args)
 
     ### model
     model = ReactionRepresentation(
@@ -340,6 +353,11 @@ def main_worker(gpu, world_size, args):
     )
     stopper = EarlyStopping(patience=150)
 
+    ### cluster
+    reaction_cluster = ReactionCluster(
+        model, trainset, num_clusters=10, device=args.device
+    )
+
     # load checkpoint
     state_dict_objs = {"model": model, "optimizer": optimizer, "scheduler": scheduler}
     if args.restore:
@@ -356,7 +374,10 @@ def main_worker(gpu, world_size, args):
             warnings.warn(str(e) + " Continue without loading checkpoints.")
             pass
 
-    # start training
+    ################################################################################
+    # training loop
+    ################################################################################
+
     if not args.distributed or (args.distributed and args.gpu == 0):
         print(
             "\n\n# Epoch     Loss      Train[acc|prec|rec|f1]    "
@@ -373,7 +394,9 @@ def main_worker(gpu, world_size, args):
             train_sampler.set_epoch(epoch)
 
         # train
-        loss, train_metrics = train(optimizer, model, train_loader, args.device)
+        loss, train_metrics = train(
+            optimizer, model, train_loader, reaction_cluster, epoch, args.device
+        )
 
         # bad, we get nan
         if np.isnan(loss):
@@ -420,6 +443,10 @@ def main_worker(gpu, world_size, args):
             )
             if epoch % 10 == 0:
                 sys.stdout.flush()
+
+    ################################################################################
+    # test
+    ################################################################################
 
     # load best to calculate test accuracy
     load_checkpoints(
