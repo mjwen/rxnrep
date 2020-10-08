@@ -108,13 +108,17 @@ def init_distributed_mode(args):
         args.world_size = int(os.environ["WORLD_SIZE"])
 
     # prepare distributed
+    if args.gpu:
+        backend = "nccl"
+        gpu_id = args.rank % torch.cuda.device_count()
+        args.device = torch.device("cuda", gpu_id)
+    else:
+        backend = "gloo"
+        args.device = torch.device("cpu")
+
     dist.init_process_group(
-        backend="nccl",
+        backend=backend,
         init_method=args.dist_url,
         world_size=args.world_size,
         rank=args.rank,
     )
-
-    # set cuda device
-    args.gpu_to_work_on = args.rank % torch.cuda.device_count()
-    torch.cuda.set_device(args.gpu_to_work_on)

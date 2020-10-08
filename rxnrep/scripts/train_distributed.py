@@ -9,8 +9,6 @@ from datetime import datetime
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
-import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from rxnrep.data.uspto import USPTODataset, collate_fn
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
@@ -25,6 +23,7 @@ from rxnrep.scripts.utils import (
     save_checkpoints,
 )
 from rxnrep.utils import yaml_dump
+from rxnrep.scripts.utils import init_distributed_mode
 
 best = -np.finfo(np.float32).max
 
@@ -32,15 +31,15 @@ best = -np.finfo(np.float32).max
 def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
-    # input files
     # TODO, for temporary test only
+    # ========== input files ==========
     fname = "/Users/mjwen/Documents/Dataset/uspto/raw/2001_Sep2016_USPTOapplications_smiles_n200_processed.tsv"
     parser.add_argument("--dataset-filename", type=str, default=fname)
 
-    # embedding layer
+    # ========== embedding layer ==========
     parser.add_argument("--embedding-size", type=int, default=24)
 
-    # encoder
+    # ========== encoder ==========
     parser.add_argument(
         "--molecule-conv-layer-sizes", type=int, nargs="+", default=[64, 64, 64]
     )
@@ -58,13 +57,13 @@ def parse_args():
     parser.add_argument("--reaction-residual", type=int, default=1)
     parser.add_argument("--reaction-dropout", type=float, default="0.0")
 
-    # decoder
+    # ========== decoder ==========
     parser.add_argument(
         "--decoder-hidden-layer-sizes", type=int, nargs="+", default=[64, 64]
     )
     parser.add_argument("--decoder-activation", type=str, default="ReLU")
 
-    # training
+    # ========== training ==========
     parser.add_argument("--start-epoch", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=5, help="number of epochs")
     parser.add_argument("--batch-size", type=int, default=100, help="batch size")
@@ -74,22 +73,11 @@ def parse_args():
     parser.add_argument(
         "--dataset-state-dict-filename", type=str, default="dataset_state_dict.yaml"
     )
-    # gpu
+
+    # ========== distributed ==========
+    parser.add_argument("--gpu", type=int, default=0, help="Whether to use GPU.")
     parser.add_argument(
-        "--gpu", type=int, default=None, help="GPU index. None to use CPU."
-    )
-    parser.add_argument(
-        "--distributed",
-        type=int,
-        default=0,
-        help="DDP training, `--gpu` is ignored if this is `True`.",
-    )
-    parser.add_argument(
-        "--num-gpu",
-        type=int,
-        default=None,
-        help="Number of GPU to use in distributed mode, if `None` will use all GPUs on "
-        "a node. Ignored is `--distributed` is False.",
+        "--distributed", type=int, default=0, help="Whether distributed DDP training.",
     )
     parser.add_argument(
         "--dist-url",
@@ -97,7 +85,7 @@ def parse_args():
         type=str,
         help="url used to set up distributed training",
     )
-    parser.add_argument("--dist-backend", type=str, default="nccl")
+    parser.add_argument("--local_rank", type=int, help="Local rank of process.")
 
     args = parser.parse_args()
 
@@ -127,7 +115,7 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
         labels = {k: v.to(device) for k, v in labels.items()}
 
-        preds = model(mol_graphs, rxn_graphs, feats, metadata)
+        preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
         preds["atom_in_reaction_center"] = torch.flatten(preds["atom_in_reaction_center"])
 
         # TODO may be assign different weights for atoms and bonds, giving each
@@ -141,7 +129,14 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
             reduction="mean",
             pos_weight=pos_weight,
         )
-        loss = loss_bond_type + loss_atom_in_reaction_center
+
+        # @@@
+        # TODO temporaty, random label
+        x = len(preds["reaction_cluster"])
+        cluster_labels = cluster_labels[:x]
+        # @@@
+        loss_reaction_cluster = F.cross_entropy(preds["reaction_cluster"], cluster_labels)
+        loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
 
         # update model parameters
         optimizer.zero_grad()
@@ -186,7 +181,7 @@ def evaluate(model, data_loader, device):
             feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
             labels = {k: v.to(device) for k, v in labels.items()}
 
-            preds = model(mol_graphs, rxn_graphs, feats, metadata)
+            preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
             preds["atom_in_reaction_center"] = torch.flatten(
                 preds["atom_in_reaction_center"]
             )
@@ -238,7 +233,7 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
     )
 
     # save dataset state dict for retraining or prediction
-    if not args.distributed or (args.distributed and args.gpu == 0):
+    if not args.distributed or args.rank == 0:
         dataset.save_state_dict(args.dataset_state_dict_filename)
         print(
             "Trainset size: {}, valset size: {}: testset size: {}.".format(
@@ -271,24 +266,20 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
     return train_loader, val_loader, test_loader, feature_size, train_sampler, trainset
 
 
-def main_worker(gpu, world_size, args):
+def main(args):
     # TODO no need to make best global, since now each process will have all the val data
     global best
 
-    # setup distributed
     if args.distributed:
-        dist.init_process_group(
-            args.dist_backend, init_method=args.dist_url, world_size=world_size, rank=gpu
-        )
-
-    # setup device
-    args.gpu = gpu
-    if gpu is None:
-        args.device = torch.device("cpu")
+        init_distributed_mode(args)
     else:
-        args.device = torch.device("cuda", gpu)
+        if args.gpu:
+            args.device = torch.device("cuda")
+        else:
+            args.device = torch.device("cpu")
 
-    if not args.distributed or (args.distributed and args.gpu == 0):
+    if not args.distributed or args.rank == 0:
+        print(args)
         yaml_dump(args, "train_args.yaml")
         print("\n\nStart training at:", datetime.now())
 
@@ -333,15 +324,21 @@ def main_worker(gpu, world_size, args):
         # atom in reaction center decoder
         atom_in_reaction_center_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
         atom_in_reaction_center_decoder_activation=args.decoder_activation,
+        # clustering decoder
+        reaction_cluster_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
+        reaction_cluster_decoder_activation=args.decoder_activation,
+        num_prototypes=10,
     )
 
-    if not args.distributed or (args.distributed and args.gpu == 0):
+    if not args.distributed or args.rank == 0:
         print(model)
 
-    if args.gpu is not None:
-        model.to(args.gpu)
     if args.distributed:
-        ddp_model = DDP(model, device_ids=[args.gpu])
+        if args.gpu:
+            model.to(args.device)
+            ddp_model = DDP(model, device_ids=[args.device])
+        else:
+            ddp_model = DDP(model)
         model = ddp_model
 
     ### optimizer
@@ -380,7 +377,7 @@ def main_worker(gpu, world_size, args):
     # training loop
     ################################################################################
 
-    if not args.distributed or (args.distributed and args.gpu == 0):
+    if not args.distributed or args.rank == 0:
         print(
             "\n\n# Epoch     Loss      Train[acc|prec|rec|f1]    "
             "Val[acc|prec|rec|f1]   Time"
@@ -421,7 +418,7 @@ def main_worker(gpu, world_size, args):
             best = f1_sum
 
         # save checkpoint
-        if not args.distributed or (args.distributed and args.gpu == 0):
+        if not args.distributed or args.rank == 0:
             misc_objs = {"best": best, "epoch": epoch}
             save_checkpoints(
                 state_dict_objs,
@@ -455,7 +452,7 @@ def main_worker(gpu, world_size, args):
         state_dict_objs, map_location=args.device, filename="best_checkpoint.pkl"
     )
 
-    if not args.distributed or (args.distributed and args.gpu == 0):
+    if not args.distributed or args.rank == 0:
         # test_metrics = evaluate(model, test_loader, args.device)
         test_metrics = evaluate(model, val_loader, args.device)
 
@@ -467,19 +464,9 @@ def main_worker(gpu, world_size, args):
         print(f"\nFinish training at: {datetime.now()}")
 
 
-def main():
-    args = parse_args()
-    print(args)
-
-    if args.distributed:
-        # DDP
-        world_size = torch.cuda.device_count() if args.num_gpu is None else args.num_gpu
-        mp.spawn(main_worker, nprocs=world_size, args=(world_size, args))
-
-    else:
-        # train on CPU or a single GPU
-        main_worker(args.gpu, None, args)
-
-
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)
+
+    # to run distributed CPU training, do
+    # python -m torch.distributed.launch --nproc_per_node=2 train_distributed.py  --distributed 1
