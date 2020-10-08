@@ -67,3 +67,6 @@ class FCNN(nn.Module):
         for layer in self.fc_layers:
             x = layer(x)
         return x
+
+    def __repr__(self):
+        return f"FCNN, num layers={len(self.fc_layers)}"

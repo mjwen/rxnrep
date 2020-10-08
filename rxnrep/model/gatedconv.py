@@ -218,6 +218,9 @@ class GatedGCNConv(nn.Module):
 
         return feats
 
+    def __repr__(self):
+        return "GatedConv ..."
+
 
 class GatedGCNConv1(GatedGCNConv):
     """

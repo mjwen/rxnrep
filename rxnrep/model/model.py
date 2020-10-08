@@ -2,9 +2,13 @@ import torch.nn as nn
 import torch
 import dgl
 from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.decoder import BondTypeDecoder, AtomInReactionCenterDecoder
+from rxnrep.model.decoder import (
+    BondTypeDecoder,
+    AtomInReactionCenterDecoder,
+    ReactionClusterDecoder,
+)
 from rxnrep.model.readout import Set2SetThenCat
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 
 class ReactionRepresentation(nn.Module):
@@ -31,6 +35,10 @@ class ReactionRepresentation(nn.Module):
         # atom in reaction center decoder
         atom_in_reaction_center_decoder_hidden_layer_sizes,
         atom_in_reaction_center_decoder_activation,
+        # clustering decoder
+        reaction_cluster_decoder_hidden_layer_sizes,
+        reaction_cluster_decoder_activation,
+        num_prototypes,
         # readout reaction features
         set2set_num_iterations: int = 3,
         set2set_num_layers: int = 3,
@@ -55,6 +63,8 @@ class ReactionRepresentation(nn.Module):
             reaction_dropout=reaction_dropout,
         )
 
+        # ========== node level decoder ==========
+
         # bond type decoder
         in_size = reaction_conv_layer_sizes[-1]
         self.bond_type_decoder = BondTypeDecoder(
@@ -67,9 +77,11 @@ class ReactionRepresentation(nn.Module):
         in_size = reaction_conv_layer_sizes[-1]
         self.atom_in_reaction_center_decoder = AtomInReactionCenterDecoder(
             in_size=in_size,
-            hidden_layer_sizes=atom_in_reaction_center_decoder_hidden_layer_sizes,
-            activation=atom_in_reaction_center_decoder_activation,
+            hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
+            activation=reaction_cluster_decoder_activation,
         )
+
+        # ========== reaction level decoder ==========
 
         # readout reaction features, one 1D tensor for each reaction
         in_sizes = [reaction_conv_layer_sizes[-1]] * 2
@@ -81,13 +93,22 @@ class ReactionRepresentation(nn.Module):
             ntypes_direct_cat=["global"],
         )
 
+        # TODO num_classes should be read in
+        in_size = reaction_conv_layer_sizes[-1] * 5
+        self.reaction_cluster_decoder = ReactionClusterDecoder(
+            in_size=in_size,
+            num_classes=10,
+            hidden_layer_sizes=atom_in_reaction_center_decoder_hidden_layer_sizes,
+            activation=atom_in_reaction_center_decoder_activation,
+        )
+
     def forward(
         self,
         molecule_graphs: dgl.DGLGraph,
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], torch.Tensor]:
         """
         Args:
             molecule_graphs:
@@ -96,8 +117,8 @@ class ReactionRepresentation(nn.Module):
             metadata:
 
         Returns:
-            {decoder_name: value}: predictions of the decoders.
-
+            predictions: {decoder_name: value} predictions of the decoders.
+            reaction_features: a tensor of the embeddings of all reactions.
         """
         # encoder
         feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
@@ -112,51 +133,17 @@ class ReactionRepresentation(nn.Module):
         atom_feats = feats["atom"]
         atom_in_reaction_center = self.atom_in_reaction_center_decoder(atom_feats)
 
-        ### graph level decover
-
+        ### graph level decoder
         # readout reaction features, a 1D tensor for each reaction
-        rxn_feats = self.set2set(reaction_graphs, feats)
+        reaction_feats = self.set2set(reaction_graphs, feats)
+
+        reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
 
         ### predictions
         predictions = {
             "bond_type": bond_type,
             "atom_in_reaction_center": atom_in_reaction_center,
+            "reaction_cluster": reaction_cluster,
         }
 
-        return predictions
-
-    def get_reaction_features(
-        self,
-        molecule_graphs: dgl.DGLGraph,
-        reaction_graphs: dgl.DGLGraph,
-        feats: Dict[str, torch.Tensor],
-        metadata: Dict[str, List[int]],
-    ) -> torch.Tensor:
-        # Notes:
-        # We can call this safely, since we do not have any pre-forward and  post-forward
-        # hooks defined in this module.
-        """
-        Get the reaction features, which is the concatenation of atom, bond, and global
-        features: [atom_feats|bond_feats|global_feats]. atom_feats (bond_feats) is
-        are obtained by aggregating all atom features (bond_features) via set2set.
-
-        Args:
-            molecule_graphs:
-            reaction_graphs:
-            feats:
-            metadata:
-
-        Returns:
-            2D tensor of shape (N, D), where N is the number of reactions, and D is
-                the dimension of the features.
-        """
-
-        # encoder
-        feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
-
-        ### graph level decover
-
-        # readout reaction features, a 1D tensor for each reaction
-        rxn_feats = self.set2set(reaction_graphs, feats)
-
-        return rxn_feats
+        return predictions, reaction_feats
