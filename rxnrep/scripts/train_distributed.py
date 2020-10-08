@@ -20,7 +20,7 @@ from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassification
 from rxnrep.model.clustering import ReactionCluster
 from rxnrep.scripts.utils import (
     EarlyStopping,
-    seed_torch,
+    seed_all,
     load_checkpoints,
     save_checkpoints,
 )
@@ -121,7 +121,7 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
     cluster_labels = reaction_cluster.get_cluster_ids(epoch)
 
     epoch_loss = 0.0
-    for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
+    for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
         mol_graphs = mol_graphs.to(device)
         rxn_graphs = rxn_graphs.to(device)
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
@@ -178,7 +178,9 @@ def evaluate(model, data_loader, device):
 
     with torch.no_grad():
 
-        for it, (mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
+        for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
+            data_loader
+        ):
             mol_graphs = mol_graphs.to(device)
             rxn_graphs = rxn_graphs.to(device)
             feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
@@ -292,7 +294,7 @@ def main_worker(gpu, world_size, args):
 
     # Explicitly setting seed to ensure the same dataset split and models created in
     # two processes (when distributed) starting from the same random weights and biases
-    seed_torch()
+    seed_all()
 
     ################################################################################
     #  set up dataset, model, optimizer ...

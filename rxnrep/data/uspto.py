@@ -100,6 +100,7 @@ class USPTODataset(BaseDataset):
             dataset used for training, such as all the atom types in the in the molecules,
              mean and stdev of the features (if transform_features if `True`).
         num_processes: number of processes used to load and process the dataset.
+        return_index: whether to return the index of the sample in the dataset
     """
 
     def __init__(
@@ -111,6 +112,7 @@ class USPTODataset(BaseDataset):
         transform_features: bool = True,
         state_dict_filename: Optional[Union[str, Path]] = None,
         num_processes: int = 1,
+        return_index: bool = True,
     ):
 
         # read input files
@@ -123,6 +125,7 @@ class USPTODataset(BaseDataset):
             global_featurizer,
             state_dict_filename,
             num_processes,
+            return_index,
         )
 
         # set failed and labels
@@ -316,7 +319,10 @@ class USPTODataset(BaseDataset):
             }
             self.labels[item] = labels
 
-        return reactants_g, products_g, reaction_g, reaction, labels
+        if self.return_index:
+            return item, reactants_g, products_g, reaction_g, reaction, labels
+        else:
+            return reactants_g, products_g, reaction_g, reaction, labels
 
     def __len__(self) -> int:
         """
@@ -326,8 +332,11 @@ class USPTODataset(BaseDataset):
 
 
 def collate_fn(samples):
-    reactants_g, products_g, reaction_g, reactions, labels = map(list, zip(*samples))
+    indices, reactants_g, products_g, reaction_g, reactions, labels = map(
+        list, zip(*samples)
+    )
 
+    indices = torch.tensor(indices)
     batched_molecule_graphs = dgl.batch(reactants_g + products_g)
     batched_reaction_graphs = dgl.batch(reaction_g)
 
@@ -360,4 +369,10 @@ def collate_fn(samples):
         "num_added_bonds": num_added_bonds,
     }
 
-    return batched_molecule_graphs, batched_reaction_graphs, batched_labels, metadata
+    return (
+        indices,
+        batched_molecule_graphs,
+        batched_reaction_graphs,
+        batched_labels,
+        metadata,
+    )

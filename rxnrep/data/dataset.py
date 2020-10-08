@@ -24,6 +24,7 @@ class BaseDataset:
         global_featurizer: Callable,
         state_dict_filename: Optional[Union[str, Path]] = None,
         num_processes: int = 1,
+        return_index: bool = True,
     ):
 
         self.reactions = reactions
@@ -32,6 +33,7 @@ class BaseDataset:
         self.global_featurizer = global_featurizer
         self.state_dict_filename = state_dict_filename
         self.nprocs = num_processes
+        self.return_index = return_index
 
         self._species = None
         self._feature_scaler_mean = None
