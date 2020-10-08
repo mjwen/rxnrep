@@ -15,7 +15,7 @@ from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturi
 from rxnrep.data.splitter import train_validation_test_split
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
-from rxnrep.model.clustering import ReactionCluster
+from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
 from rxnrep.scripts.utils import (
     EarlyStopping,
     seed_all,
@@ -106,7 +106,9 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
     # TODO temporary (should set to the ratio of atoms in center)
     pos_weight = torch.tensor(4.0).to(device)
 
-    cluster_labels = reaction_cluster.get_cluster_ids(epoch)
+    cluster_labels = reaction_cluster.get_cluster_assignments()
+    # TODO temporary, use the first head for now
+    cluster_labels = cluster_labels[0]
 
     epoch_loss = 0.0
     for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
@@ -228,9 +230,15 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
         state_dict_filename=state_dict_filename,
     )
 
-    trainset, valset, testset = train_validation_test_split(
-        dataset, validation=validation_ratio, test=test_ratio
-    )
+    # trainset, valset, testset = train_validation_test_split(
+    #     dataset, validation=validation_ratio, test=test_ratio
+    # )
+
+    # TODO, train set, val set, and test set should be separate dataset, since we will
+    #  directly use index in clustering
+    trainset = dataset
+    valset = dataset
+    testset = dataset
 
     # save dataset state dict for retraining or prediction
     if not args.distributed or args.rank == 0:
@@ -353,9 +361,19 @@ def main(args):
     stopper = EarlyStopping(patience=150)
 
     ### cluster
-    reaction_cluster = ReactionCluster(
-        model, trainset, num_clusters=10, device=args.device
-    )
+    if args.distributed:
+        reaction_cluster = DistributedReactionCluster(
+            model,
+            train_loader,
+            args.batch_size,
+            len(train_loader.dataset),
+            num_prototypes=[10],
+            device=args.device,
+        )
+    else:
+        reaction_cluster = ReactionCluster(
+            model, trainset, num_clusters=10, device=args.device
+        )
 
     # load checkpoint
     state_dict_objs = {"model": model, "optimizer": optimizer, "scheduler": scheduler}

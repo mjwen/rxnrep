@@ -66,7 +66,7 @@ class DistributedReactionCluster:
 
         Args:
             centroids_init: [`random`|`last`] methods to initialize centroids.
-                If `random`, will randomly select centroids from the embedding data.
+                If `random`, will randomly select centroids from the data.
                 If `last`, will use the centroids the last time clustering is run.
             similarity: [`cosine`|`l2`] similarity measure for the distance between
                 data and centroid.
@@ -79,8 +79,8 @@ class DistributedReactionCluster:
             self.local_data, self.local_index = get_reaction_features(
                 self.model, self.data_loader, self.device
             )
-        local_index = self.local_memory_index
-        local_data = self.local_memory_embeddings
+        local_index = self.local_index
+        local_data = self.local_data
 
         # initialize centroids
         if centroids_init == "random":
@@ -108,16 +108,14 @@ class DistributedReactionCluster:
 
         return assignments
 
-    def set_local_memory_index_and_embeddings(
-        self, index: torch.Tensor, embeddings: torch.Tensor
-    ):
+    def set_local_index_and_data(self, index: torch.Tensor, data: torch.Tensor):
         """
         Args:
-            index: shape (N,): index of the memory embeddings
-            embeddings:  shape (N,D): memory embeddings
+            index: shape (N,): index of the data
+            data: shape (N,D): data
         """
-        self.local_memory_index = index
-        self.local_memory_embeddings = embeddings
+        self.local_index = index
+        self.local_data = data
 
 
 class ReactionCluster:
@@ -147,8 +145,13 @@ class ReactionCluster:
         self.cluster_centers = None
         self.epoch = None
 
-    def get_cluster_ids(self, epoch: int):
-        generate = self.whether_to_generate_ids(epoch)
+    def get_cluster_assignments(self, epoch: int = None):
+        if self.epoch is None or epoch is None or epoch % 4 == 0:
+            generate = True
+        else:
+            generate = False
+
+        self.epoch = epoch
 
         if generate:
             print(f"Generating new cluster ids at epoch {epoch}...")
@@ -169,25 +172,7 @@ class ReactionCluster:
             self.cluster_ids = cluster_ids
             self.cluster_centers = cluster_centers
 
-        return self.cluster_ids
-
-    def whether_to_generate_ids(self, epoch: int) -> bool:
-        """
-        Determine whether to generate new cluster labels.
-
-        Now, we hard-code it te generate every 4 epochs.
-
-        Args:
-            epoch: current epoch
-        """
-        if self.epoch is None or epoch % 4 == 0:
-            generate = True
-        else:
-            generate = False
-
-        self.epoch = epoch
-
-        return generate
+        return [self.cluster_ids]
 
 
 def distributed_initialize_centroids(
@@ -326,7 +311,7 @@ def distributed_kmeans(
                 centroids[mask] = emb_sums[mask] / counts[mask].unsqueeze(1)
 
             # assign centroids back
-            all_centroids[i_K] = centroids.cpu()
+            all_centroids.append(centroids.cpu())
 
             # gather the assignments
             assignments_all = torch.empty(
