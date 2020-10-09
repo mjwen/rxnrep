@@ -3,9 +3,11 @@ import os
 import shutil
 import logging
 import numpy as np
+import pandas as pd
 import torch
 import torch.distributed as dist
 import dgl
+from typing import Any, Dict
 
 
 logger = logging.getLogger(__name__)
@@ -122,3 +124,36 @@ def init_distributed_mode(args):
         world_size=args.world_size,
         rank=args.rank,
     )
+
+
+class ProgressMeter:
+    """
+    Log stuff with pandas
+    """
+
+    def __init__(self, path, restore=False):
+        self.path = path
+
+        # reload path stats
+        if os.path.isfile(self.path) and restore:
+            self.stats = pd.read_csv(self.path, index_col=None)
+        else:
+            self.stats = None
+
+    def update(self, row: Dict[str, Any], save=True):
+        if self.stats is None:
+            self.stats = pd.DataFrame([row])
+        else:
+            self.stats = self.stats.append(row, ignore_index=True)
+
+        # save the statistics
+        if save:
+            self.stats.to_csv(self.path, index=False)
+
+    def display(self):
+        # get the last row as a dict
+        latest = self.stats.tail(n=1).to_dict("records")[0]
+
+        fmt_str = ["{}: {:.2f}".format(k, v) for k, v in latest.items()]
+        fmt_str = ", ".join(fmt_str)
+        print(fmt_str)

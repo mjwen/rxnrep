@@ -22,7 +22,7 @@ from rxnrep.scripts.utils import (
     save_checkpoints,
 )
 from rxnrep.utils import yaml_dump
-from rxnrep.scripts.utils import init_distributed_mode
+from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter
 
 best = -np.finfo(np.float32).max
 
@@ -122,10 +122,12 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
         preds["atom_in_reaction_center"] = torch.flatten(preds["atom_in_reaction_center"])
 
+        # ========== loss for bond type prediction ==========
         loss_bond_type = F.cross_entropy(
             preds["bond_type"], labels["bond_type"], reduction="mean"
         )
 
+        # ========== loss for atom in reaction center prediction ==========
         loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
             preds["atom_in_reaction_center"],
             labels["atom_in_reaction_center"],
@@ -133,6 +135,7 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
             pos_weight=pos_weight,
         )
 
+        # ========== loss for clustering prediction ==========
         loss_reaction_cluster = []
         for cl in cluster_labels:
             lb = cl[indices]  # select for current batch from all assignments
@@ -145,18 +148,19 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         #  reaction have the same weight?
         loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
 
-        # update model parameters
+        # ========== update model parameters ==========
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         epoch_loss += loss.detach().item()
 
-        # metrics
+        # ========== metrics ==========
         # bond type
         p = torch.argmax(preds["bond_type"], dim=1)
         metrics["bond_type"].step(p, labels["bond_type"])
         # atom in reaction center
         p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
+        p = p.to(torch.int32)
         metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
 
     epoch_loss /= it + 1
@@ -401,13 +405,7 @@ def main(args):
     ################################################################################
     # training loop
     ################################################################################
-
-    if not args.distributed or args.rank == 0:
-        print(
-            "\n\n# Epoch     Loss      Train[acc|prec|rec|f1]    "
-            "Val[acc|prec|rec|f1]   Time"
-        )
-        sys.stdout.flush()
+    progress = ProgressMeter("progress.csv", restore=args.restore)
 
     for epoch in range(args.start_epoch, args.epochs):
         ti = time.time()
@@ -454,19 +452,11 @@ def main(args):
 
             tt = time.time() - ti
 
-            print(
-                "{:5d}   {:12.6e}   {}   {}   {}   {}   {:.2f}".format(
-                    epoch,
-                    loss,
-                    str(train_metrics["bond_type"]),
-                    str(train_metrics["atom_in_reaction_center"]),
-                    str(val_metrics["bond_type"]),
-                    str(val_metrics["atom_in_reaction_center"]),
-                    tt,
-                )
-            )
-            if epoch % 10 == 0:
-                sys.stdout.flush()
+            stat = {"epoch": epoch, "time": tt}
+            stat.update(train_metrics["bond_type"].as_dict("tr_bt"))
+            stat.update(train_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
+            progress.update(stat, save=True)
+            progress.display()
 
     ################################################################################
     # test
@@ -478,14 +468,16 @@ def main(args):
     )
 
     if not args.distributed or args.rank == 0:
-        # test_metrics = evaluate(model, test_loader, args.device)
-        test_metrics = evaluate(model, val_loader, args.device)
+        test_metrics = evaluate(model, test_loader, args.device)
 
-        print(f"\n#Test Metric (bond_type): {str(test_metrics['bond_type'])}")
-        print(
-            "\n#Test Metric (atom_in_reaction_center): "
-            f"{str(test_metrics['atom_in_reaction_center'])}"
-        )
+        stat = test_metrics["bond_type"].as_dict("tr_bt")
+        stat.update(test_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
+
+        progress = ProgressMeter("test_result.csv")
+        progress.update(stat, save=True)
+        print("\nTest result:")
+        progress.display()
+
         print(f"\nFinish training at: {datetime.now()}")
 
 

@@ -57,6 +57,20 @@ class BinaryClassificationMetrics:
             self.accuracy, self.precision, self.recall, self.f1
         )
 
+    def as_dict(self, prefix=None):
+        if prefix is None:
+            prefix = ""
+        else:
+            prefix = prefix + "_"
+
+        d = {
+            f"{prefix}accuracy": self.accuracy,
+            f"{prefix}precision": self.precision,
+            f"{prefix}recall": self.recall,
+            f"{prefix}f1": self.f1,
+        }
+        return d
+
 
 class MultiClassificationMetrics:
     def __init__(self, num_classes: int):
@@ -105,6 +119,20 @@ class MultiClassificationMetrics:
         return "[{:.2f}|{:.2f}|{:.2f}|{:.2f}]".format(
             self.accuracy, self.precision, self.recall, self.f1
         )
+
+    def as_dict(self, prefix=None):
+        if prefix is None:
+            prefix = ""
+        else:
+            prefix = prefix + "_"
+
+        d = {
+            f"{prefix}accuracy": self.accuracy,
+            f"{prefix}precision": self.precision,
+            f"{prefix}recall": self.recall,
+            f"{prefix}f1": self.f1,
+        }
+        return d
 
 
 def accuracy_precision_recall_fbeta_from_state_scores(
