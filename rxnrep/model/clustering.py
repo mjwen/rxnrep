@@ -1,7 +1,5 @@
 """
-A k-mean cluster method running only on a single GPU.
-
-The kmeans function is based on `kmeans_pytorch` at: https://github.com/subhadarship/kmeans_pytorch
+Distributed and serial K-means clustering methods.
 """
 
 import numpy as np
@@ -17,16 +15,31 @@ from typing import Tuple, List, Optional
 
 class DistributedReactionCluster:
     """
-    Distributed K-mean clustering.
+    Distributed K-mean clustering, with multiple cluster heads.
 
     Adapted from deepcluster-v2 at:
     https://github.com/facebookresearch/swav/blob/master/main_deepclusterv2.py
 
     Args:
-
-        dataset_size: total dataset size (all samples in all processes)
-        num_prototypes: each element gives the number of clusters in a cluster head.
-            A total number of `len(num_prototypes)` cluster heads are used.
+        local_data: data distributed to the local process.
+            shape (N_local, D), where `N_local` is number of data points distributed to
+            the local process and the `D` is the feature dimension. If `None`, will
+            automatically get the data from the data loader.
+        local_index: index of the data distributed to the local process. The index is
+            the global index of the data point in the data array stored in the dataset.
+            For example, index [3,2,5] means the local data are items 3, 2, 5 in the
+            dataset.
+            shape (N_local,), where `N_local` is number of data points distributed to
+            the local process. If `None`, will automatically get the data from the data
+            loader.
+        num_centroids: the number of centroids in each cluster head. For example,
+            `[K1, K2, K3]` means three cluster heads are used, with K1, K2, and K3
+            number of centroids, respectively.
+        centroids: centroids to initialize the k-means algorithms. If `None`, will be
+            randomly initialized from the local data on rank 0. This shape of each tensor
+            should corresponds to `num_centroids`. For example, if `num_centroids` is
+            `(K1, K2, K3)`, then `centroids` should be a list of 3 tensors, with shape
+            (K1, D), (K2, D), and (K3, D), respectively.
     """
 
     def __init__(
@@ -34,44 +47,47 @@ class DistributedReactionCluster:
         model,
         data_loader,
         batch_size: int,
-        dataset_size: int,
-        num_prototypes=(1000, 1000),
-        local_data=None,
-        local_index=None,
-        centroids=None,
+        local_data: Optional[torch.Tensor] = None,
+        local_index: Optional[torch.Tensor] = None,
+        num_centroids: List[int] = None,
+        centroids: Optional[List[torch.Tensor]] = None,
         device=None,
     ):
         super(DistributedReactionCluster, self).__init__()
         self.model = model
         self.data_loader = data_loader
         self.batch_size = batch_size
-        self.dataset_size = dataset_size
-        self.num_prototypes = num_prototypes
 
         self.local_data = local_data
         self.local_index = local_index
+        if num_centroids is None:
+            self.num_centroids = [10, 10]
+        else:
+            self.num_centroids = num_centroids
         self.centroids = centroids
+
+        self.dataset_size = len(data_loader.dataset)  # total number of data in dataset
 
         self.device = device
 
     def get_cluster_assignments(
         self, num_iters: int = 10, centroids_init="random", similarity: str = "cosine"
-    ):
+    ) -> List[torch.Tensor]:
         """
         Get the assignments of the data points to the clusters.
 
-        Note, there are multiple cluster heads, determined by `num_prototypes`.
-
-
+        Note, there are multiple cluster heads, determined by `num_centroids`.
 
         Args:
-            centroids_init: [`random`|`last`] methods to initialize centroids.
+            centroids_init: [`random`|`last`] methods to initialize_centroids centroids.
                 If `random`, will randomly select centroids from the data.
                 If `last`, will use the centroids the last time clustering is run.
             similarity: [`cosine`|`l2`] similarity measure for the distance between
                 data and centroid.
 
         Returns:
+            Each tensor is of shape (N_local,), giving the assignments of the data
+            points to the clusters.
 
         """
         # initialize local index and data
@@ -85,7 +101,7 @@ class DistributedReactionCluster:
         # initialize centroids
         if centroids_init == "random":
             centroids = distributed_initialize_centroids(
-                local_data, self.num_prototypes, self.device
+                local_data, self.num_centroids, self.device
             )
         elif centroids_init == "last":
             centroids = self.centroids
@@ -96,7 +112,7 @@ class DistributedReactionCluster:
             local_data,
             local_index,
             self.dataset_size,
-            self.num_prototypes,
+            self.num_centroids,
             centroids,
             num_iters,
             similarity,
@@ -108,79 +124,100 @@ class DistributedReactionCluster:
 
         return assignments
 
-    def set_local_index_and_data(self, index: torch.Tensor, data: torch.Tensor):
+    def set_local_data_and_index(self, data: torch.Tensor, index: torch.Tensor):
         """
         Args:
-            index: shape (N,): index of the data
-            data: shape (N,D): data
+            data: shape (N_local, D): data
+            index: shape (N_local,): index of the data
         """
-        self.local_index = index
         self.local_data = data
+        self.local_index = index
 
 
 class ReactionCluster:
     """
-    Cluster the reaction features using k-means.
+    Cluster data using using k-means, with multiple cluster heads.
+
+
+    Based on `kmeans_pytorch` at: https://github.com/subhadarship/kmeans_pytorch
     """
 
     def __init__(
         self,
         model,
         dataset,
-        num_clusters=10,
-        iter_limit=500,
-        batch_size=1000,
+        batch_size: int,
+        data: Optional[torch.Tensor] = None,
+        num_centroids: List[int] = None,
+        centroids: Optional[List[torch.Tensor]] = None,
         device=None,
     ):
         super(ReactionCluster, self).__init__()
         self.model = model
-        self.num_clusters = num_clusters
-        self.iter_limit = iter_limit
         self.device = device
         self.data_loader = DataLoader(
             dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
         )
+        self.data = data
 
-        self.cluster_ids = None
-        self.cluster_centers = None
-        self.epoch = None
-
-    def get_cluster_assignments(self, epoch: int = None):
-        if self.epoch is None or epoch is None or epoch % 4 == 0:
-            generate = True
+        if num_centroids is None:
+            self.num_centroids = [10, 10]
         else:
-            generate = False
+            self.num_centroids = num_centroids
+        self.centroids = centroids
 
-        self.epoch = epoch
+    def get_cluster_assignments(
+        self,
+        num_iters: int = 10,
+        centroids_init="random",
+        similarity: str = "cosine",
+        tol=1.0,
+    ) -> List[torch.Tensor]:
 
-        if generate:
-            print(f"Generating new cluster ids at epoch {epoch}...")
-            # get features
-            feats, _ = get_reaction_features(self.model, self.data_loader, self.device)
+        if self.data is None:
+            data, _ = get_reaction_features(self.model, self.data_loader, self.device)
+        else:
+            data = self.data
 
-            # apply k-means
-            cluster_ids, cluster_centers = kmeans(
-                X=feats,
-                num_clusters=self.num_clusters,
-                distance="euclidean",
-                cluster_centers=None,
-                tol=1.0,
-                tqdm_flag=True,
-                iter_limit=self.iter_limit,
+        # initialize centroids
+        if centroids_init == "random":
+            centroids = [initialize_centroids(data, K) for K in self.num_centroids]
+        elif centroids_init == "last":
+            centroids = self.centroids
+        else:
+            raise ValueError(f"Unsupported centroids init methods: {centroids_init}")
+
+        # get features
+
+        # apply k-means
+        all_assignments = []
+        all_centroids = []
+        for K, c in zip(self.num_centroids, centroids):
+            assignment, ctrd = kmeans(
+                X=data,
+                num_clusters=K,
+                distance=similarity,
+                cluster_centers=c,
+                tol=tol,
+                tqdm_flag=False,
+                iter_limit=num_iters,
                 device=self.device,
             )
-            self.cluster_ids = cluster_ids
-            self.cluster_centers = cluster_centers
+            all_assignments.append(assignment)
+            all_centroids.append(ctrd)
 
-        return [self.cluster_ids]
+        if centroids_init == "last":
+            self.centroids = all_centroids
+
+        return all_assignments
 
 
 def distributed_initialize_centroids(
-    local_data: torch.Tensor, num_prototypes: Tuple[int], device=None
+    local_data: torch.Tensor, num_prototypes: List[int], device=None
 ) -> List[torch.Tensor]:
     """
     Initialize the centroids from the features of of rank 0 for all cluster heads.
-    The number of cluster heads equal the size of `num_prototypes`.
+    The number of cluster heads equal the size of `num_centroids`.
 
     Args:
         local_data: data on the local process.
@@ -200,7 +237,8 @@ def distributed_initialize_centroids(
         for i_K, K in enumerate(num_prototypes):
 
             # init centroids with elements from memory bank of rank 0
-            centroids = torch.empty(K, feature_dim).to(device, non_blocking=True)
+            centroids = torch.empty(K, feature_dim, device=device)
+
             if dist.get_rank() == 0:
                 random_idx = torch.randperm(len(local_data))[:K]
                 assert len(random_idx) >= K, "please reduce the number of centroids"
@@ -216,7 +254,7 @@ def distributed_kmeans(
     local_data: torch.Tensor,
     local_index: torch.Tensor,
     dataset_size: int,
-    num_prototypes: Tuple[int],
+    num_prototypes: List[int],
     centroids: Optional[List[torch.Tensor]] = None,
     num_iters: int = 10,
     similarity: str = "cosine",
@@ -232,13 +270,13 @@ def distributed_kmeans(
             array.
         dataset_size: total size of the dataset (not the local size)
         num_prototypes: number of clusters for each cluster head. The number of
-            cluster heads is `len(num_prototypes)`. e.g. (K1, K2, K3).
+            cluster heads is `len(num_centroids)`. e.g. (K1, K2, K3).
         centroids: initial centroids for the k-means method. If `None`, randomly
-            initialize from data in rank 0 process. Otherwise, should be a list of
+            initialize_centroids from data in rank 0 process. Otherwise, should be a list of
             tensor, each giving the centroids for a cluster heads.
             For example, the shapes of tensors is [(K1,D), (K2, D), (K3,D)], where K1,
             K2, K3 are the number of centroids for each cluster heads as given in
-            `num_prototypes`, and D is the feature dimension.
+            `num_centroids`, and D is the feature dimension.
         num_iters: number of iterations
         similarity: [`cosine`|`l2`] similarity measure for the distance between
             data and centroid.
@@ -266,7 +304,7 @@ def distributed_kmeans(
         for i_K, K in enumerate(num_prototypes):
             # run distributed k-means
 
-            # initialize centroids
+            # initialize_centroids centroids
             if init_centroids is None:
                 centroids = distributed_initialize_centroids(
                     local_data, num_prototypes, device
@@ -353,9 +391,9 @@ def get_indices_sparse(data):
     return [np.unravel_index(row.data, data.shape) for row in M]
 
 
-def initialize(X, num_clusters):
+def initialize_centroids(X, num_clusters):
     """
-    initialize cluster centers
+    initialize_centroids cluster centers
     :param X: (torch.tensor) matrix
     :param num_clusters: (int) number of clusters
     :return: (np.array) initial state
@@ -401,11 +439,10 @@ def kmeans(
     # transfer to device
     X = X.to(device)
 
-    # initialize
+    # initialize_centroids
     if cluster_centers is None:
-        initial_state = initialize(X, num_clusters)
+        initial_state = initialize_centroids(X, num_clusters)
     else:
-        print("resuming")
         # find data point closest to the initial cluster center
         initial_state = cluster_centers
         dis = pairwise_distance_function(X, initial_state)

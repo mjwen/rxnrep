@@ -107,8 +107,6 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
     pos_weight = torch.tensor(4.0).to(device)
 
     cluster_labels = reaction_cluster.get_cluster_assignments()
-    # TODO temporary, use the first head for now
-    cluster_labels = cluster_labels[0]
 
     epoch_loss = 0.0
     for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
@@ -120,11 +118,10 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
         preds["atom_in_reaction_center"] = torch.flatten(preds["atom_in_reaction_center"])
 
-        # TODO may be assign different weights for atoms and bonds, giving each
-        #  reaction have the same weight?
         loss_bond_type = F.cross_entropy(
             preds["bond_type"], labels["bond_type"], reduction="mean"
         )
+
         loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
             preds["atom_in_reaction_center"],
             labels["atom_in_reaction_center"],
@@ -132,12 +129,19 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
             pos_weight=pos_weight,
         )
 
-        # @@@
-        # TODO temporaty, random label
-        x = len(preds["reaction_cluster"])
-        cluster_labels = cluster_labels[:x]
-        # @@@
-        loss_reaction_cluster = F.cross_entropy(preds["reaction_cluster"], cluster_labels)
+        loss_reaction_cluster = []
+        for cl in cluster_labels:
+            # @@@ TODO remove after fixing dataset
+            x = len(preds["reaction_cluster"])
+            lb = cl[:x]
+            # @@@
+            ls = F.cross_entropy(preds["reaction_cluster"], lb)
+            loss_reaction_cluster.append(ls)
+        loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
+
+        # total loss
+        # TODO may be assign different weights for atoms and bonds, giving each
+        #  reaction have the same weight?
         loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
 
         # update model parameters
@@ -366,13 +370,12 @@ def main(args):
             model,
             train_loader,
             args.batch_size,
-            len(train_loader.dataset),
-            num_prototypes=[10],
+            num_centroids=[10, 10],
             device=args.device,
         )
     else:
         reaction_cluster = ReactionCluster(
-            model, trainset, num_clusters=10, device=args.device
+            model, trainset, args.batch_size, num_centroids=[10, 10], device=args.device
         )
 
     # load checkpoint
