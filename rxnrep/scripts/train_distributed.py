@@ -12,7 +12,6 @@ from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 from rxnrep.data.uspto import USPTODataset, collate_fn
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.splitter import train_validation_test_split
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
 from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
@@ -31,10 +30,15 @@ best = -np.finfo(np.float32).max
 def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
-    # TODO, for temporary test only
+    # TODO, for temporary test only, should read from argparse
     # ========== input files ==========
-    fname = "/Users/mjwen/Documents/Dataset/uspto/raw/2001_Sep2016_USPTOapplications_smiles_n200_processed.tsv"
-    parser.add_argument("--dataset-filename", type=str, default=fname)
+    prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
+    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
+    fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
+    fname_test = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+    parser.add_argument("--trainset-filename", type=str, default=fname_tr)
+    parser.add_argument("--valset-filename", type=str, default=fname_val)
+    parser.add_argument("--testset-filename", type=str, default=fname_test)
 
     # ========== embedding layer ==========
     parser.add_argument("--embedding-size", type=int, default=24)
@@ -131,12 +135,9 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
 
         loss_reaction_cluster = []
         for cl in cluster_labels:
-            # @@@ TODO remove after fixing dataset
-            x = len(preds["reaction_cluster"])
-            lb = cl[:x]
-            # @@@
-            ls = F.cross_entropy(preds["reaction_cluster"], lb)
-            loss_reaction_cluster.append(ls)
+            lb = cl[indices]  # select for current batch from all assignments
+            e = F.cross_entropy(preds["reaction_cluster"], lb)
+            loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
         # total loss
@@ -207,7 +208,7 @@ def evaluate(model, data_loader, device):
     return metrics
 
 
-def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
+def load_dataset(args):
 
     # check dataset state dict if restore model
     if args.restore:
@@ -225,8 +226,24 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
     else:
         state_dict_filename = None
 
-    dataset = USPTODataset(
-        filename=args.dataset_filename,
+    trainset = USPTODataset(
+        filename=args.trainset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        state_dict_filename=state_dict_filename,
+    )
+    valset = USPTODataset(
+        filename=args.valset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        state_dict_filename=state_dict_filename,
+    )
+    testset = USPTODataset(
+        filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
@@ -234,19 +251,9 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
         state_dict_filename=state_dict_filename,
     )
 
-    # trainset, valset, testset = train_validation_test_split(
-    #     dataset, validation=validation_ratio, test=test_ratio
-    # )
-
-    # TODO, train set, val set, and test set should be separate dataset, since we will
-    #  directly use index in clustering
-    trainset = dataset
-    valset = dataset
-    testset = dataset
-
     # save dataset state dict for retraining or prediction
     if not args.distributed or args.rank == 0:
-        dataset.save_state_dict(args.dataset_state_dict_filename)
+        trainset.save_state_dict(args.dataset_state_dict_filename)
         print(
             "Trainset size: {}, valset size: {}: testset size: {}.".format(
                 len(trainset), len(valset), len(testset)
@@ -265,6 +272,12 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
         sampler=train_sampler,
         collate_fn=collate_fn,
     )
+
+    # TODO, for val set, we can also make it distributed and report the error on rank
+    #  0. If the vl set size is large enough, the statistics of error should be the same
+    #  in different ranks. If this is not good, we can gather and reduce the validation
+    #  metric.
+
     # larger val and test set batch_size is faster but needs more memory
     # adjust the batch size of to fit memory
     bs = max(len(valset) // 10, 1)
@@ -272,10 +285,7 @@ def load_dataset(args, validation_ratio=0.1, test_ratio=0.1):
     bs = max(len(testset) // 10, 1)
     test_loader = DataLoader(testset, batch_size=bs, shuffle=False, collate_fn=collate_fn)
 
-    # atom, bond, and global feature size
-    feature_size = dataset.feature_size
-
-    return train_loader, val_loader, test_loader, feature_size, train_sampler, trainset
+    return train_loader, val_loader, test_loader, train_sampler
 
 
 def main(args):
@@ -304,18 +314,11 @@ def main(args):
     ################################################################################
 
     ### dataset
-    (
-        train_loader,
-        val_loader,
-        test_loader,
-        feats_size,
-        train_sampler,
-        trainset,
-    ) = load_dataset(args)
+    train_loader, val_loader, test_loader, train_sampler = load_dataset(args)
 
     ### model
     model = ReactionRepresentation(
-        in_feats=feats_size,
+        in_feats=train_loader.dataset.feature_size,
         embedding_size=args.embedding_size,
         # encoder
         molecule_conv_layer_sizes=args.molecule_conv_layer_sizes,
@@ -374,6 +377,7 @@ def main(args):
             device=args.device,
         )
     else:
+        trainset = train_loader.dataset
         reaction_cluster = ReactionCluster(
             model, trainset, args.batch_size, num_centroids=[10, 10], device=args.device
         )
