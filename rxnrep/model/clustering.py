@@ -72,7 +72,7 @@ class DistributedReactionCluster:
 
     def get_cluster_assignments(
         self, num_iters: int = 10, centroids_init="random", similarity: str = "cosine"
-    ) -> List[torch.Tensor]:
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Get the assignments of the data points to the clusters.
 
@@ -86,17 +86,23 @@ class DistributedReactionCluster:
                 data and centroid.
 
         Returns:
-            Each tensor is of shape (N_local,), giving the assignments of the data
-            points to the clusters.
-
+            assignments: the assignments of the data points to the clusters. Each element
+                of the list gives the assignment for one clustering head. It is a
+                tensor of shape (N_local,), where N_local is the number of data points
+                in the local process.
+            centroids: the centroids of the k-means clusters. Each element of the list
+                gives the centroid for one clustering head. It is a tensor of
+                shape (K, D), where K is the number centroids in the clustering head,
+                and D is the feature dimension.
         """
         # initialize local index and data
         if self.local_data is None or self.local_index is None:
-            self.local_data, self.local_index = get_reaction_features(
+            local_data, local_index = get_reaction_features(
                 self.model, self.data_loader, self.device
             )
-        local_index = self.local_index
-        local_data = self.local_data
+        else:
+            local_index = self.local_index
+            local_data = self.local_data
 
         # initialize centroids
         if centroids_init == "random":
@@ -122,7 +128,7 @@ class DistributedReactionCluster:
         if centroids_init == "last":
             self.centroids = centroids
 
-        return assignments
+        return assignments, centroids
 
     def set_local_data_and_index(self, data: torch.Tensor, index: torch.Tensor):
         """
@@ -172,7 +178,7 @@ class ReactionCluster:
         centroids_init="random",
         similarity: str = "cosine",
         tol=1.0,
-    ) -> List[torch.Tensor]:
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
 
         if self.data is None:
             data, _ = get_reaction_features(self.model, self.data_loader, self.device)
@@ -209,7 +215,13 @@ class ReactionCluster:
         if centroids_init == "last":
             self.centroids = all_centroids
 
-        return all_assignments
+        return all_assignments, all_centroids
+
+    def set_local_data_and_index(self, data, index):
+        """
+        Index is ignored, since this is for running in serial mode.
+        """
+        self.data = data
 
 
 def distributed_initialize_centroids(
@@ -433,9 +445,6 @@ def kmeans(
     else:
         raise NotImplementedError
 
-    # convert to float
-    X = X.float()
-
     # transfer to device
     X = X.to(device)
 
@@ -470,7 +479,9 @@ def kmeans(
 
             selected = torch.index_select(X, 0, selected)
 
-            initial_state[index] = selected.mean(dim=0)
+            # only update nonempty clusters
+            if len(selected) != 0:
+                initial_state[index] = selected.mean(dim=0)
 
         center_shift = torch.sum(
             torch.sqrt(torch.sum((initial_state - initial_state_pre) ** 2, dim=1))
@@ -575,8 +586,8 @@ def get_reaction_features(
             rxn_graphs = rxn_graphs.to(device)
             feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
 
-            _, fts = model(mol_graphs, rxn_graphs, feats, metadata)
-            all_feats.append(fts.detach())
+            preds, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
+            all_feats.append(preds["reaction_cluster"].detach())
 
     indices = torch.cat(all_indices)
     feats = torch.cat(all_feats)

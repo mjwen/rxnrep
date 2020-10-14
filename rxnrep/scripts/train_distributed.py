@@ -3,8 +3,8 @@ import time
 import warnings
 import torch
 import argparse
-from pathlib import Path
 import numpy as np
+from pathlib import Path
 from datetime import datetime
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -66,6 +66,19 @@ def parse_args():
         "--decoder-hidden-layer-sizes", type=int, nargs="+", default=[64, 64]
     )
     parser.add_argument("--decoder-activation", type=str, default="ReLU")
+    # clustering decoder
+    parser.add_argument(
+        "--cluster-decoder-projection-head-size",
+        type=int,
+        default=33,
+        help="projection head size for the clustering decoder",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="temperature in the loss for cluster decoder",
+    )
 
     # ========== training ==========
     parser.add_argument("--start-epoch", type=int, default=0)
@@ -110,7 +123,12 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
     # TODO temporary (should set to the ratio of atoms in center)
     pos_weight = torch.tensor(4.0).to(device)
 
-    cluster_labels = reaction_cluster.get_cluster_assignments()
+    assignments, centroids = reaction_cluster.get_cluster_assignments()
+
+    # keep track of the data and index to be used in the next clustering run (to same
+    # time)
+    data_for_cluster = []
+    index_for_cluster = []
 
     epoch_loss = 0.0
     for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
@@ -120,7 +138,6 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         labels = {k: v.to(device) for k, v in labels.items()}
 
         preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
-        preds["atom_in_reaction_center"] = torch.flatten(preds["atom_in_reaction_center"])
 
         # ========== loss for bond type prediction ==========
         loss_bond_type = F.cross_entropy(
@@ -128,6 +145,7 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         )
 
         # ========== loss for atom in reaction center prediction ==========
+        preds["atom_in_reaction_center"] = preds["atom_in_reaction_center"].flatten()
         loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
             preds["atom_in_reaction_center"],
             labels["atom_in_reaction_center"],
@@ -137,9 +155,11 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
 
         # ========== loss for clustering prediction ==========
         loss_reaction_cluster = []
-        for cl in cluster_labels:
-            lb = cl[indices]  # select for current batch from all assignments
-            e = F.cross_entropy(preds["reaction_cluster"], lb)
+        for a, c in zip(assignments, centroids):
+            a = a[indices].to(args.device)  # select for current batch from all
+            c = c.to(args.device)
+            p = torch.mm(preds["reaction_cluster"], c.t()) / args.temperature
+            e = F.cross_entropy(p, a)
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
@@ -163,11 +183,19 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
         p = p.to(torch.int32)
         metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
 
-    epoch_loss /= it + 1
+        # ========== keep track of data ==========
+        data_for_cluster.append(preds["reaction_cluster"].detach().cpu())
+        index_for_cluster.append(indices)
 
     # compute metric values
+    epoch_loss /= it + 1
     metrics["bond_type"].compute_metric_values(class_reduction="weighted")
     metrics["atom_in_reaction_center"].compute_metric_values()
+
+    # keep track of clustering data to be used in the next iteration
+    reaction_cluster.set_local_data_and_index(
+        torch.cat(data_for_cluster), torch.cat(index_for_cluster)
+    )
 
     return epoch_loss, metrics
 
@@ -346,7 +374,7 @@ def main(args):
         # clustering decoder
         reaction_cluster_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation=args.decoder_activation,
-        num_prototypes=10,
+        reaction_cluster_decoder_output_size=args.cluster_decoder_projection_head_size,
     )
 
     if not args.distributed or args.rank == 0:
@@ -377,13 +405,13 @@ def main(args):
             model,
             train_loader,
             args.batch_size,
-            num_centroids=[10, 10],
+            num_centroids=[22, 22],
             device=args.device,
         )
     else:
         trainset = train_loader.dataset
         reaction_cluster = ReactionCluster(
-            model, trainset, args.batch_size, num_centroids=[10, 10], device=args.device
+            model, trainset, args.batch_size, num_centroids=[22, 22], device=args.device
         )
 
     # load checkpoint

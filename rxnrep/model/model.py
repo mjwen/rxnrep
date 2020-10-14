@@ -38,7 +38,7 @@ class ReactionRepresentation(nn.Module):
         # clustering decoder
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
-        num_prototypes,
+        reaction_cluster_decoder_output_size,
         # readout reaction features
         set2set_num_iterations: int = 3,
         set2set_num_layers: int = 3,
@@ -93,11 +93,10 @@ class ReactionRepresentation(nn.Module):
             ntypes_direct_cat=["global"],
         )
 
-        # TODO num_classes should be read in
         in_size = reaction_conv_layer_sizes[-1] * 5
         self.reaction_cluster_decoder = ReactionClusterDecoder(
             in_size=in_size,
-            num_classes=10,
+            num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=atom_in_reaction_center_decoder_hidden_layer_sizes,
             activation=atom_in_reaction_center_decoder_activation,
         )
