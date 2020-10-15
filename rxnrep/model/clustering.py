@@ -241,16 +241,16 @@ def distributed_initialize_centroids(
         centroids: each elements is a 2D tensor of shape (K, D), where K is the
             number of centroids for the cluster head, and D is the feature size.
     """
-
     feature_dim = local_data.size(1)
 
     all_centroids = []
     with torch.no_grad():
         for i_K, K in enumerate(num_prototypes):
 
-            # init centroids with elements from memory bank of rank 0
+            # init centroids
             centroids = torch.empty(K, feature_dim, device=device)
 
+            # broadcast centroids from rank 0
             if dist.get_rank() == 0:
                 random_idx = torch.randperm(len(local_data))[:K]
                 assert len(random_idx) >= K, "please reduce the number of centroids"
@@ -300,6 +300,8 @@ def distributed_kmeans(
         centroids: a list of tensor, each of shape (K, D), where K is the number of
             clusters and D is the feature dimension.
     """
+    local_data = local_data.to(device)
+    local_index = local_index.to(device)
 
     init_centroids = centroids
     feature_dim = local_data.size(1)

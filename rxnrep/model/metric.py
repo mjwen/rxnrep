@@ -25,7 +25,7 @@ class BinaryClassificationMetrics:
         See: https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html#sklearn.metrics.confusion_matrix
         """
         cm = plm.confusion_matrix(pred, target, num_classes=2)
-        tn, fp, fn, tp = cm.numpy().ravel()
+        tn, fp, fn, tp = cm.cpu().numpy().ravel()
 
         self.tps += tp
         self.fps += fp
@@ -94,11 +94,11 @@ class MultiClassificationMetrics:
         tps, fps, tns, fns, supp = plm.stat_scores_multiple_classes(
             pred, target, num_classes=self.num_classes
         )
-        self.true_positives += tps.detach().numpy()
-        self.false_positives += fps.detach().numpy()
-        self.true_negatives += tns.detach().numpy()
-        self.false_negatives += fns.detach().numpy()
-        self.supports += supp.detach().numpy()
+        self.true_positives += tps.cpu().numpy()
+        self.false_positives += fps.cpu().numpy()
+        self.true_negatives += tns.cpu().numpy()
+        self.false_negatives += fns.cpu().numpy()
+        self.supports += supp.cpu().numpy()
 
     def compute_metric_values(self, class_reduction="weighted"):
         result = accuracy_precision_recall_fbeta_from_state_scores(
