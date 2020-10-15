@@ -103,11 +103,28 @@ def init_distributed_mode(args):
         args.world_size = int(os.environ["SLURM_NNODES"]) * int(
             os.environ["SLURM_TASKS_PER_NODE"][0]
         )
+
+        # Based on pytorch-lightning setup at:
+        # https://github.com/PyTorchLightning/pytorch-lightning/blob/2b255a3df4e20911c5a3704e8004a6c6958f8dfc/pytorch_lightning/trainer/connecto
+
+        # use slurm job id for the port number
+        # guarantees unique ports across jobs from same grid search
+        default_port = os.environ["SLURM_JOB_ID"]
+        default_port = default_port[-4:]
+        default_port = int(default_port) + 15000  # all ports should be in the 10k+ range
+        root_node = os.environ["SLURM_NODELIST"].strip().split(",")[0]
+        dist_url = f"tcp://{root_node}:{default_port}"
+
     else:
         # multi-GPU job (local or multi-node) - jobs started with torch.distributed.launch
         # read environment variables
         args.rank = int(os.environ["RANK"])
         args.world_size = int(os.environ["WORLD_SIZE"])
+        dist_url = f"tcp://localhost:15678"
+
+    # override dist_url is provided in args
+    if args.dist_url is not None:
+        dist_url = args.dist_url
 
     # prepare distributed
     if args.gpu:
@@ -118,11 +135,12 @@ def init_distributed_mode(args):
         backend = "gloo"
         args.device = torch.device("cpu")
 
+    logger.info(
+        f"dist.init_process_group parameters: backend({backend}), "
+        f"init_method({dist_url}), world_size({args.world_size})."
+    )
     dist.init_process_group(
-        backend=backend,
-        init_method=args.dist_url,
-        world_size=args.world_size,
-        rank=args.rank,
+        backend=backend, init_method=dist_url, world_size=args.world_size, rank=args.rank
     )
 
 

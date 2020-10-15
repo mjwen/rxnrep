@@ -249,20 +249,22 @@ def create_reaction_features(
     # the mean of global features in each reactant (product) graph
     # Note, each reactant (product) graph holds all the molecules in the
     # reactant (products), and thus has multiple global features.
-    #mean_reactant_global_feats = dgl.ops.segment.segment_reduce(
-    #    torch.tensor(reactant_num_molecules), reactant_global_feats, reducer="mean",
-    #)
-    #mean_product_global_feats = dgl.ops.segment.segment_reduce(
-    #    torch.tensor(product_num_molecules), product_global_feats, reducer="mean",
-    #)
 
-    mean_reactant_global_feats = torch.split(reactant_global_feats, reactant_num_molecules)
-    mean_reactant_global_feats = torch.stack([torch.mean(x, dim=0) for x in mean_reactant_global_feats])
+    # The below commented one does not work on GPU since it creates a graph on CPU. If
+    # we want to make it work, we can modify dgl.ops.segment.segment_reduce
+    # TODO benchmark segment_reduce and torch.split one. report bug to dgl
 
-    mean_product_global_feats = torch.split(product_global_feats, product_num_molecules)
-    mean_product_global_feats = torch.stack([torch.mean(x, dim=0) for x in mean_product_global_feats])
+    # mean_reactant_global_feats = dgl.ops.segment.segment_reduce(
+    # torch.tensor(reactant_num_molecules), reactant_global_feats, reducer="mean",
+    # )
+    # mean_product_global_feats = dgl.ops.segment.segment_reduce(
+    # torch.tensor(product_num_molecules), product_global_feats, reducer="mean",
+    # )
 
-
+    split = torch.split(reactant_global_feats, reactant_num_molecules)
+    mean_reactant_global_feats = torch.stack([torch.mean(x, dim=0) for x in split])
+    split = torch.split(product_global_feats, product_num_molecules)
+    mean_product_global_feats = torch.stack([torch.mean(x, dim=0) for x in split])
     diff_global_feats = mean_product_global_feats - mean_reactant_global_feats
 
     diff_feats = {

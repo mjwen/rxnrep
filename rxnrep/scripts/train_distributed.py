@@ -98,9 +98,8 @@ def parse_args():
     )
     parser.add_argument(
         "--dist-url",
-        default="tcp://localhost:13456",
         type=str,
-        help="url used to set up distributed training",
+        help="tcp port for distributed communication e.g. `tcp://localhost:15678`.",
     )
     parser.add_argument("--local_rank", type=int, help="Local rank of process.")
 
