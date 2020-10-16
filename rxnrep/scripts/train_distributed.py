@@ -268,7 +268,7 @@ def load_dataset(args):
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
-        state_dict_filename=state_dict_filename,
+        init_state_dict=state_dict_filename,
     )
     valset = USPTODataset(
         filename=args.valset_filename,
@@ -276,7 +276,7 @@ def load_dataset(args):
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
-        state_dict_filename=state_dict_filename,
+        init_state_dict=trainset.state_dict(),
     )
     testset = USPTODataset(
         filename=args.testset_filename,
@@ -284,12 +284,12 @@ def load_dataset(args):
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
-        state_dict_filename=state_dict_filename,
+        init_state_dict=trainset.state_dict(),
     )
 
     # save dataset state dict for retraining or prediction
     if not args.distributed or args.rank == 0:
-        trainset.save_state_dict(args.dataset_state_dict_filename)
+        trainset.save_state_dict_file(args.dataset_state_dict_filename)
         print(
             "Trainset size: {}, valset size: {}: testset size: {}.".format(
                 len(trainset), len(valset), len(testset)

@@ -22,7 +22,7 @@ class BaseDataset:
         atom_featurizer: Callable,
         bond_featurizer: Callable,
         global_featurizer: Callable,
-        state_dict_filename: Optional[Union[str, Path]] = None,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
     ):
@@ -31,7 +31,7 @@ class BaseDataset:
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
-        self.state_dict_filename = state_dict_filename
+        self.init_state_dict = init_state_dict
         self.nprocs = num_processes
         self.return_index = return_index
 
@@ -42,8 +42,13 @@ class BaseDataset:
         self._failed = None
 
         # recovery state info
-        if state_dict_filename is not None:
-            self.load_state_dict(state_dict_filename)
+        if init_state_dict is not None:
+            # given as a dictionary
+            if isinstance(init_state_dict, dict):
+                self.load_state_dict(init_state_dict)
+            # given as a file
+            else:
+                self.load_state_dict_file(init_state_dict)
 
     @property
     def feature_size(self) -> Dict[str, int]:
@@ -119,7 +124,7 @@ class BaseDataset:
         logger.info(f"Start scaling features...")
 
         # create new scaler
-        if self.state_dict_filename is None:
+        if self.init_state_dict is None:
             feature_scaler = HeteroGraphFeatureStandardScaler(mean=None, std=None)
 
         # recover feature scaler mean and stdev
@@ -141,7 +146,7 @@ class BaseDataset:
         feature_scaler(graphs)  # graph features are updated inplace
 
         # save the mean and stdev of the feature scaler (should set after calling scaler)
-        if self.state_dict_filename is None:
+        if self.init_state_dict is None:
             self._feature_scaler_mean = feature_scaler.mean
             self._feature_scaler_std = feature_scaler.std
 
@@ -149,7 +154,43 @@ class BaseDataset:
         logger.info(f"Feature scaler std: {self._feature_scaler_std}")
         logger.info(f"Finish scaling features...")
 
-    def load_state_dict(self, filename: Optional[Union[str, Path]] = None):
+    def state_dict(self):
+        d = {
+            "species": self._species,
+            "feature_name": self.feature_name,
+            "feature_size": self.feature_size,
+            "feature_scaler_mean": self._feature_scaler_mean,
+            "feature_scaler_std": self._feature_scaler_std,
+        }
+
+        return d
+
+    def load_state_dict(self, d: Optional[Dict] = None):
+        """
+        Load state dict from a yaml file.
+
+        Args:
+            d: state dict
+        """
+        d = self.init_state_dict if d is None else d
+
+        try:
+            species = d["species"]
+            scaler_mean = d["feature_scaler_mean"]
+            scaler_std = d["feature_scaler_std"]
+            self._species = species
+            self._feature_scaler_mean = scaler_mean
+            self._feature_scaler_std = scaler_std
+
+        except KeyError as e:
+            raise ValueError(f"Corrupted state dict: {str(e)}")
+
+        # sanity check: species should not be None
+        assert (
+            self._species is not None
+        ), "Corrupted state_dict. Expect `species` to be a list, got `None`."
+
+    def load_state_dict_file(self, filename: Optional[Union[str, Path]] = None):
         """
         Load state dict from a yaml file.
 
@@ -162,7 +203,7 @@ class BaseDataset:
             new_d = {k: torch.as_tensor(v, dtype=dtype) for k, v in d.items()}
             return new_d
 
-        filename = self.state_dict_filename if filename is None else filename
+        filename = self.init_state_dict if filename is None else filename
         filename = to_path(filename)
         d = yaml_load(filename)
 
@@ -189,12 +230,12 @@ class BaseDataset:
             self._species is not None
         ), "Corrupted state_dict file. Expect `species` to be a list, got `None`."
 
-    def save_state_dict(self, filename: Optional[Union[str, Path]] = None):
+    def save_state_dict_file(self, filename: Optional[Union[str, Path]] = None):
         """
         Save the state dict to a yaml file.
 
         The data type of tensors are saved as a key `dtype`, which can be used in
-        load_state_dict to convert the corresponding fields to tensor.
+        load_state_dict_file to convert the corresponding fields to tensor.
 
         Args:
             filename: path to save the file
@@ -205,7 +246,7 @@ class BaseDataset:
             dtype = d[key].dtype
             return dtype
 
-        filename = self.state_dict_filename if filename is None else filename
+        filename = self.init_state_dict if filename is None else filename
         filename = to_path(filename)
 
         # convert tensors to list if they exists
@@ -225,17 +266,6 @@ class BaseDataset:
         d["dtype"] = dtype
 
         yaml_dump(d, filename)
-
-    def state_dict(self):
-        d = {
-            "species": self._species,
-            "feature_name": self.feature_name,
-            "feature_size": self.feature_size,
-            "feature_scaler_mean": self._feature_scaler_mean,
-            "feature_scaler_std": self._feature_scaler_std,
-        }
-
-        return d
 
 
 class Subset(BaseDataset):

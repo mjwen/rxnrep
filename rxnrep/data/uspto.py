@@ -17,7 +17,7 @@ from rxnrep.data.grapher import (
     create_reaction_graph,
 )
 from rxnrep.utils import to_path
-from typing import List, Callable, Tuple, Optional, Union, Any
+from typing import List, Callable, Tuple, Optional, Union, Any, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +97,10 @@ class USPTODataset(BaseDataset):
         transform_features: whether to standardize the atom, bond, and global features.
             If `True`, each feature column will first subtract the mean and then divide
             by the standard deviation.
-        state_dict_filename: path to a torch pickled file containing the state of the
-            dataset used for training, such as all the atom types in the in the molecules,
-             mean and stdev of the features (if transform_features if `True`).
+        init_state_dict: initial state dict (or a yaml file of the state dict) containing
+            the state of the dataset used for training: including all the atom types in
+            the molecules, mean and stdev of the features (if transform_features is
+            `True`). If `None`, these properties are computed from the current dataset.
         num_processes: number of processes used to load and process the dataset.
         return_index: whether to return the index of the sample in the dataset
     """
@@ -111,7 +112,7 @@ class USPTODataset(BaseDataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         transform_features: bool = True,
-        state_dict_filename: Optional[Union[str, Path]] = None,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
     ):
@@ -124,7 +125,7 @@ class USPTODataset(BaseDataset):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
-            state_dict_filename,
+            init_state_dict,
             num_processes,
             return_index,
         )
