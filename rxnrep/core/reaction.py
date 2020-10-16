@@ -358,6 +358,18 @@ class Reaction:
                 f"Reactants and products have different map numbers."
             )
 
+    def __str__(self):
+        """Smiles representation of reaction."""
+        reactants = ".".join([m.to_smiles() for m in self.reactants])
+        products = ".".join([m.to_smiles() for m in self.products])
+        if self.reagents is not None:
+            reagents = ".".join([m.to_smiles() for m in self.reagents])
+        else:
+            reagents = ""
+        smiles = ">".join([reactants, reagents, products])
+
+        return smiles
+
 
 def smiles_to_reaction(smiles: str, id: Optional[Union[int, str]] = None):
     """

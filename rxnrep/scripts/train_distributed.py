@@ -30,7 +30,6 @@ best = -np.finfo(np.float32).max
 def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
-    # TODO, for temporary test only, should read from argparse
     # ========== input files ==========
     prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
     fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
@@ -108,20 +107,23 @@ def parse_args():
     return args
 
 
-def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
+def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch, device):
 
     model.train()
 
     nodes = ["atom", "bond", "global"]
 
+    # class weights
+    atom_in_center_weight = class_weights["atom_in_reaction_center"].to(device)
+    bond_type_weight = class_weights["bond_type"].to(device)
+
+    # evaluation metrics
     metrics = {
         "bond_type": MultiClassificationMetrics(num_classes=3),
         "atom_in_reaction_center": BinaryClassificationMetrics(),
     }
 
-    # TODO temporary (should set to the ratio of atoms in center)
-    pos_weight = torch.tensor(4.0).to(device)
-
+    # cluster to get assignments and centroids
     assignments, centroids = reaction_cluster.get_cluster_assignments()
 
     # keep track of the data and index to be used in the next clustering run (to same
@@ -140,7 +142,10 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
 
         # ========== loss for bond type prediction ==========
         loss_bond_type = F.cross_entropy(
-            preds["bond_type"], labels["bond_type"], reduction="mean"
+            preds["bond_type"],
+            labels["bond_type"],
+            reduction="mean",
+            weight=bond_type_weight,
         )
 
         # ========== loss for atom in reaction center prediction ==========
@@ -149,7 +154,7 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
             preds["atom_in_reaction_center"],
             labels["atom_in_reaction_center"],
             reduction="mean",
-            pos_weight=pos_weight,
+            pos_weight=atom_in_center_weight,
         )
 
         # ========== loss for clustering prediction ==========
@@ -184,7 +189,7 @@ def train(optimizer, model, data_loader, reaction_cluster, epoch, device):
 
         # ========== keep track of data ==========
         data_for_cluster.append(preds["reaction_cluster"].detach().cpu())
-        index_for_cluster.append(indices)
+        index_for_cluster.append(indices.to(device))
 
     # compute metric values
     epoch_loss /= it + 1
@@ -398,6 +403,16 @@ def main(args):
     )
     stopper = EarlyStopping(patience=150)
 
+    ### prepare class weight for classification tasks
+    (
+        atom_in_reaction_center_weight,
+        bond_type_weight,
+    ) = train_loader.dataset.get_atom_in_reaction_center_and_bond_type_class_weight()
+    class_weights = {
+        "atom_in_reaction_center": atom_in_reaction_center_weight,
+        "bond_type": bond_type_weight,
+    }
+
     ### cluster
     if args.distributed:
         reaction_cluster = DistributedReactionCluster(
@@ -428,7 +443,6 @@ def main(args):
         except FileNotFoundError as e:
             warnings.warn(str(e) + " Continue without loading checkpoints.")
             pass
-
     ################################################################################
     # training loop
     ################################################################################
@@ -444,7 +458,13 @@ def main(args):
 
         # train
         loss, train_metrics = train(
-            optimizer, model, train_loader, reaction_cluster, epoch, args.device
+            optimizer,
+            model,
+            train_loader,
+            reaction_cluster,
+            class_weights,
+            epoch,
+            args.device,
         )
 
         # bad, we get nan
@@ -479,7 +499,7 @@ def main(args):
 
             tt = time.time() - ti
 
-            stat = {"epoch": epoch, "time": tt}
+            stat = {"epoch": epoch, "loss": loss, "time": tt}
             stat.update(train_metrics["bond_type"].as_dict("tr_bt"))
             stat.update(train_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
             progress.update(stat, save=True)

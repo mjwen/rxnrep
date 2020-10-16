@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 import pandas as pd
 import dgl
+import numpy as np
 import torch
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, smiles_to_reaction
@@ -250,6 +251,79 @@ class USPTODataset(BaseDataset):
             graphs.extend([reactants_g, products_g])
 
         return graphs
+
+    def get_atom_in_reaction_center_and_bond_type_class_weight(
+        self,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Create class weight to be used in cross entropy function for node classification
+        problems:
+
+        1. whether atom is in reaction center:
+            weight = mean(num_atoms_not_in_center / num_atoms_in_center)
+            where mean is taken over all reactions.
+
+            Here, if an atom is in center, it has positive class 1, we adjust its
+            weight accordingly. See `self._create_label_atom_in_reaction_center()` for
+            more.
+
+        2. bond is unchanged bond, lost bond, or added bond:
+            total_num_bonds =
+            w_unchanged = (num_lost + num_added) / (2 * total_num_bonds)
+            w_lost = (num_unchanged + num_added) / (2 * total_num_bonds)
+            w_added = (num_unchanged + num_lost) / (2 * total_num_bonds)
+
+            And then w_unchanged, w_lost, and w_added are averaged over all reactions:
+            w_unchanged = mean(w_unchanged)
+            w_lost = mean(w_lost)
+            w_added = mean(w_added)
+
+            Here, unchanged, lost, and added bonds have class labels 0, 1, and 2
+            respectively. See `self._create_label_bond_type()` for more.
+
+        Returns:
+            weight_atom_in_reaction_center: a scaler tensor giving the weight for the
+                positive class.
+            weight_bond_type: a tensor of shape (3,), giving the weight for unchanged
+                bonds, lost bonds, and added bonds in sequence.
+        """
+        w_in_center = []
+        w_unchanged = []
+        w_lost = []
+        w_added = []
+        for rxn in self.reactions:
+            unchanged, lost, added = rxn.get_unchanged_lost_and_added_bonds(
+                zero_based=True
+            )
+
+            # bond weight
+            n_unchanged = len(unchanged)
+            n_lost = len(lost)
+            n_added = len(added)
+            n = n_unchanged + n_lost + n_added
+            w_unchanged.append((n_lost + n_added) / (2 * n))
+            w_lost.append((n_unchanged + n_added) / (2 * n))
+            w_added.append((n_unchanged + n_lost) / (2 * n))
+
+            # atom weight
+            num_atoms = sum([m.num_atoms for m in rxn.reactants])
+            changed_atoms = set([i for i in itertools.chain.from_iterable(lost + added)])
+            num_changed = len(changed_atoms)
+            if num_changed == 0:
+                w_in_center.append(1.0)
+            else:
+                w_in_center.append((num_atoms - num_changed) / num_changed)
+
+        weight_atom_in_reaction_center = torch.as_tensor(
+            np.mean(w_in_center), dtype=torch.float32
+        )
+
+        weight_bond_type = [np.mean(w_unchanged), np.mean(w_lost), np.mean(w_added)]
+        weight_bond_type = torch.as_tensor(
+            np.asarray(weight_bond_type), dtype=torch.float32
+        )
+
+        return weight_atom_in_reaction_center, weight_bond_type
 
     @staticmethod
     def _create_label_bond_type(reaction) -> torch.Tensor:
