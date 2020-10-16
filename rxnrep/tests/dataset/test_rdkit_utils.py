@@ -52,10 +52,14 @@ def test_adjust_atom_map_number():
 def test_get_reaction_bond_change():
     reactant, _, product = get_reactant_reagent_and_product()
 
-    changes = get_reaction_bond_change(reactant, product, use_mapped_atom_index=True)
+    changes, _, _, _ = get_reaction_bond_change(
+        reactant, product, use_mapped_atom_index=True
+    )
     assert changes == {(1, 2, 0.0), (2, 4, 1.0)}
 
-    changes = get_reaction_bond_change(reactant, product, use_mapped_atom_index=False)
+    changes, _, _, _ = get_reaction_bond_change(
+        reactant, product, use_mapped_atom_index=False
+    )
     assert changes == {(0, 1, 0.0), (1, 3, 1.0)}
 
 

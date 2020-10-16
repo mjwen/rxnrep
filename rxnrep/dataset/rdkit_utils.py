@@ -291,7 +291,10 @@ def canonicalize_smiles_reaction(
 
     # Step 3, create new products by editing bonds of the reactants. Some atom properties
     # (formal charge, and number of radicals) are copied from the products, though
-    bond_changes = get_reaction_bond_change(reactants, products)
+    bond_changes, has_lost, has_added, _ = get_reaction_bond_change(reactants, products)
+    # skip reactions only has bond type changes, but no bond lost or added
+    if not (has_lost or has_added):
+        return None, "reactions with only bond type changes"
     product_atom_properties = get_atom_property_as_dict(products)
     new_products = edit_molecule(reactants, bond_changes, product_atom_properties)
 
@@ -462,7 +465,7 @@ def adjust_atom_map_number(
 
 def get_reaction_bond_change(
     reactant: Chem.Mol, product: Chem.Mol, use_mapped_atom_index=False
-) -> Set[Tuple[int, int, float]]:
+) -> Tuple[Set[Tuple[int, int, float]], bool, bool, bool]:
     """
     Get the changes of the bonds to make the products from the reactants.
 
@@ -487,6 +490,9 @@ def get_reaction_bond_change(
             mapped indices, depending on `use_mapped_atom_index`.
             `change_type` can take 0, 1, 2, 3, and 1.5, meaning losing a bond, forming
             a single, double, triple, and aromatic bond, respectively.
+        has_lost: whether there is bond lost in the reaction
+        has_added: whether there is bond added in the reaction
+        has_altered: whether there is bond that changes bond type in the reaction
     """
 
     reactant_map_numbers = get_mol_atom_mapping(reactant)
@@ -514,19 +520,25 @@ def get_reaction_bond_change(
 
     bond_changes = set()
 
+    has_lost = False
+    has_added = False
+    has_altered = False
     for bond in bonds_rct:
         if bond not in bonds_prdt:
             # lost bond
             bond_changes.add((bond[0], bond[1], 0.0))
+            has_lost = True
         else:
             if bonds_rct[bond] != bonds_prdt[bond]:
                 # changed bond
                 bond_changes.add((bond[0], bond[1], bonds_prdt[bond]))
+                has_altered = True
 
     for bond in bonds_prdt:
         if bond not in bonds_rct:
             # new bond
             bond_changes.add((bond[0], bond[1], bonds_prdt[bond]))
+            has_added = True
 
     # convert mapped atom index to the underlying rdkit atom index (non-mapped)
     # of the reactant
@@ -540,7 +552,7 @@ def get_reaction_bond_change(
 
         bond_changes = set(bond_changes_new_atom_index)
 
-    return bond_changes
+    return bond_changes, has_lost, has_added, has_altered
 
 
 def edit_molecule(
