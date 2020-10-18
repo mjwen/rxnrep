@@ -4,6 +4,7 @@ import shutil
 import logging
 import numpy as np
 import pandas as pd
+import time
 import torch
 import torch.distributed as dist
 import dgl
@@ -142,6 +143,34 @@ def init_distributed_mode(args):
     dist.init_process_group(
         backend=backend, init_method=dist_url, world_size=args.world_size, rank=args.rank
     )
+
+
+class TimeMeter:
+    """
+    Measure running time.
+    """
+
+    def __init__(self, frequency=1):
+        self.frequency = frequency
+        self.t0 = time.time()
+        self.t = self.t0
+
+    def display(self, counter, message=None, flush=False):
+        t = time.time()
+        delta_t = t - self.t
+        cumulative_t = t - self.t0
+        self.t = t
+
+        if counter % self.frequency == 0:
+            message = "\t\t" if message is None else f"\t\t{message}; "
+            print(
+                "{}delta time: {:.2f} cumulative time: {:.2f}".format(
+                    message, delta_t, cumulative_t
+                ),
+                flush=flush,
+            )
+
+        return delta_t, cumulative_t
 
 
 class ProgressMeter:

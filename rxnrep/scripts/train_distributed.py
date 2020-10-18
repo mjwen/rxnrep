@@ -22,7 +22,7 @@ from rxnrep.scripts.utils import (
     save_checkpoints,
 )
 from rxnrep.utils import yaml_dump
-from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter
+from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter, TimeMeter
 
 best = -np.finfo(np.float32).max
 
@@ -81,7 +81,7 @@ def parse_args():
 
     # ========== training ==========
     parser.add_argument("--start-epoch", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=5, help="number of epochs")
+    parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
     parser.add_argument("--batch-size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
@@ -107,15 +107,19 @@ def parse_args():
     return args
 
 
-def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch, device):
+def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch, args):
+    timer = TimeMeter(frequency=5)
 
     model.train()
 
     nodes = ["atom", "bond", "global"]
 
     # class weights
-    atom_in_center_weight = class_weights["atom_in_reaction_center"].to(device)
-    bond_type_weight = class_weights["bond_type"].to(device)
+    atom_in_center_weight = class_weights["atom_in_reaction_center"].to(args.device)
+    bond_type_weight = class_weights["bond_type"].to(args.device)
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; class weight")
 
     # evaluation metrics
     metrics = {
@@ -126,6 +130,9 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
     # cluster to get assignments and centroids
     assignments, centroids = reaction_cluster.get_cluster_assignments()
 
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; clustering")
+
     # keep track of the data and index to be used in the next clustering run (to same
     # time)
     data_for_cluster = []
@@ -133,12 +140,24 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
 
     epoch_loss = 0.0
     for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
-        mol_graphs = mol_graphs.to(device)
-        rxn_graphs = rxn_graphs.to(device)
-        feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
-        labels = {k: v.to(device) for k, v in labels.items()}
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; getting data")
+
+        mol_graphs = mol_graphs.to(args.device)
+        rxn_graphs = rxn_graphs.to(args.device)
+        feats = {
+            nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device) for nt in nodes
+        }
+        labels = {k: v.to(args.device) for k, v in labels.items()}
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; to cuda")
 
         preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; model predict")
 
         # ========== loss for bond type prediction ==========
         loss_bond_type = F.cross_entropy(
@@ -147,6 +166,9 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
             reduction="mean",
             weight=bond_type_weight,
         )
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; bond type prediction loss")
 
         # ========== loss for atom in reaction center prediction ==========
         preds["atom_in_reaction_center"] = preds["atom_in_reaction_center"].flatten()
@@ -157,6 +179,9 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
             pos_weight=atom_in_center_weight,
         )
 
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; reaction center loss")
+
         # ========== loss for clustering prediction ==========
         loss_reaction_cluster = []
         for a, c in zip(assignments, centroids):
@@ -166,6 +191,9 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
             e = F.cross_entropy(p, a)
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; clustering loss")
 
         # total loss
         # TODO may be assign different weights for atoms and bonds, giving each
@@ -178,6 +206,9 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
         optimizer.step()
         epoch_loss += loss.detach().item()
 
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; back propagation")
+
         # ========== metrics ==========
         # bond type
         p = torch.argmax(preds["bond_type"], dim=1)
@@ -188,13 +219,22 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
         metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
 
         # ========== keep track of data ==========
-        data_for_cluster.append(preds["reaction_cluster"].detach().cpu())
-        index_for_cluster.append(indices.to(device))
+        data_for_cluster.append(preds["reaction_cluster"].detach())
+        index_for_cluster.append(indices.to(args.device))
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; keep data for metric and clustering")
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; Finish looping batch")
 
     # compute metric values
     epoch_loss /= it + 1
     metrics["bond_type"].compute_metric_values(class_reduction="weighted")
     metrics["atom_in_reaction_center"].compute_metric_values()
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; Compute metric")
 
     # keep track of clustering data to be used in the next iteration
     reaction_cluster.set_local_data_and_index(
@@ -204,7 +244,7 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
     return epoch_loss, metrics
 
 
-def evaluate(model, data_loader, device):
+def evaluate(model, data_loader, args):
     model.eval()
 
     nodes = ["atom", "bond", "global"]
@@ -219,10 +259,12 @@ def evaluate(model, data_loader, device):
         for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
             data_loader
         ):
-            mol_graphs = mol_graphs.to(device)
-            rxn_graphs = rxn_graphs.to(device)
-            feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
-            labels = {k: v.to(device) for k, v in labels.items()}
+            mol_graphs = mol_graphs.to(args.device)
+            rxn_graphs = rxn_graphs.to(args.device)
+            feats = {
+                nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device) for nt in nodes
+            }
+            labels = {k: v.to(args.device) for k, v in labels.items()}
 
             preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
             preds["atom_in_reaction_center"] = torch.flatten(
@@ -449,7 +491,7 @@ def main(args):
     progress = ProgressMeter("progress.csv", restore=args.restore)
 
     for epoch in range(args.start_epoch, args.epochs):
-        ti = time.time()
+        timer = TimeMeter()
 
         # In distributed mode, calling the set_epoch method is needed to make shuffling
         # work; each process will use the same random seed otherwise.
@@ -458,14 +500,10 @@ def main(args):
 
         # train
         loss, train_metrics = train(
-            optimizer,
-            model,
-            train_loader,
-            reaction_cluster,
-            class_weights,
-            epoch,
-            args.device,
+            optimizer, model, train_loader, reaction_cluster, class_weights, epoch, args
         )
+        if not args.distributed or args.rank == 0:
+            timer.display(epoch, f"Epoch {epoch}, train")
 
         # bad, we get nan
         if np.isnan(loss):
@@ -474,7 +512,9 @@ def main(args):
             sys.exit(1)
 
         # evaluate
-        val_metrics = evaluate(model, val_loader, args.device)
+        val_metrics = evaluate(model, val_loader, args)
+        if not args.distributed or args.rank == 0:
+            timer.display(epoch, f"Epoch {epoch}, evaluate")
 
         f1_sum = val_metrics["bond_type"].f1 + val_metrics["atom_in_reaction_center"].f1
 
@@ -497,9 +537,8 @@ def main(args):
                 msg=f"epoch: {epoch}, score {f1_sum}",
             )
 
-            tt = time.time() - ti
-
-            stat = {"epoch": epoch, "loss": loss, "time": tt}
+            _, epoch_time = timer.display(epoch, f"Epoch {epoch}, epoch time")
+            stat = {"epoch": epoch, "loss": loss, "time": epoch_time}
             stat.update(train_metrics["bond_type"].as_dict("tr_bt"))
             stat.update(train_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
             progress.update(stat, save=True)
@@ -515,7 +554,7 @@ def main(args):
     )
 
     if not args.distributed or args.rank == 0:
-        test_metrics = evaluate(model, test_loader, args.device)
+        test_metrics = evaluate(model, test_loader, args)
 
         stat = test_metrics["bond_type"].as_dict("tr_bt")
         stat.update(test_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
