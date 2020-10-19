@@ -97,16 +97,21 @@ def init_distributed_mode(args):
         - gpu_to_work_on
     """
 
-    args.is_slurm_job = "SLURM_JOB_ID" in os.environ
+    # jobs started with torch.distributed.launch
+    if args.launch_mode == "torch_launch":
+        # read environment variables
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ["WORLD_SIZE"])
+        dist_url = f"tcp://localhost:15678"
 
-    if args.is_slurm_job:
+    # job started with srun
+    elif args.launch_mode == "srun":
         args.rank = int(os.environ["SLURM_PROCID"])
         args.world_size = int(os.environ["SLURM_NNODES"]) * int(
             os.environ["SLURM_TASKS_PER_NODE"][0]
         )
-
         # Based on pytorch-lightning setup at:
-        # https://github.com/PyTorchLightning/pytorch-lightning/blob/2b255a3df4e20911c5a3704e8004a6c6958f8dfc/pytorch_lightning/trainer/connecto
+        # https://github.com/PyTorchLightning/pytorch-lightning/blob/2b255a3df4e20911c5a3704e8004a6c6958f8dfc/pytorch_lightning/trainer/connectors/slurm_connector.py
 
         # use slurm job id for the port number
         # guarantees unique ports across jobs from same grid search
@@ -116,11 +121,8 @@ def init_distributed_mode(args):
         root_node = os.environ["SLURM_NODELIST"].strip().split(",")[0]
         dist_url = f"tcp://{root_node}:{default_port}"
 
+    # job started with spawn (should set args.rank and args.world_size)
     else:
-        # multi-GPU job (local or multi-node) - jobs started with torch.distributed.launch
-        # read environment variables
-        args.rank = int(os.environ["RANK"])
-        args.world_size = int(os.environ["WORLD_SIZE"])
         dist_url = f"tcp://localhost:15678"
 
     # override dist_url is provided in args
@@ -163,6 +165,7 @@ class TimeMeter:
 
         if counter % self.frequency == 0:
             message = "\t\t" if message is None else f"\t\t{message}; "
+            message = message + " " * (45 - len(message))
             print(
                 "{}delta time: {:.2f} cumulative time: {:.2f}".format(
                     message, delta_t, cumulative_t

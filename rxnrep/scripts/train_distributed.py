@@ -32,9 +32,13 @@ def parse_args():
 
     # ========== input files ==========
     prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
-    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
-    fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
-    fname_test = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+    # fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
+    # fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
+    # fname_test = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+    fname_tr = prefix + "raw_1k_train.tsv"
+    fname_val = prefix + "raw_1k_val.tsv"
+    fname_test = prefix + "raw_1k_test.tsv"
+
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
     parser.add_argument("--testset-filename", type=str, default=fname_test)
@@ -91,6 +95,12 @@ def parse_args():
     )
 
     # ========== distributed ==========
+    parser.add_argument(
+        "--launch-mode",
+        type=str,
+        default="torch_launch",
+        help="How to launch distributed training: [`torch_launch`| `srun`]",
+    )
     parser.add_argument("--gpu", type=int, default=0, help="Whether to use GPU.")
     parser.add_argument(
         "--distributed", type=int, default=0, help="Whether distributed DDP training.",
@@ -433,6 +443,9 @@ def main(args):
         else:
             ddp_model = DDP(model)
         model = ddp_model
+    else:
+        if args.gpu:
+            model.to(args.device)
 
     ### optimizer
     optimizer = torch.optim.Adam(
@@ -547,13 +560,13 @@ def main(args):
     ################################################################################
     # test
     ################################################################################
-
-    # load best to calculate test accuracy
-    load_checkpoints(
-        state_dict_objs, map_location=args.device, filename="best_checkpoint.pkl"
-    )
-
     if not args.distributed or args.rank == 0:
+
+        # load best to calculate test accuracy
+        load_checkpoints(
+            state_dict_objs, map_location=args.device, filename="best_checkpoint.pkl"
+        )
+
         test_metrics = evaluate(model, test_loader, args)
 
         stat = test_metrics["bond_type"].as_dict("tr_bt")

@@ -20,7 +20,7 @@ setup(
     name="rxnrep",
     version=get_version(),
     packages=find_packages(),
-    install_requires=["numpy", "scikit-learn"],
+    install_requires=["numpy", "scikit-learn", "requests", "pyyaml", "pytorch-lightning"],
     author="Mingjian Wen",
     author_email="wenxx151@gmail.com",
     url="https://github.com/mjwen/rxnrep",
