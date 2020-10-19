@@ -27,12 +27,11 @@ def process_one_reaction_from_input_file(
 ) -> Tuple[Union[Reaction, None], Any]:
     # create reaction
     try:
-        reaction = smiles_to_reaction(smiles_reaction, smiles_reaction)
+        reaction = smiles_to_reaction(
+            smiles_reaction, smiles_reaction, ignore_reagents=True
+        )
     except MoleculeError:
         return None, None
-
-    # TODO process label
-    label = label
 
     return reaction, label
 
@@ -411,9 +410,9 @@ def collate_fn(samples):
         list, zip(*samples)
     )
 
-    indices = torch.tensor(indices)
+    indices = torch.as_tensor(indices)
     batched_molecule_graphs = dgl.batch(reactants_g + products_g)
-    batched_reaction_graphs = dgl.batch(reaction_g)
+    batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
 
     # labels
     batched_labels = defaultdict(list)
