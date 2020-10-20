@@ -1,5 +1,4 @@
 import sys
-import time
 import warnings
 import torch
 import argparse
@@ -10,7 +9,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-from rxnrep.data.uspto import USPTODataset, collate_fn
+from rxnrep.data.uspto import USPTODataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
@@ -32,12 +31,14 @@ def parse_args():
 
     # ========== input files ==========
     prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
-    # fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
-    # fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
-    # fname_test = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
-    fname_tr = prefix + "raw_1k_train.tsv"
-    fname_val = prefix + "raw_1k_val.tsv"
-    fname_test = prefix + "raw_1k_test.tsv"
+
+    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
+    fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
+    fname_test = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+
+    # fname_tr = prefix + "raw_1k_train.tsv"
+    # fname_val = prefix + "raw_1k_val.tsv"
+    # fname_test = prefix + "raw_1k_test.tsv"
 
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
@@ -358,7 +359,7 @@ def load_dataset(args):
         batch_size=args.batch_size,
         shuffle=(train_sampler is None),
         sampler=train_sampler,
-        collate_fn=collate_fn,
+        collate_fn=trainset.collate_fn,
     )
 
     # TODO, for val set, we can also make it distributed and report the error on rank
@@ -369,9 +370,13 @@ def load_dataset(args):
     # larger val and test set batch_size is faster but needs more memory
     # adjust the batch size of to fit memory
     bs = max(len(valset) // 10, 1)
-    val_loader = DataLoader(valset, batch_size=bs, shuffle=False, collate_fn=collate_fn)
+    val_loader = DataLoader(
+        valset, batch_size=bs, shuffle=False, collate_fn=valset.collate_fn
+    )
     bs = max(len(testset) // 10, 1)
-    test_loader = DataLoader(testset, batch_size=bs, shuffle=False, collate_fn=collate_fn)
+    test_loader = DataLoader(
+        testset, batch_size=bs, shuffle=False, collate_fn=testset.collate_fn
+    )
 
     return train_loader, val_loader, test_loader, train_sampler
 

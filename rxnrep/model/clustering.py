@@ -9,7 +9,6 @@ import torch
 import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.data import DataLoader
-from rxnrep.data.uspto import collate_fn
 from typing import Tuple, List, Optional
 
 
@@ -162,7 +161,7 @@ class ReactionCluster:
         self.model = model
         self.device = device
         self.data_loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
+            dataset, batch_size=batch_size, shuffle=False, collate_fn=dataset.collate_fn
         )
         self.data = data
 

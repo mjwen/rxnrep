@@ -139,6 +139,7 @@ class USPTODataset(BaseDataset):
             self.scale_features()
 
         self.labels = {}
+        self.metadata = {}
 
     @staticmethod
     def read_file(filename, nprocs):
@@ -393,10 +394,28 @@ class USPTODataset(BaseDataset):
             }
             self.labels[item] = labels
 
-        if self.return_index:
-            return item, reactants_g, products_g, reaction_g, reaction, labels
+        # get metadata
+        if item in self.metadata:
+            meta = self.metadata[item]
         else:
-            return reactants_g, products_g, reaction_g, reaction, labels
+            (
+                num_unchanged,
+                num_lost,
+                num_added,
+            ) = reaction.get_num_unchanged_lost_and_added_bonds()
+            meta = {
+                "reactant_num_molecules": len(reaction.reactants),
+                "product_num_molecules": len(reaction.products),
+                "num_unchanged_bonds": num_unchanged,
+                "num_lost_bonds": num_lost,
+                "num_added_bonds": num_added,
+            }
+            self.metadata[item] = meta
+
+        if self.return_index:
+            return item, reactants_g, products_g, reaction_g, meta, labels
+        else:
+            return reactants_g, products_g, reaction_g, meta, labels
 
     def __len__(self) -> int:
         """
@@ -404,49 +423,29 @@ class USPTODataset(BaseDataset):
         """
         return len(self.reaction_graphs)
 
+    @staticmethod
+    def collate_fn(samples):
+        indices, reactants_g, products_g, reaction_g, metadata, labels = map(
+            list, zip(*samples)
+        )
 
-def collate_fn(samples):
-    indices, reactants_g, products_g, reaction_g, reactions, labels = map(
-        list, zip(*samples)
-    )
+        batched_indices = torch.as_tensor(indices)
 
-    indices = torch.as_tensor(indices)
-    batched_molecule_graphs = dgl.batch(reactants_g + products_g)
-    batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+        batched_molecule_graphs = dgl.batch(reactants_g + products_g)
+        batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
 
-    # labels
-    batched_labels = defaultdict(list)
-    for one_label in labels:
-        for k, v in one_label.items():
-            batched_labels[k].append(v)
-    batched_labels = {k: torch.cat(v) for k, v in batched_labels.items()}
+        # labels
+        keys = labels[0].keys()
+        batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
 
-    # metadata used to split global and bond features
-    reactant_num_molecules = []
-    product_num_molecules = []
-    num_unchanged_bonds = []
-    num_lost_bonds = []
-    num_added_bonds = []
-    for rxn in reactions:
-        reactant_num_molecules.append(len(rxn.reactants))
-        product_num_molecules.append(len(rxn.products))
-        num_unchanged, num_lost, num_added = rxn.get_num_unchanged_lost_and_added_bonds()
-        num_unchanged_bonds.append(num_unchanged)
-        num_lost_bonds.append(num_lost)
-        num_added_bonds.append(num_added)
+        # metadata used to split global and bond features
+        keys = metadata[0].keys()
+        batched_metadata = {k: [d[k] for d in metadata] for k in keys}
 
-    metadata = {
-        "reactant_num_molecules": reactant_num_molecules,
-        "product_num_molecules": product_num_molecules,
-        "num_unchanged_bonds": num_unchanged_bonds,
-        "num_lost_bonds": num_lost_bonds,
-        "num_added_bonds": num_added_bonds,
-    }
-
-    return (
-        indices,
-        batched_molecule_graphs,
-        batched_reaction_graphs,
-        batched_labels,
-        metadata,
-    )
+        return (
+            batched_indices,
+            batched_molecule_graphs,
+            batched_reaction_graphs,
+            batched_labels,
+            batched_metadata,
+        )
