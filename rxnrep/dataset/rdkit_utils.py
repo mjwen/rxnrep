@@ -2,6 +2,7 @@ import copy
 import multiprocessing
 import numpy as np
 from rdkit import Chem
+from rdkit.Chem import KekulizeException, AtomKekulizeException
 from typing import List, Tuple, Dict, Union, Set, Any
 
 
@@ -164,7 +165,7 @@ def check_all_reactions_atom_mapped(
 
 def check_bonds_mapped(m: Chem.Mol) -> Tuple[bool, bool]:
     """
-    The the mappings of the bonds in a moleucle.
+    Check whether all bonds in a molecule are mapped.
 
     Returns:
         has_bond_both_atoms_not_mapped
@@ -214,6 +215,9 @@ def check_reaction_bonds_mapped(reaction: str) -> Tuple[bool, bool]:
 def check_all_reactions_bonds_mapped(
     reactions: List[str], nprocs=1, print_result=False
 ) -> List[Tuple[bool, bool]]:
+    """
+    Check that reactants and products in all reactions are bond mapped.
+    """
     if nprocs == 1:
         mapped = [check_reaction_bonds_mapped(rxn) for rxn in reactions]
     else:
@@ -285,18 +289,38 @@ def canonicalize_smiles_reaction(
         reactants_smi, reagents_smi, products_smi = rxn_smi.strip().split(">")
         reactants = Chem.MolFromSmiles(reactants_smi)
         products = Chem.MolFromSmiles(products_smi)
+        reactants = set_no_graph_H(reactants)
+        products = set_no_graph_H(products)
         reactants, products = adjust_atom_map_number(reactants, products)
     except AtomMapNumberError as e:
         return None, str(e).rstrip()
 
     # Step 3, create new products by editing bonds of the reactants. Some atom properties
     # (formal charge, and number of radicals) are copied from the products, though
-    bond_changes, has_lost, has_added, _ = get_reaction_bond_change(reactants, products)
-    # skip reactions only has bond type changes, but no bond lost or added
-    if not (has_lost or has_added):
-        return None, "reactions with only bond type changes"
-    product_atom_properties = get_atom_property_as_dict(products)
-    new_products = edit_molecule(reactants, bond_changes, product_atom_properties)
+
+    try:
+        bond_changes, has_lost, has_added, _ = get_reaction_bond_change(
+            reactants, products
+        )
+
+        # check 3.1, skip reactions only has bond type changes, but no bond lost or added
+        # (e.g. add H to benzene)
+        if not (has_lost or has_added):
+            return None, "reactions with only bond type changes"
+
+        product_atom_properties = get_atom_property_as_dict(products)
+        new_products = edit_molecule(reactants, bond_changes, product_atom_properties)
+
+        # check 3.2, remove reactions that break a bond with H, and produce a product of H2.
+        # In cases where the orientation of H is specified with `\` or `/` (e.g. as in
+        # "[H]/[CH]=N/[H]"), the H will be always in the molecule graph. Then, breaking
+        # such a bond will produce an H2, but one H in H2 will not be mapped.
+        # So, here we check all products atoms are mapped.
+        if not check_molecule_atom_mapped(new_products):
+            return None, "products after mol editing have atoms not mapped"
+
+    except (KekulizeException, AtomKekulizeException) as e:
+        return None, str(e).rstrip()
 
     # write canonicalized reaction to smiles
     reactants_smi = Chem.MolToSmiles(set_all_H_to_explicit(reactants))
@@ -438,7 +462,7 @@ def adjust_atom_map_number(
 
     # Step 2, check all product atoms are mapped
     if not set(prdt_mapping).issubset(set(rct_mapping)):
-        raise AtomMapNumberError("Products has atom not mapped to product.")
+        raise AtomMapNumberError("Products has atom not mapped to reactant.")
 
     # Step 3, Renumber existing atom map
 
@@ -618,6 +642,22 @@ def edit_molecule(
     new_mol = set_all_H_to_explicit(new_mol)
 
     return new_mol
+
+
+def set_no_graph_H(m: Chem.Mol) -> Chem.Mol:
+    """
+    Set H in graph to implicit for explicit H.
+
+    Args:
+        m: rdkit molecule
+
+    Returns:
+        updated molecule with no graph H
+
+    """
+    m2 = Chem.RemoveHs(m, implicitOnly=False)
+    Chem.SanitizeMol(m2)
+    return m2
 
 
 def set_all_H_to_implicit(m: Chem.Mol) -> Chem.Mol:
