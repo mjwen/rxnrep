@@ -131,6 +131,7 @@ class USPTODataset(BaseDataset):
 
         # set failed and labels
         self._failed = failed
+        self._raw_labels = labels
 
         # convert reactions to dgl graphs
         self.reaction_graphs = self.build_graph_and_featurize()
@@ -288,6 +289,8 @@ class USPTODataset(BaseDataset):
             weight_bond_type: a tensor of shape (3,), giving the weight for unchanged
                 bonds, lost bonds, and added bonds in sequence.
         """
+        # TODO can use multiprocessing
+
         w_in_center = []
         w_unchanged = []
         w_lost = []
@@ -449,3 +452,56 @@ class USPTODataset(BaseDataset):
             batched_labels,
             batched_metadata,
         )
+
+
+class SchneiderDataset(USPTODataset):
+    """
+    Schneider 50k USPTO dataset with class labels for reactions.
+
+    The difference between this and the USPTO dataset is that there is class label in
+    this dataset and no class label in USPTO. This is added as the `reaction_class`
+    in the `labels`.
+    """
+
+    def __getitem__(self, item: int):
+        """
+        Get data point with index.
+        """
+        reactants_g, products_g, reaction_g = self.reaction_graphs[item]
+        reaction = self.reactions[item]
+
+        # get labels, create it if it does not exist
+        if item in self.labels:
+            labels = self.labels[item]
+        else:
+            labels = {
+                "bond_type": self._create_label_bond_type(reaction),
+                "atom_in_reaction_center": self._create_label_atom_in_reaction_center(
+                    reaction
+                ),
+                "reaction_class": torch.as_tensor(int(self._raw_labels[item])),
+            }
+            self.labels[item] = labels
+
+        # get metadata
+        if item in self.metadata:
+            meta = self.metadata[item]
+        else:
+            (
+                num_unchanged,
+                num_lost,
+                num_added,
+            ) = reaction.get_num_unchanged_lost_and_added_bonds()
+            meta = {
+                "reactant_num_molecules": len(reaction.reactants),
+                "product_num_molecules": len(reaction.products),
+                "num_unchanged_bonds": num_unchanged,
+                "num_lost_bonds": num_lost,
+                "num_added_bonds": num_added,
+            }
+            self.metadata[item] = meta
+
+        if self.return_index:
+            return item, reactants_g, products_g, reaction_g, meta, labels
+        else:
+            return reactants_g, products_g, reaction_g, meta, labels

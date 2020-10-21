@@ -2,7 +2,7 @@ import copy
 import multiprocessing
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import KekulizeException, AtomKekulizeException
+from rdkit.Chem import KekulizeException, AtomKekulizeException, AtomValenceException
 from typing import List, Tuple, Dict, Union, Set, Any
 
 
@@ -319,7 +319,7 @@ def canonicalize_smiles_reaction(
         if not check_molecule_atom_mapped(new_products):
             return None, "products after mol editing have atoms not mapped"
 
-    except (KekulizeException, AtomKekulizeException) as e:
+    except (KekulizeException, AtomKekulizeException, AtomValenceException) as e:
         return None, str(e).rstrip()
 
     # write canonicalized reaction to smiles
