@@ -138,3 +138,4 @@ dmypy.json
 *.tsv
 *.pkl
 *.txt
+*.json
