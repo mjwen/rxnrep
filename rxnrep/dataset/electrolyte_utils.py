@@ -1,17 +1,38 @@
 import warnings
-import numpy as np
 from collections import defaultdict
-from pymatgen import Molecule
-from pymatgen.analysis.graphs import MoleculeGraph
-from pymatgen.io.babel import BabelMolAdaptor
+import numpy as np
+import networkx as nx
+
 from rdkit import Chem
 from rdkit.Chem import BondType
 from rdkit.Geometry import Point3D
 from openbabel import openbabel as ob
 
+from pymatgen import Molecule
+from pymatgen.analysis.graphs import MoleculeGraph
+from pymatgen.io.babel import BabelMolAdaptor
 from pymatgen.entries.mol_entry import MoleculeEntry
+from pymatgen.reaction_network.reaction import bucket_mol_entries, unbucket_mol_entries
 
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
+
+
+def check_connectivity(mol: MoleculeEntry) -> Tuple[bool, None]:
+    """
+    Check whether all atoms in a molecule is connected.
+
+    Args:
+        mol:
+    Returns:
+    """
+
+    # all atoms are connected, not failing
+    if nx.is_weakly_connected(mol.graph):
+        return False, None
+
+    # some atoms are not connected, failing
+    else:
+        return True, None
 
 
 def check_species(mol: MoleculeEntry, species: List[str]) -> Tuple[bool, str]:
@@ -192,13 +213,13 @@ def check_bond_length(mol: MoleculeEntry, bond_length_limit=None):
     return do_fail, reason
 
 
-def check_connectivity(
+def check_num_bonds(
     mol: MoleculeEntry,
     allowed_connectivity: Dict[str, List[int]] = None,
     exclude_species: List[str] = None,
 ):
     """
-    Check the connectivity of each atom in a mol, without considering their bonding to
+    Check the number of bonds of each atom in a mol, without considering their bonding to
     metal element (e.g. Li), which forms coordinate bond with other atoms.
 
     If there are atoms violate the connectivity specified in allowed_connectivity,
@@ -276,6 +297,52 @@ def check_bad_rdkit_molecule(mol: MoleculeEntry):
         return True, str(e)
 
 
+def remove_isomorphic_mol_of_same_charge_with_high_energy(
+    mol_entries: List[MoleculeEntry],
+) -> List[MoleculeEntry]:
+    """
+    Remove molecules with the same isomorphism and charge, but high free enrgy.
+
+    Args:
+        mol_entries: a list of molecule entries
+
+    """
+    # convert list of entries to nested dict
+    buckets = bucket_mol_entries(mol_entries, keys=["formula", "num_bonds", "charge"])
+
+    for formula in buckets:
+        for num_bonds in buckets[formula]:
+            for charge in buckets[formula][num_bonds]:
+
+                # filter mols having the same formula, number bonds and charge
+                low_energy_entries = []
+                for entry in buckets[formula][num_bonds][charge]:
+                    idx = -1
+                    for i, entry_i in enumerate(low_energy_entries):
+                        if entry.mol_graph.isomorphic_to(entry_i.mol_graph):
+                            idx = i
+                            break
+
+                    if idx >= 0:
+                        # entry has the same isomorphism as entry_i
+                        if (
+                            entry.get_free_energy()
+                            < low_energy_entries[idx].get_free_energy()
+                        ):
+                            low_energy_entries[idx] = entry
+
+                    else:
+                        # entry with a unique isomorphism
+                        low_energy_entries.append(entry)
+
+                buckets[formula][num_bonds][charge] = low_energy_entries
+
+    # convert nested dict to list
+    low_energy_entries = unbucket_mol_entries(buckets)
+
+    return low_energy_entries
+
+
 def create_rdkit_mol(
     species, coords, bond_types, formal_charge=None, name=None, force_sanitize=True
 ):
@@ -333,7 +400,10 @@ def create_rdkit_mol(
 
 
 def create_rdkit_mol_from_mol_graph(
-    mol_graph: MoleculeGraph, name=None, force_sanitize=False, metals={"Li": 1, "Mg": 2}
+    mol_graph: MoleculeGraph,
+    name: str = None,
+    force_sanitize: bool = False,
+    metals: Optional[Dict[str, int]] = None,
 ):
     """
     Create a rdkit molecule from molecule graph, with bond type perceived by babel.
@@ -345,16 +415,18 @@ def create_rdkit_mol_from_mol_graph(
     4. create rdkit mol based on species, coords, bonds, and formal charge
 
     Args:
-        mol_graph (pymatgen MoleculeGraph): molecule graph
-        name (str): name of the molecule
-        force_sanitize (bool): whether to force sanitization of the rdkit mol
-        metals dict: with metal atom (str) as key and the number of valence electrons
-            as key.
+        mol_graph: molecule graph
+        name: name of the molecule
+        force_sanitize: whether to force sanitization of the rdkit mol
+        metals: {metal_species: num_valence} metal atom as key and the number of
+            valence electrons as key.
 
     Returns:
         m: rdkit Chem.Mol
         bond_types (dict): bond types assigned to the created rdkit mol
     """
+
+    metals = {"Li": 1, "Mg": 2} if metals is None else metals
 
     pymatgen_mol = mol_graph.molecule
     species = [str(s) for s in pymatgen_mol.species]
@@ -374,7 +446,7 @@ def create_rdkit_mol_from_mol_graph(
         ob_bond_order[k] = v
 
     # create bond type
-    atom_idx_mapping = pymatgen_2_babel_atom_idx_map(pymatgen_mol, ob_mol)
+    atom_idx_mapping = pymatgen_to_babel_atom_idx_map(pymatgen_mol, ob_mol)
     bond_types = {}
 
     for bd in bonds:
@@ -504,7 +576,7 @@ def remove_metals(mol: Molecule, metals=None):
     return mol
 
 
-def pymatgen_2_babel_atom_idx_map(pmg_mol: Molecule, ob_mol):
+def pymatgen_to_babel_atom_idx_map(pmg_mol: Molecule, ob_mol):
     """
     Create an atom index mapping between pymatgen mol and openbabel mol.
 
