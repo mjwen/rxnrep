@@ -2,7 +2,12 @@ import copy
 import multiprocessing
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import KekulizeException, AtomKekulizeException, AtomValenceException
+from rdkit.Chem import (
+    KekulizeException,
+    AtomKekulizeException,
+    AtomValenceException,
+    MolSanitizeException,
+)
 from typing import List, Tuple, Dict, Union, Set, Any
 
 
@@ -323,8 +328,11 @@ def canonicalize_smiles_reaction(
         return None, str(e).rstrip()
 
     # write canonicalized reaction to smiles
-    reactants_smi = Chem.MolToSmiles(set_all_H_to_explicit(reactants))
-    products_smi = Chem.MolToSmiles(set_all_H_to_explicit(new_products))
+    try:
+        reactants_smi = Chem.MolToSmiles(set_all_H_to_explicit(reactants))
+        products_smi = Chem.MolToSmiles(set_all_H_to_explicit(new_products))
+    except MolSanitizeException as e:
+        return None, str(e).rstrip()
     canoical_reaction = ">".join([reactants_smi, reagents_smi, products_smi])
 
     return canoical_reaction, None

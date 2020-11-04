@@ -85,7 +85,9 @@ class Reaction:
         """
         return self._get_atom_map_number(self.products, zero_based)
 
-    def get_reactants_bond_map_number(self, for_changed: bool = False) -> List[List[int]]:
+    def get_reactants_bond_map_number(
+        self, for_changed: bool = False
+    ) -> List[List[int]]:
         """
         Get the bond map number of the reactant molecules.
 
@@ -111,7 +113,9 @@ class Reaction:
         """
         return self._get_bond_map_number(for_changed, mode="reactants")
 
-    def get_products_bond_map_number(self, for_changed: bool = False) -> List[List[int]]:
+    def get_products_bond_map_number(
+        self, for_changed: bool = False
+    ) -> List[List[int]]:
         """
         Get the bond map number of the product molecules.
 
@@ -265,7 +269,9 @@ class Reaction:
 
         if zero_based:
             minimum = int(
-                np.min(np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel())
+                np.min(
+                    np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel()
+                )
             )
             all_bonds = [
                 [(b[0] - minimum, b[1] - minimum) for b in bonds] for bonds in all_bonds

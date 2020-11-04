@@ -1,5 +1,5 @@
 from rdkit import Chem
-from rxnrep.dataset.rdkit_utils import (
+from rxnrep.dataset.uspto_utils import (
     adjust_reagents,
     adjust_atom_map_number,
     get_reaction_bond_change,
