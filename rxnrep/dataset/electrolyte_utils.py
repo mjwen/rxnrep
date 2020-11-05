@@ -3,8 +3,12 @@ import numpy as np
 import networkx as nx
 
 from pymatgen.entries.mol_entry import MoleculeEntry
-from pymatgen.reaction_network.reaction import bucket_mol_entries, unbucket_mol_entries
+from pymatgen.reaction_network.reaction import bucket_mol_entries
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
+
+
+# TODO add a function to remove repeated reactions with the same reactants and
+#  products. This happens because
 
 
 def check_connectivity(mol: MoleculeEntry) -> Tuple[bool, None]:
@@ -287,26 +291,33 @@ def check_bad_rdkit_molecule(mol: MoleculeEntry):
         return True, str(e)
 
 
-def remove_isomorphic_mol_of_same_charge_with_high_energy(
+def remove_high_energy_entries(
     mol_entries: List[MoleculeEntry],
 ) -> List[MoleculeEntry]:
     """
-    Remove molecules with the same isomorphism and charge, but high free enrgy.
+    For molecules of the same isomorphism and charge, remove the ones with higher free
+    energies.
 
     Args:
         mol_entries: a list of molecule entries
 
+    Returns:
+        low_energy_entries: molecule entries with high free energy ones removed
     """
-    # convert list of entries to nested dict
+
+    # convert list of entries to nested dicts
     buckets = bucket_mol_entries(mol_entries, keys=["formula", "num_bonds", "charge"])
 
+    all_entries = []
     for formula in buckets:
         for num_bonds in buckets[formula]:
             for charge in buckets[formula][num_bonds]:
 
-                # filter mols having the same formula, number bonds and charge
+                # filter mols having the same formula, number bonds, and charge
                 low_energy_entries = []
                 for entry in buckets[formula][num_bonds][charge]:
+
+                    # try to find an entry_i with the same isomorphism to entry
                     idx = -1
                     for i, entry_i in enumerate(low_energy_entries):
                         if entry.mol_graph.isomorphic_to(entry_i.mol_graph):
@@ -325,9 +336,6 @@ def remove_isomorphic_mol_of_same_charge_with_high_energy(
                         # entry with a unique isomorphism
                         low_energy_entries.append(entry)
 
-                buckets[formula][num_bonds][charge] = low_energy_entries
+                all_entries.extend(low_energy_entries)
 
-    # convert nested dict to list
-    low_energy_entries = unbucket_mol_entries(buckets)
-
-    return low_energy_entries
+    return all_entries

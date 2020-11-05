@@ -75,7 +75,7 @@ def create_rdkit_mol_from_mol_graph(
     name: str = None,
     force_sanitize: bool = False,
     metals: Optional[Dict[str, int]] = None,
-):
+) -> Tuple[Chem.Mol, Dict[Tuple[int, int], BondType]]:
     """
     Create a rdkit molecule from molecule graph, with bond type perceived by babel.
     Done in the below steps:
@@ -94,7 +94,7 @@ def create_rdkit_mol_from_mol_graph(
 
     Returns:
         m: rdkit Chem.Mol
-        bond_types (dict): bond types assigned to the created rdkit mol
+        bond_types: a dict of bond types assigned to the created rdkit mol
     """
 
     metals = {"Li": 1, "Mg": 2} if metals is None else metals
@@ -152,7 +152,7 @@ def create_rdkit_mol_from_mol_graph(
 
             # bond involves one and only one metal atom (atom not in ob mol case above)
             elif atom1_spec in metals or atom2_spec in metals:
-                tp = Chem.rdchem.BondType.DATIVE
+                tp = BondType.DATIVE
 
                 # Dative bonds have the special characteristic that they do not affect
                 # the valence on the start atom, but do affect the end atom.
@@ -163,7 +163,7 @@ def create_rdkit_mol_from_mol_graph(
 
             # bond not found by babel (atom in ob mol)
             else:
-                tp = Chem.rdchem.BondType.UNSPECIFIED
+                tp = BondType.UNSPECIFIED
 
         bond_types[bd] = tp
 

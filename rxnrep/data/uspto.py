@@ -2,7 +2,6 @@ import multiprocessing
 import functools
 import logging
 import itertools
-from collections import defaultdict
 from pathlib import Path
 import pandas as pd
 import dgl
@@ -43,6 +42,26 @@ def build_hetero_graph_and_featurize_one_reaction(
     global_featurizer: Callable,
     self_loop=False,
 ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
+    """
+    Build heterogeneous dgl graph for the reactants and products in a reaction and
+    featurize them.
+
+    Args:
+        reaction:
+        atom_featurizer:
+        bond_featurizer:
+        global_featurizer:
+        self_loop:
+
+    Returns:
+        reactants_g: dgl graph for the reactants. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        products_g: dgl graph for the products. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        reaction_g: dgl graph for the reaction. bond nodes is the union of reactants
+            bond nodes and products bond nodes.
+    """
+
     def featurize_one_mol(m: Molecule):
 
         rdkit_mol = m.rdkit_mol
@@ -76,7 +95,11 @@ def build_hetero_graph_and_featurize_one_reaction(
     products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
     # combine reaction graph from the combined reactant graph and product graph
-    num_unchanged, num_lost, num_added = reaction.get_num_unchanged_lost_and_added_bonds()
+    (
+        num_unchanged,
+        num_lost,
+        num_added,
+    ) = reaction.get_num_unchanged_lost_and_added_bonds()
     reaction_g = create_reaction_graph(
         reactants_g, products_g, num_unchanged, num_lost, num_added, self_loop,
     )
@@ -223,6 +246,9 @@ class USPTODataset(BaseDataset):
                 for rxn in self.reactions
             ]
         else:
+            # TODO This make a copy of atom_featurizer and bond_featurizer and pass them
+            #  to the subprocess. As a result, feature_name and feature_size in the
+            #  featurizer will not be updated. So, this is not working now.
             func = functools.partial(
                 build_hetero_graph_and_featurize_one_reaction,
                 atom_featurizer=atom_featurizer,
@@ -311,7 +337,9 @@ class USPTODataset(BaseDataset):
 
             # atom weight
             num_atoms = sum([m.num_atoms for m in rxn.reactants])
-            changed_atoms = set([i for i in itertools.chain.from_iterable(lost + added)])
+            changed_atoms = set(
+                [i for i in itertools.chain.from_iterable(lost + added)]
+            )
             num_changed = len(changed_atoms)
             if num_changed == 0:
                 w_in_center.append(1.0)
