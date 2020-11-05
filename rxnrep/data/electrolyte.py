@@ -173,7 +173,7 @@ def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction) -> Reaction:
     product_ids = "+".join([str(i) for i in pmg_reaction.product_ids])
     reaction_id = reactant_ids + " -> " + product_ids
 
-    reaction = Reaction(reactants, products, sanity_check=False, id=reaction_id)
+    reaction = Reaction(reactants, products, id=reaction_id)
 
     return reaction
 
@@ -208,6 +208,11 @@ def pymatgen_mol_entry_to_molecule(
         map_number = atom_mapping[i]
         rdkit_mol.GetAtomWithIdx(i).SetAtomMapNum(map_number)
 
+    # NOTE, The total charge of the created rdkit molecule may be different from the
+    # charge of the pymatgen Molecule. Currently, there is not a good method to
+    # handle metals. We set the charge of Molecule to what is in pymatgen Molecule
+    # explicitly.
     mol = Molecule(rdkit_mol, id=mol_entry.entry_id)
+    mol.charge = mol_entry.molecule.charge
 
     return mol

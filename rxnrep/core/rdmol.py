@@ -81,9 +81,13 @@ def create_rdkit_mol_from_mol_graph(
     Done in the below steps:
 
     1. create a babel mol without metal atoms.
-    2. perceive bond order (conducted by BabelMolAdaptor)
+    2. perceive bond order by BabelMolAdaptor
     3. adjust formal charge of metal atoms so as not to violate valence rule
     4. create rdkit mol based on species, coords, bonds, and formal charge
+
+    Warnings:
+        The total charge of the created rdkit molecule may be different from the charge
+        of the pymatgen Molecule. Currently, there is not a good method to handle metals.
 
     Args:
         mol_graph: molecule graph
@@ -121,30 +125,10 @@ def create_rdkit_mol_from_mol_graph(
     bond_types = {}
 
     for bd in bonds:
-        try:
-            ob_bond = [atom_idx_mapping[a] for a in bd]
+        ob_bond = [atom_idx_mapping[a] for a in bd]
 
-            # atom not in ob mol
-            if None in ob_bond:
-                raise KeyError
-            # atom in ob mol
-            else:
-                ob_bond = tuple(sorted(ob_bond))
-                v = ob_bond_order[ob_bond]
-                if v == 0:
-                    tp = BondType.UNSPECIFIED
-                elif v == 1:
-                    tp = BondType.SINGLE
-                elif v == 2:
-                    tp = BondType.DOUBLE
-                elif v == 3:
-                    tp = BondType.TRIPLE
-                elif v == 5:
-                    tp = BondType.AROMATIC
-                else:
-                    raise RuntimeError(f"Got unexpected babel bond order: {v}")
-
-        except KeyError:
+        # atom not in ob mol, i.e. dative bond
+        if None in ob_bond:
             atom1_spec, atom2_spec = [species[a] for a in bd]
 
             if atom1_spec in metals and atom2_spec in metals:
@@ -165,10 +149,27 @@ def create_rdkit_mol_from_mol_graph(
             else:
                 tp = BondType.UNSPECIFIED
 
+        # atom in ob mol
+        else:
+            ob_bond = tuple(sorted(ob_bond))
+            v = ob_bond_order[ob_bond]
+            if v == 0:
+                tp = BondType.UNSPECIFIED
+            elif v == 1:
+                tp = BondType.SINGLE
+            elif v == 2:
+                tp = BondType.DOUBLE
+            elif v == 3:
+                tp = BondType.TRIPLE
+            elif v == 5:
+                tp = BondType.AROMATIC
+            else:
+                raise RuntimeError(f"Got unexpected babel bond order: {v}")
+
         bond_types[bd] = tp
 
-    # a metal atom can form multiple dative bond (e.g. bidentate LiEC), for such cases
-    # we need to adjust the their formal charge so as not to violate valence rule
+    # a metal atom can form multiple dative bond (e.g. bidentate LiEC). In such cases,
+    # we need to adjust their formal charge so as not to violate valence rule
     formal_charge = adjust_formal_charge(species, bonds, metals)
 
     m = create_rdkit_mol(
@@ -209,8 +210,7 @@ def adjust_formal_charge(
 
 def remove_metals(mol: Molecule, metals=None):
     """
-    Check whether metals are in a pymatgen molecule. If yes, create a new Molecule
-    with metals removed.
+    Create a new Molecule with metals removed, with the charge properly adjusted.
 
     Args:
         mol: pymatgen molecule
