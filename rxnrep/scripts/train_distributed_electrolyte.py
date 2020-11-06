@@ -32,9 +32,9 @@ def parse_args():
     # ========== input files ==========
     prefix = "/Users/mjwen/Documents/Dataset/rxnrep/"
 
-    fname_tr = prefix + "reactions_n2000.json"
-    fname_val = prefix + "reactions_n2000.json"
-    fname_test = prefix + "reactions_n2000.json"
+    fname_tr = prefix + "reactions_n2000_train.json"
+    fname_val = prefix + "reactions_n2000_val.json"
+    fname_test = prefix + "reactions_n2000_test.json"
 
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
