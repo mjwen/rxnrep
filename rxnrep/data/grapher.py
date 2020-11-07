@@ -9,7 +9,9 @@ from rdkit import Chem
 from typing import List
 
 
-def create_hetero_molecule_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.DGLGraph:
+def create_hetero_molecule_graph(
+    mol: Chem.Mol, self_loop: bool = False
+) -> dgl.DGLGraph:
     """
     Create a heterogeneous molecule graph for an rdkit molecule.
 
@@ -72,7 +74,9 @@ def create_hetero_molecule_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.
     return g
 
 
-def create_hetero_complete_graph(mol: Chem.Mol, self_loop: bool = False) -> dgl.DGLGraph:
+def create_hetero_complete_graph(
+    mol: Chem.Mol, self_loop: bool = False
+) -> dgl.DGLGraph:
     """
     Create a complete graph from rdkit molecule, a complete graph where all atoms are
     connected to each other.
@@ -208,22 +212,19 @@ def combine_graphs(
     ]
 
     for ntype in graphs[0].ntypes:
-        feat_dicts = [g.nodes[ntype].data for g in graphs if g.number_of_nodes(ntype) > 0]
+        feat_dicts = [g.nodes[ntype].data for g in graphs]
 
-        if len(feat_dicts) == 0:
-            new_feats = {}
-        else:
-            # concatenate features
-            keys = feat_dicts[0].keys()
-            new_feats = {k: torch.cat([fd[k] for fd in feat_dicts], 0) for k in keys}
+        # concatenate features
+        keys = feat_dicts[0].keys()
+        new_feats = {k: torch.cat([fd[k] for fd in feat_dicts], 0) for k in keys}
 
-            # reorder atom features
-            if ntype == "atom":
-                new_feats = {k: v[atom_reorder] for k, v in new_feats.items()}
+        # reorder atom features
+        if ntype == "atom":
+            new_feats = {k: v[atom_reorder] for k, v in new_feats.items()}
 
-            # reorder bond features
-            elif ntype == "bond":
-                new_feats = {k: v[bond_reorder] for k, v in new_feats.items()}
+        # reorder bond features
+        elif ntype == "bond":
+            new_feats = {k: v[bond_reorder] for k, v in new_feats.items()}
 
         new_g.nodes[ntype].data.update(new_feats)
 

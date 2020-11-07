@@ -312,7 +312,9 @@ def test_combine_graphs_C():
 
 
 def test_combine_graph_feature():
-    """Two CO2 and one C molecules."""
+    """
+    Two CO2 and one C molecules: no bond features.
+    """
     g1 = create_hetero_graph_CO2()
     g2 = create_hetero_graph_CO2()
     g3 = create_hetero_graph_C()
@@ -331,6 +333,32 @@ def test_combine_graph_feature():
     ref_atom_feats = torch.cat([a1, a1, a2])[[3, 0, 4, 6, 1, 5, 2]]
     ref_bond_feats = torch.cat([b1, b1, b2])[[2, 0, 3, 1]]
     ref_global_feats = torch.cat([g1, g1, g2])
+
+    assert torch.equal(graph.nodes["atom"].data["feat"], ref_atom_feats)
+    assert torch.equal(graph.nodes["bond"].data["feat"], ref_bond_feats)
+    assert torch.equal(graph.nodes["global"].data["feat"], ref_global_feats)
+
+
+def test_combine_graph_feature_2():
+    """
+    Two C molecules: no bond features.
+
+    The combined graph should have a bond feature of shape (0, D), where D is is
+    feature size.
+    """
+    g1 = create_hetero_graph_C()
+    g2 = create_hetero_graph_C()
+
+    atom_map_number = [[1], [0]]
+    bond_map_number = [[], []]
+    graph = combine_graphs([g1, g2], atom_map_number, bond_map_number)
+
+    a = torch.arange(4).reshape(1, 4)
+    b = torch.arange(0).reshape(0, 3).type(torch.int32)
+    g = torch.arange(2).reshape(1, 2)
+    ref_atom_feats = torch.cat([a, a])[[1, 0]]
+    ref_bond_feats = torch.cat([b, b])
+    ref_global_feats = torch.cat([g, g])
 
     assert torch.equal(graph.nodes["atom"].data["feat"], ref_atom_feats)
     assert torch.equal(graph.nodes["bond"].data["feat"], ref_bond_feats)
