@@ -50,7 +50,9 @@ class BinaryClassificationMetrics:
         if self.precision + self.recall == 0:
             self.f1 = 0
         else:
-            self.f1 = 2 * (self.precision * self.recall) / (self.precision + self.recall)
+            self.f1 = (
+                2 * (self.precision * self.recall) / (self.precision + self.recall)
+            )
 
     def __str__(self):
         return "[{:.2f}|{:.2f}|{:.2f}|{:.2f}]".format(
@@ -146,7 +148,9 @@ def accuracy_precision_recall_fbeta_from_state_scores(
     intermidiate_reduction = "none" if class_reduction != "micro" else "micro"
 
     if intermidiate_reduction == "none":
-        prec = class_reduce(tps, tps + fps, sups, class_reduction=intermidiate_reduction)
+        prec = class_reduce(
+            tps, tps + fps, sups, class_reduction=intermidiate_reduction
+        )
         rec = class_reduce(tps, tps + fns, sups, class_reduction=intermidiate_reduction)
     else:
         prec = precision

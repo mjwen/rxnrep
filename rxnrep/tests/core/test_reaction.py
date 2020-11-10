@@ -84,7 +84,11 @@ class TestReaction:
 
     def test_get_num_bonds(self):
         rxn, _ = create_reaction()
-        num_unchanged, num_lost, num_added = rxn.get_num_unchanged_lost_and_added_bonds()
+        (
+            num_unchanged,
+            num_lost,
+            num_added,
+        ) = rxn.get_num_unchanged_lost_and_added_bonds()
         assert num_unchanged == 1
         assert num_lost == 1
         assert num_added == 1

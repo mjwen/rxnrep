@@ -585,7 +585,9 @@ def get_reaction_features(
 
             mol_graphs = mol_graphs.to(device)
             rxn_graphs = rxn_graphs.to(device)
-            feats = {nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes}
+            feats = {
+                nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes
+            }
 
             preds, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
             all_feats.append(preds["reaction_cluster"].detach())

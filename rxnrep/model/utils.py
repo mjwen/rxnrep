@@ -21,7 +21,10 @@ class UnifySize(nn.Module):
         super(UnifySize, self).__init__()
 
         self.linears = nn.ModuleDict(
-            {k: nn.Linear(size, output_dim, bias=False) for k, size in input_dim.items()}
+            {
+                k: nn.Linear(size, output_dim, bias=False)
+                for k, size in input_dim.items()
+            }
         )
 
     def forward(self, feats):

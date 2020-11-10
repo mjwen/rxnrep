@@ -31,7 +31,9 @@ class EarlyStopping:
         else:
             self.counter += 1
             if not self.silent:
-                print("EarlyStopping counter: {}/{}".format(self.counter, self.patience))
+                print(
+                    "EarlyStopping counter: {}/{}".format(self.counter, self.patience)
+                )
             if self.counter >= self.patience:
                 self.early_stop = True
         return self.early_stop
@@ -117,7 +119,8 @@ def init_distributed_mode(args):
         # guarantees unique ports across jobs from same grid search
         default_port = os.environ["SLURM_JOB_ID"]
         default_port = default_port[-4:]
-        default_port = int(default_port) + 15000  # all ports should be in the 10k+ range
+        default_port = int(default_port) + 15000  # all ports be in the 10k+ range
+
         root_node = os.environ["SLURM_NODELIST"].strip().split(",")[0]
         dist_url = f"tcp://{root_node}:{default_port}"
 
@@ -143,7 +146,10 @@ def init_distributed_mode(args):
         f"init_method({dist_url}), world_size({args.world_size})."
     )
     dist.init_process_group(
-        backend=backend, init_method=dist_url, world_size=args.world_size, rank=args.rank
+        backend=backend,
+        init_method=dist_url,
+        world_size=args.world_size,
+        rank=args.rank,
     )
 
 

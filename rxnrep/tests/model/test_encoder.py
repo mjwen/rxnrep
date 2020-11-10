@@ -29,7 +29,8 @@ def test_create_reaction_features():
     bond_feats = torch.from_numpy(np.arange(9 * 3).reshape(9, 3).astype(np.float32))
     global_feats = torch.from_numpy(np.arange(7 * 4).reshape(7, 4).astype(np.float32))
     ref_atom_feats = (
-        atom_feats[[8, 9, 10, 11, 12, 13, 14, 15]] - atom_feats[[0, 1, 2, 3, 4, 5, 6, 7]]
+        atom_feats[[8, 9, 10, 11, 12, 13, 14, 15]]
+        - atom_feats[[0, 1, 2, 3, 4, 5, 6, 7]]
     )
     ref_bond_feats = torch.stack(
         [
