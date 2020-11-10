@@ -267,7 +267,13 @@ class Reaction:
                 [tuple(sorted([atom_map[b[0]], atom_map[b[1]]])) for b in m.bonds]
             )
 
-        if zero_based:
+        has_bond = False
+        for bonds in all_bonds:
+            if bonds:
+                has_bond = True
+                break
+
+        if zero_based and has_bond:
             minimum = int(
                 np.min(
                     np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel()
