@@ -10,7 +10,11 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 from rxnrep.data.electrolyte import ElectrolyteDataset
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.featurizer import (
+    AtomFeaturizerMinimum,
+    BondFeaturizerMinimum,
+    GlobalFeaturizer,
+)
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
 from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
@@ -320,25 +324,25 @@ def load_dataset(args):
 
     trainset = ElectrolyteDataset(
         filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=AtomFeaturizerMinimum(),
+        bond_featurizer=BondFeaturizerMinimum(),
+        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict_filename,
     )
     valset = ElectrolyteDataset(
         filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=AtomFeaturizerMinimum(),
+        bond_featurizer=BondFeaturizerMinimum(),
+        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=trainset.state_dict(),
     )
     testset = ElectrolyteDataset(
         filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=AtomFeaturizerMinimum(),
+        bond_featurizer=BondFeaturizerMinimum(),
+        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=trainset.state_dict(),
     )

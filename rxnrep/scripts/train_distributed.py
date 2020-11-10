@@ -34,7 +34,9 @@ def parse_args():
 
     fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
     fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
-    fname_test = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+    fname_test = (
+        prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+    )
 
     # fname_tr = prefix + "raw_1k_train.tsv"
     # fname_val = prefix + "raw_1k_val.tsv"
@@ -150,7 +152,9 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
     index_for_cluster = []
 
     epoch_loss = 0.0
-    for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(data_loader):
+    for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
+        data_loader
+    ):
 
         if not args.distributed or args.rank == 0:
             timer.display(it, f"Batch {it}; getting data")
@@ -273,7 +277,8 @@ def evaluate(model, data_loader, args):
             mol_graphs = mol_graphs.to(args.device)
             rxn_graphs = rxn_graphs.to(args.device)
             feats = {
-                nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device) for nt in nodes
+                nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device)
+                for nt in nodes
             }
             labels = {k: v.to(args.device) for k, v in labels.items()}
 
@@ -288,7 +293,9 @@ def evaluate(model, data_loader, args):
             metrics["bond_type"].step(p, labels["bond_type"])
             # atom in reaction center
             p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
-            metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
+            metrics["atom_in_reaction_center"].step(
+                p, labels["atom_in_reaction_center"]
+            )
 
     # compute metric values
     metrics["bond_type"].compute_metric_values(class_reduction="weighted")
@@ -302,7 +309,9 @@ def load_dataset(args):
     # check dataset state dict if restore model
     if args.restore:
         if args.dataset_state_dict_filename is None:
-            warnings.warn("Restore with `args.dataset_state_dict_filename` set to None.")
+            warnings.warn(
+                "Restore with `args.dataset_state_dict_filename` set to None."
+            )
             state_dict_filename = None
         elif not Path(args.dataset_state_dict_filename).exists():
             warnings.warn(
@@ -498,7 +507,9 @@ def main(args):
 
             args.start_epoch = checkpoint["epoch"]
             best = checkpoint["best"]
-            print(f"Successfully load checkpoints, best {best}, epoch {args.start_epoch}")
+            print(
+                f"Successfully load checkpoints, best {best}, epoch {args.start_epoch}"
+            )
 
         except FileNotFoundError as e:
             warnings.warn(str(e) + " Continue without loading checkpoints.")
