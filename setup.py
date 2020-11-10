@@ -33,7 +33,6 @@ setup(
     description="short description",
     long_description="long description",
     classifiers=[
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "License :: OSI Approved :: Common Development and Distribution License 1.0 (CDDL-1.0)",
