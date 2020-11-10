@@ -6,6 +6,9 @@ from rxnrep.dataset.uspto_utils import (
     edit_molecule,
     canonicalize_smiles_reaction,
     get_atom_property_as_dict,
+    get_bond_change_nonexist_atoms,
+    add_nonexist_atoms_and_bonds_to_product,
+    canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds,
 )
 
 
@@ -80,6 +83,66 @@ def test_canonicalize_smiles_reaction():
     ref_reactant = "[CH3:1][CH2+:2].[CH2:3][CH3:4]"
     ref_reagent = "[Cl-].[Na+].[K+]"
     ref_product = "[CH3:1].[CH2+:2][CH2:3][CH3:4]"
+
+    assert error is None
+    assert set(reactant.split(".")) == set(ref_reactant.split("."))
+    assert set(product.split(".")) == set(ref_product.split("."))
+    assert set(reagent.split(".")) == set(ref_reagent.split("."))
+
+
+def test_get_bond_change_nonexist_atoms():
+    reactant = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3][CH3:4]")
+    product = Chem.MolFromSmiles("[CH3:1].[CH2+:2][CH2:3][CH3:4]")
+    bond_change = get_bond_change_nonexist_atoms(reactant, product)
+    assert bond_change == set()
+
+    reactant = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3][CH3:4]")
+    product = Chem.MolFromSmiles("[CH3:1].[CH2+:2][CH2:3]")
+    bond_change = get_bond_change_nonexist_atoms(reactant, product)
+    ref_bond_change = set()
+    ref_bond_change.add((3, 2, 0.0))
+    assert bond_change == ref_bond_change
+
+    reactant = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3][CH3:4]")
+    product = Chem.MolFromSmiles("[CH3:1].[CH2+:2]")
+    bond_change = get_bond_change_nonexist_atoms(reactant, product)
+    ref_bond_change = set()
+    ref_bond_change.add((2, 3, 1.0))
+    assert bond_change == ref_bond_change
+
+    reactant = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3][CH2:4][CH3:5]")
+    product = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3]")
+    bond_change = get_bond_change_nonexist_atoms(reactant, product)
+    ref_bond_change = set()
+    ref_bond_change.add((3, 2, 0.0))
+    ref_bond_change.add((3, 4, 1.0))
+    assert bond_change == ref_bond_change
+
+
+def test_add_nonexist_atoms_and_bonds_to_product():
+
+    reactant = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3][CH2:4][CH3:5]")
+    product = Chem.MolFromSmiles("[CH3:1][CH2+:2].[CH2:3]")
+    bond_change = get_bond_change_nonexist_atoms(reactant, product)
+    mol = add_nonexist_atoms_and_bonds_to_product(reactant, product, bond_change)
+    mol_smi = Chem.MolToSmiles(mol)
+
+    ref_smi = "[CH3:1][CH2+:2].[CH2:3].[CH3:4][CH3:5]"
+    assert set(mol_smi.split(".")) == set(ref_smi.split("."))
+
+
+def test_canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds():
+
+    reaction = (
+        "[CH3:1][CH2+:2].[CH2:3][CH2:4][CH3:5].[K+]>[Na+]>[CH3:1][CH2+:2].[CH2:3]"
+    )
+    out = canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds(reaction)
+    canonical_rxn_smi, error = out
+    reactant, reagent, product = canonical_rxn_smi.split(">")
+
+    ref_reactant = "[CH3:1][CH2+:2].[CH2:3][CH2:4][CH3:5]"
+    ref_product = "[CH3:1][CH2+:2].[CH2:3].[CH3:4][CH3:5]"
+    ref_reagent = "[K+].[Na+]"
 
     assert error is None
     assert set(reactant.split(".")) == set(ref_reactant.split("."))

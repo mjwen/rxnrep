@@ -338,6 +338,89 @@ def canonicalize_smiles_reaction(
     return canoical_reaction, None
 
 
+def canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds(
+    reaction: str,
+) -> Tuple[Union[str, None], Union[None, str]]:
+    """
+    Canonicalize a smiles reaction to make reactants and products have the same
+    composition.
+
+    This is an alternative of `canonicalize_smiles_reaction()`.
+    In `canonicalize_smiles_reaction()`. bond connectivity of the reactant is edited to
+    simulate the reaction to obtain the product. A problem with this method is that it
+    edits many unnecessary bonds (e.g. bonds that change bond type). This function uses
+    a differnet approach:
+
+    1. remove reactant molecules from reactants if none of their atoms are present in
+       the products
+    2. adjust atom mapping between reactants and products and add atom mapping number
+       for reactant atoms without a mapping number (although there is no corresponding
+       atom in the products)
+    3. add atoms in the reactant but not in the product to the product, and add bonds
+       associated with these atoms to the product. Note, we only add bonds that both
+       the atoms are not in product. Bond with one atom in the product one atom not in
+       the prouduct is regared as a breaking bond and thus not added to the product.
+
+    Args:
+        reaction: smiles representation of a reaction
+
+    Returns:
+        reaction: canonicalized smiles reaction, `None` if canonicalize failed
+        error: error message, `None` if canonicalize succeed
+    """
+
+    # Step 1, adjust reagents
+    try:
+        rxn_smi = adjust_reagents(reaction)
+    except (MoleculeCreationError, AtomMapNumberError) as e:
+        return None, "Step 1 " + str(e).rstrip()
+
+    # Step 2, adjust atom mapping
+    try:
+        reactants_smi, reagents_smi, products_smi = rxn_smi.strip().split(">")
+        reactants = Chem.MolFromSmiles(reactants_smi)
+        products = Chem.MolFromSmiles(products_smi)
+        reactants = set_no_graph_H(reactants)
+        products = set_no_graph_H(products)
+        reactants, products = adjust_atom_map_number(reactants, products)
+    except AtomMapNumberError as e:
+        return None, "Step 2 " + str(e).rstrip()
+
+    # Step 3, create new products by editing bonds of the reactants. Some atom properties
+    # (formal charge, and number of radicals) are copied from the products, though
+
+    # check 3.1, skip reactions only has bond type changes, but no bond lost or added
+    # (e.g. add H to benzene)
+    if not check_connectivity_change(reactants, products):
+        return None, "Step 3.1 reactions with only bond type changes"
+
+    try:
+        bond_changes = get_bond_change_nonexist_atoms(reactants, products)
+        new_products = add_nonexist_atoms_and_bonds_to_product(
+            reactants, products, bond_changes
+        )
+    except (KekulizeException, AtomKekulizeException, AtomValenceException) as e:
+        return None, "Step 3 " + str(e).rstrip()
+
+    # check 3.2, remove reactions that break a bond with H, and produce a product of
+    # H2. In cases where the orientation of H is specified with `\` or `/` (e.g.
+    # "[H]/[CH]=N/[H]"), the H will be always in the molecule graph. Then, breaking
+    # such a bond will produce an H2, but one H in H2 will not be mapped.
+    # So, here we check all products atoms are mapped.
+    if not check_molecule_atom_mapped(new_products):
+        return None, "Step 3.2 products after mol editing have atoms not mapped"
+
+    # Step 4, write canonicalized reaction to smiles
+    try:
+        reactants_smi = Chem.MolToSmiles(reactants)
+        products_smi = Chem.MolToSmiles(new_products)
+    except MolSanitizeException as e:
+        return None, "Step 4 " + str(e).rstrip()
+    canoical_reaction = ">".join([reactants_smi, reagents_smi, products_smi])
+
+    return canoical_reaction, None
+
+
 def get_mol_atom_mapping(m: Chem.Mol) -> List[int]:
     """
     Get atom mapping for an rdkit molecule.
@@ -505,8 +588,8 @@ def get_reaction_bond_change(
 
     1. lost bond: bonds in reactants but not in products (note bonds whose both atoms
         are not in the product are not considered)
-    2  add bond: bonds not in reactants but in products
-    2. alter bonds: bonds in both reactants and products, both their bond type changes
+    2  added bond: bonds not in reactants but in products
+    3. altered bond: bonds in both reactants and products, both their bond type changes
 
     Args:
         reactant: rdkit molecule
@@ -540,7 +623,7 @@ def get_reaction_bond_change(
             num_pair = tuple(sorted([a.GetAtomMapNum() for a in bond_atoms]))
             bonds_rct[num_pair] = bond.GetBondTypeAsDouble()
 
-    # bonds in product (only consider bonds at least one atom is in the product)
+    # bonds in product (only consider bonds at least one atom is in the reactant)
     bonds_prdt = {}
     for bond in product.GetBonds():
         bond_atoms = [bond.GetBeginAtom(), bond.GetEndAtom()]
@@ -648,6 +731,187 @@ def edit_molecule(
 
     # After editing, we set all hydrogen to explicit
     new_mol = set_all_H_to_explicit(new_mol)
+
+    return new_mol
+
+
+def get_bond_change_nonexist_atoms(
+    reactant: Chem.Mol, product: Chem.Mol, use_mapped_atom_index=False
+):
+    """
+    Get the bond change from reactant to products, only for bonds
+    1. both the two atoms are missing in the products or
+    2. one of the two atoms are missing in the products
+
+    Args:
+        reactant: rdkit molecule
+        product: rdkit molecule
+        use_mapped_atom_index: this determines what to use for the atom index in the
+            returned bond changes. If `False`, using the atom index in the underlying
+            rdkit molecule; if `True`, using the mapped atom index.
+
+    Returns:
+        bond_change: each element is a three-tuple (atom_1, atom_2, change_type) denoting
+            the change of a bond. `atom_1` and `atom_2` are indices of the two atoms
+            forming the bond. The atom indices could either be the non-mapped or the
+            mapped indices, depending on `use_mapped_atom_index`.
+            `change_type` can take 0, 1, 2, 3, and 1.5.
+            When change_type = 1, 2, 3, or 1.5, it means both the two atoms forming the
+            bonds are not in the product, and 1, 2, 3, and 1.5 are the bond type in the
+            reactant.
+            When change_type = 0, it means atom_1 is in the product but atom_2 is not.
+            This also means this bond should not exist in the product.
+    """
+
+    product_map_numbers = get_mol_atom_mapping(product)
+
+    bond_changes = set()
+    for bond in reactant.GetBonds():
+        bond_atoms = [bond.GetBeginAtom(), bond.GetEndAtom()]
+        map_number = tuple(
+            sorted([bond_atoms[0].GetAtomMapNum(), bond_atoms[1].GetAtomMapNum()])
+        )
+
+        # both atoms not in product
+        if (map_number[0] not in product_map_numbers) and (
+            map_number[1] not in product_map_numbers
+        ):
+            bond_changes.add((map_number[0], map_number[1], bond.GetBondTypeAsDouble()))
+
+        # one atom not in product
+        elif (
+            map_number[0] not in product_map_numbers
+            and map_number[1] in product_map_numbers
+        ):
+            bond_changes.add((map_number[0], map_number[1], 0.0))
+
+        elif (
+            map_number[0] in product_map_numbers
+            and map_number[1] not in product_map_numbers
+        ):
+            bond_changes.add((map_number[1], map_number[0], 0.0))
+
+    # convert mapped atom index to the underlying rdkit atom index (non-mapped)
+    # of the reactant
+    if not use_mapped_atom_index:
+        atom_mp = get_mol_atom_mapping(reactant)
+        converter = {v: i for i, v in enumerate(atom_mp) if v is not None}
+        bond_changes_new_atom_index = []
+        for atom1, atom2, change in bond_changes:
+            bond_changes_new_atom_index.append(
+                (converter[atom1], converter[atom2], change)
+            )
+
+        bond_changes = set(bond_changes_new_atom_index)
+
+    return bond_changes
+
+
+def check_connectivity_change(reactant: Chem.Mol, product: Chem.Mol) -> bool:
+    """
+    Determine whether there is bond connectivity change in the reaction.
+
+    Args:
+        reactant:
+        product:
+
+    Returns:
+        `True` if graph connectivity changes from reactant to product; otherwise `False`
+        i.e. only bond type changes.
+    """
+    reactant_bonds = set()
+    for bond in reactant.GetBonds():
+        bond_atoms = [bond.GetBeginAtom(), bond.GetEndAtom()]
+        map_number = tuple(
+            sorted([bond_atoms[0].GetAtomMapNum(), bond_atoms[1].GetAtomMapNum()])
+        )
+        reactant_bonds.add(map_number)
+
+    product_bonds = set()
+    for bond in product.GetBonds():
+        bond_atoms = [bond.GetBeginAtom(), bond.GetEndAtom()]
+        map_number = tuple(
+            sorted([bond_atoms[0].GetAtomMapNum(), bond_atoms[1].GetAtomMapNum()])
+        )
+        product_bonds.add(map_number)
+
+    return not reactant_bonds == product_bonds
+
+
+def add_nonexist_atoms_and_bonds_to_product(
+    reactant: Chem.Mol, product: Chem.Mol, bond_change: Set[Tuple[int, int, float]]
+) -> Chem.Mol:
+    """
+    Add atoms that are in the reactant but not in the product (and the associated
+    bonds) to the products.
+
+    Args:
+        reactant: rdkit molecule
+        product: rdkit molecule
+        bond_change: each element is a three-tuple (atom_1, atom_2, change_type) denoting
+            the change of a bond. `atom_1` and `atom_2` are indices of the two atoms
+            forming the bond.
+            `change_type` can take 0, 1, 2, 3, and 1.5.
+            When change_type = 1, 2, 3, or 1.5, it means both the two atoms forming the
+            bonds are not in the product, and 1, 2, 3, and 1.5 are the bond type in the
+            reactant.
+            When change_type = 0, it means atom_1 is in the product but atom_2 is not.
+            This also means this bond should not exist in the product.
+    """
+
+    # all atoms in the reactant are in the product; no need to edit the product
+    if not bond_change:
+        return product
+
+    bond_change_to_type = {
+        1.0: Chem.rdchem.BondType.SINGLE,
+        2.0: Chem.rdchem.BondType.DOUBLE,
+        3.0: Chem.rdchem.BondType.TRIPLE,
+        1.5: Chem.rdchem.BondType.AROMATIC,
+    }
+
+    # atoms not the products
+    non_exist_atoms = set()
+    for atom1, atom2, change_type in bond_change:
+        if change_type == 0.0:
+            non_exist_atoms.add(atom1)
+        else:
+            non_exist_atoms.update([atom1, atom2])
+
+    # add atoms not in the products to the products
+    atom_properties = get_atom_property_as_dict(reactant)
+    reactant_map_numbers = get_mol_atom_mapping(reactant)
+
+    rw_mol = Chem.RWMol(product)
+    for i in sorted(non_exist_atoms):
+        specie = reactant.GetAtomWithIdx(i).GetSymbol()
+        atom = Chem.Atom(specie)
+        map_number = reactant_map_numbers[i]
+        # set atom properties
+        atom.SetAtomMapNum(map_number)
+        atom.SetFormalCharge(atom_properties[map_number]["formal_charge"])
+        atom.SetNumRadicalElectrons(atom_properties[map_number]["num_radicals"])
+        rw_mol.AddAtom(atom)
+
+    # get map dict between reactant atom index and product atom index
+    product_map_numbers = get_mol_atom_mapping(rw_mol)
+    reactant_2_product = {}
+    for i, map_number in enumerate(reactant_map_numbers):
+        reactant_2_product[i] = product_map_numbers.index(map_number)
+
+    # add bonds (only for bonds whose both atoms are not in product)
+    for atom1, atom2, change_type in bond_change:
+        if change_type > 0:
+            atom1 = reactant_2_product[atom1]
+            atom2 = reactant_2_product[atom2]
+            rw_mol.AddBond(atom1, atom2, bond_change_to_type[change_type])
+    new_mol = rw_mol.GetMol()
+
+    # sanitize mol
+    for atom in new_mol.GetAtoms():
+        if not atom.IsInRing():
+            atom.SetIsAromatic(False)
+    Chem.SanitizeMol(new_mol)
 
     return new_mol
 
