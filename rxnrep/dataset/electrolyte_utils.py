@@ -3,12 +3,8 @@ import numpy as np
 import networkx as nx
 
 from pymatgen.entries.mol_entry import MoleculeEntry
-from pymatgen.reaction_network.reaction import bucket_mol_entries
+from pymatgen.reaction_network.reaction import bucket_mol_entries, Reaction
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
-
-
-# TODO add a function to remove repeated reactions with the same reactants and
-#  products. This happens because
 
 
 def check_connectivity(mol: MoleculeEntry) -> Tuple[bool, None]:
@@ -291,7 +287,7 @@ def check_bad_rdkit_molecule(mol: MoleculeEntry):
         return True, str(e)
 
 
-def remove_high_energy_entries(
+def remove_high_energy_mol_entries(
     mol_entries: List[MoleculeEntry],
 ) -> List[MoleculeEntry]:
     """
@@ -339,3 +335,36 @@ def remove_high_energy_entries(
                 all_entries.extend(low_energy_entries)
 
     return all_entries
+
+
+def remove_redundant_reactions(reactions: List[Reaction]) -> List[Reaction]:
+    """
+    Remove redundant reactions that have the same reactants and products.
+
+    The redundant reactions may happen when there is symmetry in the molecule. For
+    example, breaking any C-C bond in a benzene molecule will generate the same products.
+
+    Warnings:
+        This is achieved by comparing the entry ids. Only one reaction with the same
+        reaction and product ids are kept. This function should work for one-bond
+        breaking reactions (reactions with a single reactant molecule). For reactions
+        with more than one bond edits, this may not remove non-redundant reactions
+        since there may have different combinations by bond edits. In this case,
+        this function should not be used.
+
+    Args:
+        reactions: a list of reactions
+
+    Returns:
+        a list of reactions, with redundant ones removed
+    """
+
+    filtered_reactions = []
+    seen_entry_ids = []
+    for rxn in reactions:
+        entry_ids = (set(rxn.reactant_ids), set(rxn.product_ids))
+        if entry_ids not in seen_entry_ids:
+            seen_entry_ids.append(entry_ids)
+            filtered_reactions.append(rxn)
+
+    return filtered_reactions

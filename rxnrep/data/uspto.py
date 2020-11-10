@@ -324,7 +324,6 @@ class USPTODataset(BaseDataset):
             weight_bond_type: a tensor of shape (3,), giving the weight for unchanged
                 bonds, lost bonds, and added bonds in sequence.
         """
-        # TODO can use multiprocessing
 
         w_in_center = []
         w_unchanged = []

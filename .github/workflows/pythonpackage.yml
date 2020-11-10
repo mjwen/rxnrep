@@ -28,7 +28,7 @@ jobs:
         conda install pymatgen==2020.8.13 -c conda-forge
         conda install rdkit==2020.03.5 -c conda-forge
         conda install openbabel==3.1.1 -c conda-forge
-        conda install pytorch-lightning -c conda-forge pytorch-lightning
+        conda install pytorch-lightning -c conda-forge
         pip install -e .
     - name: Lint with flake8
       run: |
