@@ -246,9 +246,6 @@ class USPTODataset(BaseDataset):
                 for rxn in self.reactions
             ]
         else:
-            # TODO This make a copy of atom_featurizer and bond_featurizer and pass them
-            #  to the subprocess. As a result, feature_name and feature_size in the
-            #  featurizer will not be updated. So, this is not working now.
             func = functools.partial(
                 build_hetero_graph_and_featurize_one_reaction,
                 atom_featurizer=atom_featurizer,
@@ -258,6 +255,18 @@ class USPTODataset(BaseDataset):
             )
             with multiprocessing.Pool(self.nprocs) as p:
                 reaction_graphs = p.map(func, self.reactions)
+
+            # multiprocessing makes a copy of atom_featurizer and bond_featurizer and
+            # then pass them to the subprocess. As a result, feature_name and
+            # feature_size in the featurizer will not be updated.
+            # Here we simply call it on the first reaction to initialize it
+            build_hetero_graph_and_featurize_one_reaction(
+                self.reactions[0],
+                atom_featurizer=atom_featurizer,
+                bond_featurizer=self.bond_featurizer,
+                global_featurizer=self.global_featurizer,
+                self_loop=True,
+            )
 
         # log feature name and size
         for k in self.feature_name:
