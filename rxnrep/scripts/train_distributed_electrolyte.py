@@ -27,8 +27,6 @@ from rxnrep.scripts.utils import (
 from rxnrep.utils import yaml_dump
 from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter, TimeMeter
 
-best = -np.finfo(np.float32).max
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
@@ -389,8 +387,6 @@ def load_dataset(args):
 
 
 def main(args):
-    # TODO no need to make best global, since now each process will have all the val data
-    global best
 
     if args.distributed:
         init_distributed_mode(args)
@@ -494,6 +490,8 @@ def main(args):
         reaction_cluster = ReactionCluster(
             model, trainset, args.batch_size, num_centroids=[22, 22], device=args.device
         )
+
+    best = -np.finfo(np.float32).max
 
     # load checkpoint
     state_dict_objs = {"model": model, "optimizer": optimizer, "scheduler": scheduler}
