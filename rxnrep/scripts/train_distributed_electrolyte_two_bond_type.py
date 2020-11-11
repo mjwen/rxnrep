@@ -9,14 +9,14 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-from rxnrep.data.electrolyte import ElectrolyteDataset
+from rxnrep.data.electrolyte import ElectrolyteDatasetTwoBondType
 from rxnrep.data.featurizer import (
     AtomFeaturizerMinimum,
     BondFeaturizerMinimum,
     GlobalFeaturizer,
 )
 from rxnrep.model.model import ReactionRepresentation
-from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
+from rxnrep.model.metric import BinaryClassificationMetrics
 from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
 from rxnrep.scripts.utils import (
     EarlyStopping,
@@ -132,7 +132,7 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
 
     # evaluation metrics
     metrics = {
-        "bond_type": MultiClassificationMetrics(num_classes=3),
+        "bond_type": BinaryClassificationMetrics(),
         "atom_in_reaction_center": BinaryClassificationMetrics(),
     }
 
@@ -171,11 +171,12 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
             timer.display(it, f"Batch {it}; model predict")
 
         # ========== loss for bond type prediction ==========
-        loss_bond_type = F.cross_entropy(
+        preds["bond_type"] = preds["bond_type"].flatten()
+        loss_bond_type = F.binary_cross_entropy_with_logits(
             preds["bond_type"],
             labels["bond_type"],
             reduction="mean",
-            weight=bond_type_weight,
+            pos_weight=bond_type_weight,
         )
 
         if not args.distributed or args.rank == 0:
@@ -222,7 +223,7 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
 
         # ========== metrics ==========
         # bond type
-        p = torch.argmax(preds["bond_type"], dim=1)
+        p = torch.sigmoid(preds["bond_type"]) > 0.5
         metrics["bond_type"].step(p, labels["bond_type"])
 
         # atom in reaction center
@@ -241,7 +242,7 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
 
     # compute metric values
     epoch_loss /= it + 1
-    metrics["bond_type"].compute_metric_values(class_reduction="weighted")
+    metrics["bond_type"].compute_metric_values()
     metrics["atom_in_reaction_center"].compute_metric_values()
 
     if not args.distributed or args.rank == 0:
@@ -261,7 +262,7 @@ def evaluate(model, data_loader, args):
     nodes = ["atom", "bond", "global"]
 
     metrics = {
-        "bond_type": MultiClassificationMetrics(num_classes=3),
+        "bond_type": BinaryClassificationMetrics(),
         "atom_in_reaction_center": BinaryClassificationMetrics(),
     }
 
@@ -280,9 +281,10 @@ def evaluate(model, data_loader, args):
 
             preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
 
-            # metrics
+            # ========== metrics ==========
             # bond type
-            p = torch.argmax(preds["bond_type"], dim=1)
+            preds["bond_type"] = torch.flatten(preds["bond_type"])
+            p = torch.sigmoid(preds["bond_type"]) > 0.5
             metrics["bond_type"].step(p, labels["bond_type"])
 
             # atom in reaction center
@@ -295,7 +297,7 @@ def evaluate(model, data_loader, args):
             )
 
     # compute metric values
-    metrics["bond_type"].compute_metric_values(class_reduction="weighted")
+    metrics["bond_type"].compute_metric_values()
     metrics["atom_in_reaction_center"].compute_metric_values()
 
     return metrics
@@ -321,7 +323,7 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    trainset = ElectrolyteDataset(
+    trainset = ElectrolyteDatasetTwoBondType(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizerMinimum(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -329,7 +331,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict_filename,
     )
-    valset = ElectrolyteDataset(
+    valset = ElectrolyteDatasetTwoBondType(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizerMinimum(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -337,7 +339,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=trainset.state_dict(),
     )
-    testset = ElectrolyteDataset(
+    testset = ElectrolyteDatasetTwoBondType(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizerMinimum(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -440,6 +442,8 @@ def main(args):
         reaction_cluster_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation=args.decoder_activation,
         reaction_cluster_decoder_output_size=args.cluster_decoder_projection_head_size,
+        # bond type decoder (binary classification)
+        bond_type_decoder_num_classes=1,
     )
 
     if not args.distributed or args.rank == 0:

@@ -2,8 +2,10 @@ import multiprocessing
 import logging
 import itertools
 from pathlib import Path
-from typing import Callable, Optional, Union, Dict
+from typing import Callable, Optional, Union, Dict, Tuple
 
+import torch
+import numpy as np
 
 from pymatgen.reaction_network.reaction import Reaction as PMG_Reaction
 from pymatgen.entries.mol_entry import MoleculeEntry
@@ -107,6 +109,102 @@ class ElectrolyteDataset(USPTODataset):
         logger.info("Finish converting to reactions...")
 
         return succeed_reactions, failed
+
+
+class ElectrolyteDatasetTwoBondType(ElectrolyteDataset):
+    """
+    Similar to ElectrolyteDataset, the difference is that here we only have two bond
+    types: unchanged or changed.
+
+    This is supposed to be used for A->B and A->B+C reactions where there is only bond
+    breakage, not bond creation.
+
+    """
+
+    def get_atom_in_reaction_center_and_bond_type_class_weight(
+        self,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Create class weight to be used in cross entropy function for node classification
+        problems:
+
+        1. whether atom is in reaction center:
+            weight = mean(num_atoms_not_in_center / num_atoms_in_center)
+            where mean is taken over all reactions.
+
+            Here, if an atom is in center, it has positive class 1, we adjust its
+            weight accordingly. See `self._create_label_atom_in_reaction_center()` for
+            more.
+
+        2. bond is unchanged bond, changed bond (lost or added bond):
+            weight = mean(num_unchanged_bonds / num_changed_bonds)
+            where mean is taken over all reactions.
+
+            Here, unchanged and changed have class labels 0 and 1
+            respectively. See `self._create_label_bond_type()` for more.
+
+        Returns:
+            weight_atom_in_reaction_center: a scaler tensor giving the weight for the
+                positive class.
+            weight_bond_type: a scaler tensor giving the weight for the positive class.
+        """
+
+        w_in_center = []
+        w_changed_bond = []
+        for rxn in self.reactions:
+            unchanged, lost, added = rxn.get_unchanged_lost_and_added_bonds(
+                zero_based=True
+            )
+
+            # bond weight
+            n_unchanged = len(unchanged)
+            n_changed = len(lost + added)
+            if n_changed == 0:
+                w_changed_bond.append(1.0)
+            else:
+                w_changed_bond.append(n_unchanged / n_changed)
+
+            # atom weight
+            num_atoms = sum([m.num_atoms for m in rxn.reactants])
+            changed_atoms = set(
+                [i for i in itertools.chain.from_iterable(lost + added)]
+            )
+            num_changed = len(changed_atoms)
+            if num_changed == 0:
+                w_in_center.append(1.0)
+            else:
+                w_in_center.append((num_atoms - num_changed) / num_changed)
+
+        weight_atom_in_reaction_center = torch.as_tensor(
+            np.mean(w_in_center), dtype=torch.float32
+        )
+
+        weight_bond_type = torch.as_tensor(np.mean(w_changed_bond), dtype=torch.float32)
+
+        return weight_atom_in_reaction_center, weight_bond_type
+
+    @staticmethod
+    def _create_label_bond_type(reaction) -> torch.Tensor:
+        """
+        Label for bond type classification:
+        0: unchanged bond, 1: changed bond (lost or added bond)
+
+        Args:
+            reaction: the reaction
+
+        Returns:
+            1D tensor of the class for each bond. The order is the same as the bond
+            nodes in the reaction graph.
+       """
+        result = reaction.get_num_unchanged_lost_and_added_bonds()
+        num_unchanged, num_lost, num_added = result
+
+        # Note, reaction graph bond nodes are ordered in the sequence of unchanged bonds,
+        # lost bonds, and added bonds in `create_reaction_graph()`
+        bond_type = [0] * num_unchanged + [1] * (num_lost + num_added)
+        bond_type = torch.as_tensor(bond_type, dtype=torch.float32)
+
+        return bond_type
 
 
 def process_one_reaction_from_input_file(

@@ -21,92 +21,6 @@ from typing import List, Callable, Tuple, Optional, Union, Any, Dict
 logger = logging.getLogger(__name__)
 
 
-def process_one_reaction_from_input_file(
-    smiles_reaction: str, label: str
-) -> Tuple[Union[Reaction, None], Any]:
-    # create reaction
-    try:
-        reaction = smiles_to_reaction(
-            smiles_reaction, smiles_reaction, ignore_reagents=True
-        )
-    except MoleculeError:
-        return None, None
-
-    return reaction, label
-
-
-def build_hetero_graph_and_featurize_one_reaction(
-    reaction: Reaction,
-    atom_featurizer: Callable,
-    bond_featurizer: Callable,
-    global_featurizer: Callable,
-    self_loop=False,
-) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
-    """
-    Build heterogeneous dgl graph for the reactants and products in a reaction and
-    featurize them.
-
-    Args:
-        reaction:
-        atom_featurizer:
-        bond_featurizer:
-        global_featurizer:
-        self_loop:
-
-    Returns:
-        reactants_g: dgl graph for the reactants. One graph for all reactants; each
-            disjoint subgraph for a molecule.
-        products_g: dgl graph for the products. One graph for all reactants; each
-            disjoint subgraph for a molecule.
-        reaction_g: dgl graph for the reaction. bond nodes is the union of reactants
-            bond nodes and products bond nodes.
-    """
-
-    def featurize_one_mol(m: Molecule):
-
-        rdkit_mol = m.rdkit_mol
-        # create graph
-        g = create_hetero_molecule_graph(rdkit_mol, self_loop)
-
-        # featurize molecules
-        atom_feats = atom_featurizer(rdkit_mol)
-        bond_feats = bond_featurizer(rdkit_mol)
-        global_feats = global_featurizer(
-            rdkit_mol, charge=m.charge, environment=m.environment
-        )
-
-        # add feats to graph
-        g.nodes["atom"].data.update({"feat": atom_feats})
-        g.nodes["bond"].data.update({"feat": bond_feats})
-        g.nodes["global"].data.update({"feat": global_feats})
-
-        return g
-
-    reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
-    product_graphs = [featurize_one_mol(m) for m in reaction.products]
-
-    # combine small graphs to form one big graph for reactants and products
-    atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
-    bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
-    reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
-
-    atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
-    bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
-    products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
-
-    # combine reaction graph from the combined reactant graph and product graph
-    (
-        num_unchanged,
-        num_lost,
-        num_added,
-    ) = reaction.get_num_unchanged_lost_and_added_bonds()
-    reaction_g = create_reaction_graph(
-        reactants_g, products_g, num_unchanged, num_lost, num_added, self_loop,
-    )
-
-    return reactants_g, products_g, reaction_g
-
-
 class USPTODataset(BaseDataset):
     """
     USPTO dataset for unsupervised reaction representation.
@@ -541,3 +455,89 @@ class SchneiderDataset(USPTODataset):
             return item, reactants_g, products_g, reaction_g, meta, labels
         else:
             return reactants_g, products_g, reaction_g, meta, labels
+
+
+def process_one_reaction_from_input_file(
+    smiles_reaction: str, label: str
+) -> Tuple[Union[Reaction, None], Any]:
+    # create reaction
+    try:
+        reaction = smiles_to_reaction(
+            smiles_reaction, smiles_reaction, ignore_reagents=True
+        )
+    except MoleculeError:
+        return None, None
+
+    return reaction, label
+
+
+def build_hetero_graph_and_featurize_one_reaction(
+    reaction: Reaction,
+    atom_featurizer: Callable,
+    bond_featurizer: Callable,
+    global_featurizer: Callable,
+    self_loop=False,
+) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
+    """
+    Build heterogeneous dgl graph for the reactants and products in a reaction and
+    featurize them.
+
+    Args:
+        reaction:
+        atom_featurizer:
+        bond_featurizer:
+        global_featurizer:
+        self_loop:
+
+    Returns:
+        reactants_g: dgl graph for the reactants. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        products_g: dgl graph for the products. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        reaction_g: dgl graph for the reaction. bond nodes is the union of reactants
+            bond nodes and products bond nodes.
+    """
+
+    def featurize_one_mol(m: Molecule):
+
+        rdkit_mol = m.rdkit_mol
+        # create graph
+        g = create_hetero_molecule_graph(rdkit_mol, self_loop)
+
+        # featurize molecules
+        atom_feats = atom_featurizer(rdkit_mol)
+        bond_feats = bond_featurizer(rdkit_mol)
+        global_feats = global_featurizer(
+            rdkit_mol, charge=m.charge, environment=m.environment
+        )
+
+        # add feats to graph
+        g.nodes["atom"].data.update({"feat": atom_feats})
+        g.nodes["bond"].data.update({"feat": bond_feats})
+        g.nodes["global"].data.update({"feat": global_feats})
+
+        return g
+
+    reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
+    product_graphs = [featurize_one_mol(m) for m in reaction.products]
+
+    # combine small graphs to form one big graph for reactants and products
+    atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
+    bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
+    reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
+
+    atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
+    bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
+    products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
+
+    # combine reaction graph from the combined reactant graph and product graph
+    (
+        num_unchanged,
+        num_lost,
+        num_added,
+    ) = reaction.get_num_unchanged_lost_and_added_bonds()
+    reaction_g = create_reaction_graph(
+        reactants_g, products_g, num_unchanged, num_lost, num_added, self_loop,
+    )
+
+    return reactants_g, products_g, reaction_g

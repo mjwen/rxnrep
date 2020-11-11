@@ -12,6 +12,43 @@ from typing import List, Dict, Any, Tuple
 
 
 class ReactionRepresentation(nn.Module):
+    """
+    Model to represent chemical reactions.
+
+
+    Args:
+        in_feats:
+        embedding_size:
+        molecule_conv_layer_sizes:
+        molecule_num_fc_layers:
+        molecule_batch_norm:
+        molecule_activation:
+        molecule_residual:
+        molecule_dropout:
+        reaction_conv_layer_sizes:
+        reaction_num_fc_layers:
+        reaction_batch_norm:
+        reaction_activation:
+        reaction_residual:
+        reaction_dropout:
+        bond_type_decoder_hidden_layer_sizes:
+        bond_type_decoder_activation:
+        atom_in_reaction_center_decoder_hidden_layer_sizes:
+        atom_in_reaction_center_decoder_activation:
+        reaction_cluster_decoder_hidden_layer_sizes:
+        reaction_cluster_decoder_activation:
+        reaction_cluster_decoder_output_size:
+        set2set_num_iterations:
+        set2set_num_layers:
+        bond_type_decoder_num_classes: Number of class label to create for the bond
+            type decoder. Set this to 1 when there are two types (0: unchanged,
+            1: changed). In this case, this is a binary classification and the binary
+            classification loss (e.g. binary cross entropy) should be used.
+            Set to 3 to use three types  (0: unchanged bond, 1: lost bond, 2: added bond).
+            Again, should use the corresponding multiclass classification loss.
+            default to 3.
+    """
+
     def __init__(
         self,
         in_feats,
@@ -42,7 +79,9 @@ class ReactionRepresentation(nn.Module):
         # readout reaction features
         set2set_num_iterations: int = 3,
         set2set_num_layers: int = 3,
+        bond_type_decoder_num_classes=3,
     ):
+
         super(ReactionRepresentation, self).__init__()
 
         # encoder
@@ -69,6 +108,7 @@ class ReactionRepresentation(nn.Module):
         in_size = reaction_conv_layer_sizes[-1]
         self.bond_type_decoder = BondTypeDecoder(
             in_size=in_size,
+            num_classes=bond_type_decoder_num_classes,
             hidden_layer_sizes=bond_type_decoder_hidden_layer_sizes,
             activation=bond_type_decoder_activation,
         )

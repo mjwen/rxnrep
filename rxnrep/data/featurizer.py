@@ -67,7 +67,7 @@ def atom_type_one_hot(atom, allowable_set, encode_unknown=False):
 
 def atom_degree_one_hot(atom, allowable_set=None, encode_unknown=False):
     if allowable_set is None:
-        allowable_set = list(range(11))
+        allowable_set = list(range(6))
     return one_hot_encoding(atom.GetDegree(), allowable_set, encode_unknown)
 
 
@@ -352,7 +352,7 @@ class AtomFeaturizer(BaseFeaturizer):
             + ["total num H"]
             * len(atom_total_num_H_one_hot(atom, include_neighbors=True))
             + ["is aromatic"] * len(atom_is_aromatic(atom))
-            + ["total valence"] * len(atom_total_degree_one_hot(atom))
+            + ["total valence"] * len(atom_total_valence_one_hot(atom))
             + ["num radicals"] * len(atom_num_radical_electrons_one_hot(atom))
             + ["hybridization"] * len(atom_hybridization_one_hot(atom))
         )
