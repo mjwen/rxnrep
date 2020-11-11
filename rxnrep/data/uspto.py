@@ -3,10 +3,14 @@ import functools
 import logging
 import itertools
 from pathlib import Path
-import pandas as pd
+from collections import Counter
+from typing import List, Callable, Tuple, Optional, Union, Any, Dict
+
 import dgl
-import numpy as np
 import torch
+import numpy as np
+import pandas as pd
+
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
@@ -16,7 +20,6 @@ from rxnrep.data.grapher import (
     create_reaction_graph,
 )
 from rxnrep.utils import to_path
-from typing import List, Callable, Tuple, Optional, Union, Any, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +120,10 @@ class USPTODataset(BaseDataset):
                 succeed_labels.append(lb)
                 failed.append(False)
 
-        logger.info("Finish converting to reactions...")
+        logger.info(
+            f"Finish converting to reactions. Number succeed {len(succeed_reactions)}, "
+            f"number failed {Counter(failed)[True]}."
+        )
 
         return succeed_reactions, succeed_labels, failed
 

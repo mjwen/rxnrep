@@ -2,6 +2,7 @@ import multiprocessing
 import logging
 import itertools
 from pathlib import Path
+from collections import Counter
 from typing import Callable, Optional, Union, Dict, Tuple
 
 import torch
@@ -106,7 +107,10 @@ class ElectrolyteDataset(USPTODataset):
                 succeed_reactions.append(rxn)
                 failed.append(False)
 
-        logger.info("Finish converting to reactions...")
+        logger.info(
+            f"Finish converting to reactions. Number succeed {len(succeed_reactions)}, "
+            f"number failed {Counter(failed)[True]}."
+        )
 
         return succeed_reactions, failed
 

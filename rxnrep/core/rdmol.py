@@ -127,44 +127,45 @@ def create_rdkit_mol_from_mol_graph(
     for bd in bonds:
         ob_bond = [atom_idx_mapping[a] for a in bd]
 
-        # atom not in ob mol, i.e. dative bond
+        # atom not in ob mol (at least one metal atom)
         if None in ob_bond:
             atom1_spec, atom2_spec = [species[a] for a in bd]
 
+            # two metal atoms
             if atom1_spec in metals and atom2_spec in metals:
                 raise RuntimeError("Got a bond between two metal atoms")
 
-            # bond involves one and only one metal atom (atom not in ob mol case above)
-            elif atom1_spec in metals or atom2_spec in metals:
-                tp = BondType.DATIVE
+            # dative bond (one metal atom, one non-metal atom)
+            # Dative bonds have the special characteristic that they do not affect
+            # the valence on the start atom, but do affect the end atom.
+            # Here we adjust the atom ordering in the bond for dative bond to make
+            # metal the end atom.
+            tp = BondType.DATIVE
+            if atom1_spec in metals:
+                bd = tuple(reversed(bd))
 
-                # Dative bonds have the special characteristic that they do not affect
-                # the valence on the start atom, but do affect the end atom.
-                # Here we adjust the atom ordering in the bond for dative bond to make
-                # metal the end atom.
-                if atom1_spec in metals:
-                    bd = tuple(reversed(bd))
-
-            # bond not found by babel (atom in ob mol)
-            else:
-                tp = BondType.UNSPECIFIED
-
-        # atom in ob mol
+        # atom in ob mol (both atoms are non-metal)
         else:
-            ob_bond = tuple(sorted(ob_bond))
-            v = ob_bond_order[ob_bond]
-            if v == 0:
+            try:
+                ob_bond = tuple(sorted(ob_bond))
+                v = ob_bond_order[ob_bond]
+
+                if v == 0:
+                    tp = BondType.UNSPECIFIED
+                elif v == 1:
+                    tp = BondType.SINGLE
+                elif v == 2:
+                    tp = BondType.DOUBLE
+                elif v == 3:
+                    tp = BondType.TRIPLE
+                elif v == 5:
+                    tp = BondType.AROMATIC
+                else:
+                    raise RuntimeError(f"Got unexpected babel bond order: {v}")
+
+            # bond not found by babel; error from `v = ob_bond_order[ob_bond]`
+            except KeyError:
                 tp = BondType.UNSPECIFIED
-            elif v == 1:
-                tp = BondType.SINGLE
-            elif v == 2:
-                tp = BondType.DOUBLE
-            elif v == 3:
-                tp = BondType.TRIPLE
-            elif v == 5:
-                tp = BondType.AROMATIC
-            else:
-                raise RuntimeError(f"Got unexpected babel bond order: {v}")
 
         bond_types[bd] = tp
 

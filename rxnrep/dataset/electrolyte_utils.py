@@ -253,17 +253,15 @@ def check_num_bonds(
             "Mg": [1, 2, 3, 4, 5],
         }
 
+    exclude_species = ["Li", "Mg"] if exclude_species is None else exclude_species
+
     neigh_species = get_neighbor_species(mol)
 
     do_fail = False
     reason = []
 
     for a_s, n_s in neigh_species:
-
-        if exclude_species is not None:
-            num_bonds = len([s for s in n_s if s not in exclude_species])
-        else:
-            num_bonds = len(n_s)
+        num_bonds = len([s for s in n_s if s not in exclude_species])
 
         if num_bonds == 0:  # fine since we removed metal coordinate bonds
             continue
