@@ -3,7 +3,7 @@ import logging
 import dgl
 import torch.nn as nn
 from typing import Dict, List, Optional
-from rxnrep.model.gatedconv import GatedGCNConv, GatedGCNConv1, GatedGCNConv2
+from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.utils import UnifySize
 
 logger = logging.getLogger(__name__)
@@ -78,10 +78,6 @@ class ReactionEncoder(nn.Module):
         # graph conv layer type
         if conv == "GatedGCNConv":
             conv_fn = GatedGCNConv
-        elif conv == "GatedGCNConv1":
-            conv_fn = GatedGCNConv1
-        elif conv == "GatedGCNConv2":
-            conv_fn = GatedGCNConv2
         else:
             raise ValueError()
 
