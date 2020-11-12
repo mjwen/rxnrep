@@ -36,10 +36,6 @@ def parse_args():
         prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
     )
 
-    # fname_tr = prefix + "raw_1k_train.tsv"
-    # fname_val = prefix + "raw_1k_val.tsv"
-    # fname_test = prefix + "raw_1k_test.tsv"
-
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
     parser.add_argument("--testset-filename", type=str, default=fname_test)
@@ -66,11 +62,17 @@ def parse_args():
     parser.add_argument("--reaction-dropout", type=float, default="0.0")
 
     # ========== decoder ==========
+    # atom and bond decoder
     parser.add_argument(
-        "--decoder-hidden-layer-sizes", type=int, nargs="+", default=[64, 64]
+        "--node-decoder-hidden-layer-sizes", type=int, nargs="+", default=[64]
     )
-    parser.add_argument("--decoder-activation", type=str, default="ReLU")
+    parser.add_argument("--node-decoder-activation", type=str, default="ReLU")
+
     # clustering decoder
+    parser.add_argument(
+        "--cluster-decoder-hidden-layer-sizes", type=int, nargs="+", default=[64]
+    )
+    parser.add_argument("--cluster-decoder-activation", type=str, default="ReLU")
     parser.add_argument(
         "--cluster-decoder-projection-head-size",
         type=int,
@@ -144,8 +146,7 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
     if not args.distributed or args.rank == 0:
         timer.display(epoch, f"In epoch; clustering")
 
-    # keep track of the data and index to be used in the next clustering run (to same
-    # time)
+    # keep track of data and index to be used in the next clustering run (to save time)
     data_for_cluster = []
     index_for_cluster = []
 
@@ -226,14 +227,14 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
         # bond type
         p = torch.argmax(preds["bond_type"], dim=1)
         metrics["bond_type"].step(p, labels["bond_type"])
+
         # atom in reaction center
         p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
-        p = p.to(torch.int32)
         metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
 
         # ========== keep track of data ==========
-        data_for_cluster.append(preds["reaction_cluster"].detach())
-        index_for_cluster.append(indices.to(args.device))
+        data_for_cluster.append(preds["reaction_cluster"].detach().cpu())
+        index_for_cluster.append(indices.cpu())
 
         if not args.distributed or args.rank == 0:
             timer.display(it, f"Batch {it}; keep data for metric and clustering")
@@ -281,15 +282,16 @@ def evaluate(model, data_loader, args):
             labels = {k: v.to(args.device) for k, v in labels.items()}
 
             preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
-            preds["atom_in_reaction_center"] = torch.flatten(
-                preds["atom_in_reaction_center"]
-            )
 
-            # metrics
+            # ========== metrics ==========
             # bond type
             p = torch.argmax(preds["bond_type"], dim=1)
             metrics["bond_type"].step(p, labels["bond_type"])
+
             # atom in reaction center
+            preds["atom_in_reaction_center"] = torch.flatten(
+                preds["atom_in_reaction_center"]
+            )
             p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
             metrics["atom_in_reaction_center"].step(
                 p, labels["atom_in_reaction_center"]
@@ -367,6 +369,7 @@ def load_dataset(args):
         shuffle=(train_sampler is None),
         sampler=train_sampler,
         collate_fn=trainset.collate_fn,
+        drop_last=False,
     )
 
     # TODO, for val set, we can also make it distributed and report the error on rank
@@ -378,11 +381,19 @@ def load_dataset(args):
     # adjust the batch size of to fit memory
     bs = max(len(valset) // 10, 1)
     val_loader = DataLoader(
-        valset, batch_size=bs, shuffle=False, collate_fn=valset.collate_fn
+        valset,
+        batch_size=bs,
+        shuffle=False,
+        collate_fn=valset.collate_fn,
+        drop_last=False,
     )
     bs = max(len(testset) // 10, 1)
     test_loader = DataLoader(
-        testset, batch_size=bs, shuffle=False, collate_fn=testset.collate_fn
+        testset,
+        batch_size=bs,
+        shuffle=False,
+        collate_fn=testset.collate_fn,
+        drop_last=False,
     )
 
     return train_loader, val_loader, test_loader, train_sampler
@@ -432,14 +443,14 @@ def main(args):
         reaction_residual=args.reaction_residual,
         reaction_dropout=args.reaction_dropout,
         # bond type decoder
-        bond_type_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
-        bond_type_decoder_activation=args.decoder_activation,
+        bond_type_decoder_hidden_layer_sizes=args.node_decoder_hidden_layer_sizes,
+        bond_type_decoder_activation=args.node_decoder_activation,
         # atom in reaction center decoder
-        atom_in_reaction_center_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
-        atom_in_reaction_center_decoder_activation=args.decoder_activation,
+        atom_in_reaction_center_decoder_hidden_layer_sizes=args.node_decoder_hidden_layer_sizes,
+        atom_in_reaction_center_decoder_activation=args.node_decoder_activation,
         # clustering decoder
-        reaction_cluster_decoder_hidden_layer_sizes=args.decoder_hidden_layer_sizes,
-        reaction_cluster_decoder_activation=args.decoder_activation,
+        reaction_cluster_decoder_hidden_layer_sizes=args.cluster_decoder_hidden_layer_sizes,
+        reaction_cluster_decoder_activation=args.cluster_decoder_activation,
         reaction_cluster_decoder_output_size=args.cluster_decoder_projection_head_size,
     )
 
