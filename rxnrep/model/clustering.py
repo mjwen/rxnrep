@@ -59,15 +59,12 @@ class DistributedReactionCluster:
 
         self.local_data = local_data
         self.local_index = local_index
-        if num_centroids is None:
-            self.num_centroids = [10, 10]
-        else:
-            self.num_centroids = num_centroids
+        self.num_centroids = [10, 10] if num_centroids is None else num_centroids
         self.centroids = centroids
 
-        self.dataset_size = len(data_loader.dataset)  # total number of data in dataset
-
         self.device = device
+
+        self.dataset_size = len(data_loader.dataset)  # total number of data in dataset
 
     def get_cluster_assignments(
         self, num_iters: int = 10, centroids_init="random", similarity: str = "cosine"
@@ -78,21 +75,22 @@ class DistributedReactionCluster:
         Note, there are multiple cluster heads, determined by `num_centroids`.
 
         Args:
-            centroids_init: [`random`|`last`] methods to initialize_centroids centroids.
+            num_iters: number of iterations for k-means
+            centroids_init: [`random`|`last`]. methods to initialize centroids.
                 If `random`, will randomly select centroids from the data.
                 If `last`, will use the centroids the last time clustering is run.
-            similarity: [`cosine`|`l2`] similarity measure for the distance between
+            similarity: [`cosine`|`l2`]. similarity measure of the distance between
                 data and centroid.
 
         Returns:
             assignments: the assignments of the data points to the clusters. Each element
                 of the list gives the assignment for one clustering head. It is a
                 tensor of shape (N_local,), where N_local is the number of data points
-                in the local process.
+                in the local process. Returned tensors will be on cpu.
             centroids: the centroids of the k-means clusters. Each element of the list
                 gives the centroid for one clustering head. It is a tensor of
                 shape (K, D), where K is the number centroids in the clustering head,
-                and D is the feature dimension.
+                and D is the feature dimension. Returned tensors will be on cpu.
         """
         # initialize local index and data
         if self.local_data is None or self.local_index is None:
@@ -100,8 +98,8 @@ class DistributedReactionCluster:
                 self.model, self.data_loader, self.device
             )
         else:
-            local_index = self.local_index
-            local_data = self.local_data
+            local_data = self.local_data.to(self.device)
+            local_index = self.local_index.to(self.device)
 
         # initialize centroids
         if centroids_init == "random":
@@ -113,6 +111,7 @@ class DistributedReactionCluster:
         else:
             raise ValueError(f"Unsupported centroids init methods: {centroids_init}")
 
+        # assignments and centroids are on cpu
         assignments, centroids = distributed_kmeans(
             local_data,
             local_index,
@@ -235,14 +234,19 @@ def distributed_initialize_centroids(
             shape (N, D), where N is the local number of data points, and D is the
             dimension of the data.
         num_prototypes: number of clusters for each cluster head.
+        device:
 
     Returns:
-        centroids: each elements is a 2D tensor of shape (K, D), where K is the
+        all_centroids: each elements is a 2D tensor of shape (K, D), where K is the
             number of centroids for the cluster head, and D is the feature size.
+            Returned tensors will be on cpu.
     """
+    local_data = local_data.to(device)
+
     feature_dim = local_data.size(1)
 
     all_centroids = []
+
     with torch.no_grad():
         for i_K, K in enumerate(num_prototypes):
 
@@ -256,7 +260,7 @@ def distributed_initialize_centroids(
                 centroids = local_data[random_idx]
             dist.broadcast(centroids, 0)
 
-            all_centroids.append(centroids.detach().cpu())
+            all_centroids.append(centroids.cpu())
 
     return all_centroids
 
@@ -283,26 +287,33 @@ def distributed_kmeans(
         num_prototypes: number of clusters for each cluster head. The number of
             cluster heads is `len(num_centroids)`. e.g. (K1, K2, K3).
         centroids: initial centroids for the k-means method. If `None`, randomly
-            initialize_centroids from data in rank 0 process. Otherwise, should be a list of
-            tensor, each giving the centroids for a cluster heads.
+            initialize_centroids from data in rank 0 process. Otherwise, should be a list
+            of tensor, each giving the centroids for a cluster heads.
             For example, the shapes of tensors is [(K1,D), (K2, D), (K3,D)], where K1,
             K2, K3 are the number of centroids for each cluster heads as given in
             `num_centroids`, and D is the feature dimension.
         num_iters: number of iterations
         similarity: [`cosine`|`l2`] similarity measure for the distance between
             data and centroid.
+        device:
 
     Returns:
         assignments: a list of tensor of shape (N_global,), where N is the total number
             of data points in the dataset. Each tensor is the assignments of the data
-            points to clusters in a cluster head.
+            points to clusters in a cluster head. Returned tensors will be on cpu.
         centroids: a list of tensor, each of shape (K, D), where K is the number of
-            clusters and D is the feature dimension.
+            clusters and D is the feature dimension. Returned tensors will be on cpu.
     """
     local_data = local_data.to(device)
     local_index = local_index.to(device)
 
-    init_centroids = centroids
+    if centroids is None:
+        init_centroids = distributed_initialize_centroids(
+            local_data, num_prototypes, device
+        )
+    else:
+        init_centroids = centroids
+
     feature_dim = local_data.size(1)
 
     if similarity == "cosine":
@@ -317,15 +328,7 @@ def distributed_kmeans(
         for i_K, K in enumerate(num_prototypes):
             # run distributed k-means
 
-            # initialize_centroids centroids
-            if init_centroids is None:
-                centroids = distributed_initialize_centroids(
-                    local_data, num_prototypes, device
-                )
-            # use passed in centroids
-            else:
-                centroids = init_centroids[i_K]
-            centroids = centroids.to(device)
+            centroids = init_centroids[i_K].to(device)
 
             for n_iter in range(num_iters + 1):
 
@@ -563,13 +566,12 @@ def get_reaction_features(
             shape (N,): where N is the total number of samples obtainable from the
             data_loader (not the total number of samples in the dataset if using
             DistributedSampler).
-
-            where N is the total number of samples in
-            this process (data_loader).
+            Returned tensor will be on device.
         feats: the reaction features.
             shape (N, D): where N is the total number of samples obtainable from the
             data_loader (not the total number of samples in the dataset if
             using DistributedSampler), and D is the feature dimension.
+            Returned tensor will be on device.
 
     """
 

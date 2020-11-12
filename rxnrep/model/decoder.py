@@ -31,7 +31,7 @@ class BaseDecoder(nn.Module):
 
         # set default values
         if hidden_layer_sizes is None:
-            hidden_layer_sizes = [64, 32]
+            hidden_layer_sizes = [64]
         if isinstance(activation, str):
             activation = getattr(nn, activation)()
 

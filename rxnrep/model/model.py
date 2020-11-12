@@ -77,8 +77,9 @@ class ReactionRepresentation(nn.Module):
         reaction_cluster_decoder_activation,
         reaction_cluster_decoder_output_size,
         # readout reaction features
-        set2set_num_iterations: int = 3,
+        set2set_num_iterations: int = 6,
         set2set_num_layers: int = 3,
+        #
         bond_type_decoder_num_classes=3,
     ):
 
@@ -117,8 +118,8 @@ class ReactionRepresentation(nn.Module):
         in_size = reaction_conv_layer_sizes[-1]
         self.atom_in_reaction_center_decoder = AtomInReactionCenterDecoder(
             in_size=in_size,
-            hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
-            activation=reaction_cluster_decoder_activation,
+            hidden_layer_sizes=atom_in_reaction_center_decoder_hidden_layer_sizes,
+            activation=atom_in_reaction_center_decoder_activation,
         )
 
         # ========== reaction level decoder ==========
@@ -137,8 +138,8 @@ class ReactionRepresentation(nn.Module):
         self.reaction_cluster_decoder = ReactionClusterDecoder(
             in_size=in_size,
             num_classes=reaction_cluster_decoder_output_size,
-            hidden_layer_sizes=atom_in_reaction_center_decoder_hidden_layer_sizes,
-            activation=atom_in_reaction_center_decoder_activation,
+            hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
+            activation=reaction_cluster_decoder_activation,
         )
 
     def forward(
