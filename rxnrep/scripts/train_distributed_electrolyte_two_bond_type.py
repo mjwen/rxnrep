@@ -400,6 +400,10 @@ def load_dataset(args):
         drop_last=False,
     )
 
+    # set args for model
+    args.feature_size = trainset.feature_size
+    args.bond_type_decoder_num_classes = 1
+
     return train_loader, val_loader, test_loader, train_sampler
 
 
@@ -415,7 +419,6 @@ def main(args):
 
     if not args.distributed or args.rank == 0:
         print(args)
-        yaml_dump(args, "train_args.yaml")
         print("\n\nStart training at:", datetime.now())
 
     # Explicitly setting seed to ensure the same dataset split and models created in
@@ -429,9 +432,13 @@ def main(args):
     ### dataset
     train_loader, val_loader, test_loader, train_sampler = load_dataset(args)
 
+    # save args (need to do this here since additional args are attached in load_dataset)
+    if not args.distributed or args.rank == 0:
+        yaml_dump(args, "train_args.yaml")
+
     ### model
     model = ReactionRepresentation(
-        in_feats=train_loader.dataset.feature_size,
+        in_feats=args.feature_size,
         embedding_size=args.embedding_size,
         # encoder
         molecule_conv_layer_sizes=args.molecule_conv_layer_sizes,
@@ -457,7 +464,7 @@ def main(args):
         reaction_cluster_decoder_activation=args.cluster_decoder_activation,
         reaction_cluster_decoder_output_size=args.cluster_decoder_projection_head_size,
         # bond type decoder (binary classification)
-        bond_type_decoder_num_classes=1,
+        bond_type_decoder_num_classes=args.bond_type_decoder_num_classes,
     )
 
     if not args.distributed or args.rank == 0:

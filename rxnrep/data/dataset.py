@@ -116,6 +116,14 @@ class BaseDataset:
 
         return sorted(species)
 
+    def get_charges(self) -> List[int]:
+        """
+        Get the (unique) charges of molecules.
+        """
+        charges = set([m.charge for m in self.get_molecules()])
+
+        return sorted(charges)
+
     def scale_features(self):
         """
         Scale the feature values in the graphs by subtracting the mean and then
