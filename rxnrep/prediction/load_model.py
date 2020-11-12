@@ -20,6 +20,9 @@ from rxnrep.utils import yaml_load
 
 
 def load_model(model_path: Path):
+    """
+    Load a pretrained model.
+    """
 
     # Cannot use rxnrep.utils.yaml_load, which uses the safe_loader.
     # see: https://github.com/yaml/pyyaml/issues/266
@@ -102,9 +105,9 @@ def load_electrolyte_dataset(
     Args:
         model_path:
         dataset_filename:
-        dataset_type: ['full' | 'two_bond_type']. The type of the dataset. `full` means
+        dataset_type: ['full' | 'two_bond_types']. The type of the dataset. `full` means
             the decoder will use three bond types (unchanged, lost, or added).
-            `two_bond_type` means the decoder will use two bond types (unchanged or
+            `two_bond_types` means the decoder will use two bond types (unchanged or
             changed).
     """
 
@@ -113,7 +116,7 @@ def load_electrolyte_dataset(
 
     if dataset_type == "full":
         DT = ElectrolyteDataset
-    elif dataset_type == "two_bond_type":
+    elif dataset_type == "two_bond_types":
         DT = ElectrolyteDatasetTwoBondType
     else:
         raise PredictionError(f"Unsupported dataset type {dataset_type}")
