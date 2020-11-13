@@ -173,14 +173,13 @@ class BaseDataset:
 
         return d
 
-    def load_state_dict(self, d: Optional[Dict] = None):
+    def load_state_dict(self, d: Dict[str, Any]):
         """
-        Load state dict from a yaml file.
+        Load state dict.
 
         Args:
             d: state dict
         """
-        d = self.init_state_dict if d is None else d
 
         try:
             species = d["species"]
@@ -198,7 +197,7 @@ class BaseDataset:
             self._species is not None
         ), "Corrupted state_dict. Expect `species` to be a list, got `None`."
 
-    def load_state_dict_file(self, filename: Optional[Union[str, Path]] = None):
+    def load_state_dict_file(self, filename: Path):
         """
         Load state dict from a yaml file.
 
@@ -211,7 +210,6 @@ class BaseDataset:
             new_d = {k: torch.as_tensor(v, dtype=dtype) for k, v in d.items()}
             return new_d
 
-        filename = self.init_state_dict if filename is None else filename
         filename = to_path(filename)
         d = yaml_load(filename)
 

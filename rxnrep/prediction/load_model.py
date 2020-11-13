@@ -71,7 +71,8 @@ def load_model(model_path: Path):
 
 def load_uspto_dataset(model_path: Path, dataset_filename: Path):
 
-    state_dict = yaml_load(model_path.joinpath("dataset_state_dict.yaml"))
+    state_dict_filename = model_path.joinpath("dataset_state_dict.yaml")
+    state_dict = yaml_load(state_dict_filename)
 
     dataset = USPTODataset(
         filename=dataset_filename,
@@ -79,7 +80,7 @@ def load_uspto_dataset(model_path: Path, dataset_filename: Path):
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
-        init_state_dict=state_dict,
+        init_state_dict=state_dict_filename,
     )
 
     # check species and charge
@@ -111,7 +112,8 @@ def load_electrolyte_dataset(
             changed).
     """
 
-    state_dict = yaml_load(model_path.joinpath("dataset_state_dict.yaml"))
+    state_dict_filename = model_path.joinpath("dataset_state_dict.yaml")
+    state_dict = yaml_load(state_dict_filename)
     allowable_charge = [-1, 0, 1]
 
     if dataset_type == "full":
@@ -127,7 +129,7 @@ def load_electrolyte_dataset(
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=allowable_charge),
         transform_features=True,
-        init_state_dict=state_dict,
+        init_state_dict=state_dict_filename,
     )
 
     # check species and charge

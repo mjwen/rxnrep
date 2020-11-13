@@ -55,6 +55,8 @@ class ElectrolyteDataset(USPTODataset):
         # read input files
         reactions, failed = self.read_file(filename, num_processes)
 
+        # NOTE, should be USPTODataset NOT ElectrolyteDataset. In such, the __init__ of
+        # USPTODataset is not called, but instead that of BaseDataset is called.
         super(USPTODataset, self).__init__(
             reactions,
             atom_featurizer,

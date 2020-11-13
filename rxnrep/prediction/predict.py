@@ -56,7 +56,7 @@ def get_prediction(
     # convert to a list of dict, one for each data point
     predictions = []
     idx = 0
-    for do_fail in dataset.failed:
+    for do_fail in dataset.get_failed():
         if do_fail:
             # failed when converting reactions in raw input
             predictions.append(None)
@@ -102,8 +102,8 @@ def evaluate(model, data_loader, device=None) -> Dict[str, np.ndarray]:
 
             preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
 
-            embeddings_before_decoder.append(preds["reaction_cluster"].cpu().numpy())
-            embeddings_after_decoder.append(rxn_embeddings.cpu().numpy())
+            embeddings_before_decoder.append(rxn_embeddings.cpu().numpy())
+            embeddings_after_decoder.append(preds["reaction_cluster"].cpu().numpy())
 
     embeddings = {
         "before_decoder": np.concatenate(embeddings_before_decoder),
