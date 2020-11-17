@@ -26,6 +26,7 @@ setup(
         "requests",
         "pyyaml",
         "pytorch-lightning",
+        "pandas",
     ],
     author="Mingjian Wen",
     author_email="wenxx151@gmail.com",
