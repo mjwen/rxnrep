@@ -9,12 +9,8 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-from rxnrep.data.electrolyte import ElectrolyteDataset
-from rxnrep.data.featurizer import (
-    AtomFeaturizerMinimum,
-    BondFeaturizerMinimum,
-    GlobalFeaturizer,
-)
+from rxnrep.data.uspto import USPTODataset
+from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
 from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
@@ -32,11 +28,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
     # ========== input files ==========
-    prefix = "/Users/mjwen/Documents/Dataset/rxnrep/"
+    prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
 
-    fname_tr = prefix + "reactions_n2000_train.json"
-    fname_val = prefix + "reactions_n2000_val.json"
-    fname_test = prefix + "reactions_n2000_test.json"
+    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
+    fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
+    fname_test = (
+        prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
+    )
 
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
@@ -120,6 +118,105 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
+
+def load_dataset(args):
+
+    # check dataset state dict if restore model
+    if args.restore:
+        if args.dataset_state_dict_filename is None:
+            warnings.warn(
+                "Restore with `args.dataset_state_dict_filename` set to None."
+            )
+            state_dict_filename = None
+        elif not Path(args.dataset_state_dict_filename).exists():
+            warnings.warn(
+                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+                "not found; set to `None`."
+            )
+            state_dict_filename = None
+        else:
+            state_dict_filename = args.dataset_state_dict_filename
+    else:
+        state_dict_filename = None
+
+    trainset = USPTODataset(
+        filename=args.trainset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=state_dict_filename,
+    )
+    valset = USPTODataset(
+        filename=args.valset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=trainset.state_dict(),
+    )
+    testset = USPTODataset(
+        filename=args.testset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=trainset.state_dict(),
+    )
+
+    # save dataset state dict for retraining or prediction
+    if not args.distributed or args.rank == 0:
+        trainset.save_state_dict_file(args.dataset_state_dict_filename)
+        print(
+            "Trainset size: {}, valset size: {}: testset size: {}.".format(
+                len(trainset), len(valset), len(testset)
+            )
+        )
+
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
+    else:
+        train_sampler = None
+
+    train_loader = DataLoader(
+        trainset,
+        batch_size=args.batch_size,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
+        collate_fn=trainset.collate_fn,
+        drop_last=False,
+    )
+
+    # TODO, for val set, we can also make it distributed and report the error on rank
+    #  0. If the vl set size is large enough, the statistics of error should be the same
+    #  in different ranks. If this is not good, we can gather and reduce the validation
+    #  metric.
+
+    # larger val and test set batch_size is faster but needs more memory
+    # adjust the batch size of to fit memory
+    bs = max(len(valset) // 10, 1)
+    val_loader = DataLoader(
+        valset,
+        batch_size=bs,
+        shuffle=False,
+        collate_fn=valset.collate_fn,
+        drop_last=False,
+    )
+    bs = max(len(testset) // 10, 1)
+    test_loader = DataLoader(
+        testset,
+        batch_size=bs,
+        shuffle=False,
+        collate_fn=testset.collate_fn,
+        drop_last=False,
+    )
+
+    # set args for model
+    args.feature_size = trainset.feature_size
+    args.bond_type_decoder_num_classes = 3
+
+    return train_loader, val_loader, test_loader, train_sampler
 
 
 def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch, args):
@@ -306,105 +403,6 @@ def evaluate(model, data_loader, args):
     return metrics
 
 
-def load_dataset(args):
-
-    # check dataset state dict if restore model
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
-    else:
-        state_dict_filename = None
-
-    trainset = ElectrolyteDataset(
-        filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizerMinimum(),
-        bond_featurizer=BondFeaturizerMinimum(),
-        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
-        transform_features=True,
-        init_state_dict=state_dict_filename,
-    )
-    valset = ElectrolyteDataset(
-        filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizerMinimum(),
-        bond_featurizer=BondFeaturizerMinimum(),
-        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
-        transform_features=True,
-        init_state_dict=trainset.state_dict(),
-    )
-    testset = ElectrolyteDataset(
-        filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizerMinimum(),
-        bond_featurizer=BondFeaturizerMinimum(),
-        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
-        transform_features=True,
-        init_state_dict=trainset.state_dict(),
-    )
-
-    # save dataset state dict for retraining or prediction
-    if not args.distributed or args.rank == 0:
-        trainset.save_state_dict_file(args.dataset_state_dict_filename)
-        print(
-            "Trainset size: {}, valset size: {}: testset size: {}.".format(
-                len(trainset), len(valset), len(testset)
-            )
-        )
-
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
-    else:
-        train_sampler = None
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=(train_sampler is None),
-        sampler=train_sampler,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-    )
-
-    # TODO, for val set, we can also make it distributed and report the error on rank
-    #  0. If the vl set size is large enough, the statistics of error should be the same
-    #  in different ranks. If this is not good, we can gather and reduce the validation
-    #  metric.
-
-    # larger val and test set batch_size is faster but needs more memory
-    # adjust the batch size of to fit memory
-    bs = max(len(valset) // 10, 1)
-    val_loader = DataLoader(
-        valset,
-        batch_size=bs,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-    )
-    bs = max(len(testset) // 10, 1)
-    test_loader = DataLoader(
-        testset,
-        batch_size=bs,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-    )
-
-    # set args for model
-    args.feature_size = trainset.feature_size
-    args.bond_type_decoder_num_classes = 1
-
-    return train_loader, val_loader, test_loader, train_sampler
-
-
 def main(args):
 
     if args.distributed:
@@ -587,9 +585,13 @@ def main(args):
             )
 
             _, epoch_time = timer.display(epoch, f"Epoch {epoch}, epoch time")
+
             stat = {"epoch": epoch, "loss": loss, "time": epoch_time}
             stat.update(train_metrics["bond_type"].as_dict("tr_bt"))
             stat.update(train_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
+            stat.update(val_metrics["bond_type"].as_dict("va_bt"))
+            stat.update(val_metrics["atom_in_reaction_center"].as_dict("va_airc"))
+
             progress.update(stat, save=True)
             progress.display()
 
@@ -605,8 +607,8 @@ def main(args):
 
         test_metrics = evaluate(model, test_loader, args)
 
-        stat = test_metrics["bond_type"].as_dict("tr_bt")
-        stat.update(test_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
+        stat = test_metrics["bond_type"].as_dict("te_bt")
+        stat.update(test_metrics["atom_in_reaction_center"].as_dict("te_airc"))
 
         progress = ProgressMeter("test_result.csv")
         progress.update(stat, save=True)
@@ -621,4 +623,4 @@ if __name__ == "__main__":
     main(args)
 
     # to run distributed CPU training, do
-    # python -m torch.distributed.launch --nproc_per_node=2 train_distributed.py  --distributed 1
+    # python -m torch.distributed.launch --nproc_per_node=2 train_uspto.py  --distributed 1

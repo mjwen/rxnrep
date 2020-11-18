@@ -138,3 +138,22 @@ class ReactionClusterDecoder(BaseDecoder):
         super(ReactionClusterDecoder, self).__init__(
             in_size, num_classes, hidden_layer_sizes, activation,
         )
+
+
+class LinearClassificationHead(nn.Module):
+    """
+    A linear layer, y=Wx+b, to project the learned features to class labels.
+
+    This can be used together with a cross entropy loss to evaluate classification error.
+
+    Args:
+        in_size: input size of the features
+        num_classes: number of classes
+    """
+
+    def __init__(self, in_size: int, num_classes: int, use_bias=True):
+        super(LinearClassificationHead, self).__init__()
+        self.layer = nn.Linear(in_size, num_classes, use_bias)
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.layer(features)

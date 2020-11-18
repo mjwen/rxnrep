@@ -11,6 +11,8 @@ import torch
 import numpy as np
 import pandas as pd
 
+from sklearn.utils import class_weight
+
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
@@ -225,7 +227,7 @@ class USPTODataset(BaseDataset):
             more.
 
         2. bond is unchanged bond, lost bond, or added bond:
-            total_num_bonds =
+            total_num_bonds = num_unchanged + num_lost + num_added
             w_unchanged = (num_lost + num_added) / (2 * total_num_bonds)
             w_lost = (num_unchanged + num_added) / (2 * total_num_bonds)
             w_added = (num_unchanged + num_lost) / (2 * total_num_bonds)
@@ -419,6 +421,30 @@ class SchneiderDataset(USPTODataset):
     in the `labels`.
     """
 
+    def get_class_weight(self, num_classes: int = 50) -> torch.Tensor:
+        """
+        Create class weight to be used in cross entropy function for reaction
+        classification.
+
+        The weight of each class is inversely proportional to the number of data points
+        in the dataset, i.e.
+
+        n_samples/(n_classes * np.bincount(y))
+
+        Args:
+            num_classes: number of classes in the dataset. The class label are assumed
+            to be 0, 1, 2, ... num_classes-1.
+
+        Returns:
+            weight of each classes
+        """
+        weight = class_weight.compute_class_weight(
+            "balanced", classes=list(range(num_classes)), y=self._raw_labels
+        )
+        weight = torch.as_tensor(weight, dtype=torch.float32)
+
+        return weight
+
     def __getitem__(self, item: int):
         """
         Get data point with index.
@@ -435,7 +461,9 @@ class SchneiderDataset(USPTODataset):
                 "atom_in_reaction_center": self._create_label_atom_in_reaction_center(
                     reaction
                 ),
-                "reaction_class": torch.as_tensor(int(self._raw_labels[item])),
+                "reaction_class": torch.as_tensor(
+                    [int(self._raw_labels[item])], dtype=torch.int64
+                ),
             }
             self.labels[item] = labels
 

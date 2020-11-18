@@ -6,6 +6,7 @@ from rxnrep.model.decoder import (
     BondTypeDecoder,
     AtomInReactionCenterDecoder,
     ReactionClusterDecoder,
+    LinearClassificationHead,
 )
 from rxnrep.model.readout import Set2SetThenCat
 from typing import List, Dict, Any, Tuple
@@ -187,3 +188,118 @@ class ReactionRepresentation(nn.Module):
         }
 
         return predictions, reaction_feats
+
+
+class LinearClassification(nn.Module):
+    """
+    Model to represent chemical reactions.
+
+
+    Args:
+        in_feats:
+        embedding_size:
+        molecule_conv_layer_sizes:
+        molecule_num_fc_layers:
+        molecule_batch_norm:
+        molecule_activation:
+        molecule_residual:
+        molecule_dropout:
+        reaction_conv_layer_sizes:
+        reaction_num_fc_layers:
+        reaction_batch_norm:
+        reaction_activation:
+        reaction_residual:
+        reaction_dropout:
+        num_classes: number of reaction classes
+        set2set_num_iterations:
+        set2set_num_layers:
+    """
+
+    def __init__(
+        self,
+        in_feats,
+        embedding_size,
+        # encoder
+        molecule_conv_layer_sizes,
+        molecule_num_fc_layers,
+        molecule_batch_norm,
+        molecule_activation,
+        molecule_residual,
+        molecule_dropout,
+        reaction_conv_layer_sizes,
+        reaction_num_fc_layers,
+        reaction_batch_norm,
+        reaction_activation,
+        reaction_residual,
+        reaction_dropout,
+        # classification head
+        num_classes,
+        # readout reaction features
+        set2set_num_iterations: int = 6,
+        set2set_num_layers: int = 3,
+    ):
+
+        super(LinearClassification, self).__init__()
+
+        # encoder
+        self.encoder = ReactionEncoder(
+            in_feats=in_feats,
+            embedding_size=embedding_size,
+            molecule_conv_layer_sizes=molecule_conv_layer_sizes,
+            molecule_num_fc_layers=molecule_num_fc_layers,
+            molecule_batch_norm=molecule_batch_norm,
+            molecule_activation=molecule_activation,
+            molecule_residual=molecule_residual,
+            molecule_dropout=molecule_dropout,
+            reaction_conv_layer_sizes=reaction_conv_layer_sizes,
+            reaction_num_fc_layers=reaction_num_fc_layers,
+            reaction_batch_norm=reaction_batch_norm,
+            reaction_activation=reaction_activation,
+            reaction_residual=reaction_residual,
+            reaction_dropout=reaction_dropout,
+        )
+
+        # readout reaction features, one 1D tensor for each reaction
+        in_sizes = [reaction_conv_layer_sizes[-1]] * 2
+        self.set2set = Set2SetThenCat(
+            num_iters=set2set_num_iterations,
+            num_layers=set2set_num_layers,
+            ntypes=["atom", "bond"],
+            in_feats=in_sizes,
+            ntypes_direct_cat=["global"],
+        )
+
+        # linear classification head
+        in_size = reaction_conv_layer_sizes[-1] * 5
+        self.classification_head = LinearClassificationHead(
+            in_size, num_classes, use_bias=True
+        )
+
+    def forward(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ) -> torch.Tensor:
+        """
+        Args:
+            molecule_graphs:
+            reaction_graphs:
+            feats:
+            metadata:
+
+        Returns:
+            logits: a tensor of shape (N, num_classes), where N is the number of data
+                points, and num_classes is the number of reaction classes
+        """
+        # encoder
+        feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
+
+        # readout reaction features, a 1D tensor for each reaction
+        reaction_feats = self.set2set(reaction_graphs, feats)
+
+        # classification head
+        logits = self.classification_head(reaction_feats)
+
+        return logits

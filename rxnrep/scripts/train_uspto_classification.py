@@ -9,11 +9,10 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
-from rxnrep.data.uspto import USPTODataset
+from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.model.model import ReactionRepresentation
-from rxnrep.model.metric import MultiClassificationMetrics, BinaryClassificationMetrics
-from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
+from rxnrep.model.model import LinearClassification
+from rxnrep.model.metric import MultiClassificationMetrics
 from rxnrep.scripts.utils import (
     EarlyStopping,
     seed_all,
@@ -28,13 +27,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
     # ========== input files ==========
-    prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
+    prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
 
-    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
-    fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
-    fname_test = (
-        prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
-    )
+    fname_tr = prefix + "schneider_n200_processed_train_label_manipulated.tsv"
+    fname_val = prefix + "schneider_n200_processed_val.tsv"
+    fname_test = prefix + "schneider_n200_processed_test.tsv"
 
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
@@ -61,30 +58,8 @@ def parse_args():
     parser.add_argument("--reaction-residual", type=int, default=1)
     parser.add_argument("--reaction-dropout", type=float, default="0.0")
 
-    # ========== decoder ==========
-    # atom and bond decoder
-    parser.add_argument(
-        "--node-decoder-hidden-layer-sizes", type=int, nargs="+", default=[64]
-    )
-    parser.add_argument("--node-decoder-activation", type=str, default="ReLU")
-
-    # clustering decoder
-    parser.add_argument(
-        "--cluster-decoder-hidden-layer-sizes", type=int, nargs="+", default=[64]
-    )
-    parser.add_argument("--cluster-decoder-activation", type=str, default="ReLU")
-    parser.add_argument(
-        "--cluster-decoder-projection-head-size",
-        type=int,
-        default=33,
-        help="projection head size for the clustering decoder",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=1.0,
-        help="temperature in the loss for cluster decoder",
-    )
+    # linear classification head
+    parser.add_argument("--num-classes", type=int, default=50)
 
     # ========== training ==========
     parser.add_argument("--start-epoch", type=int, default=0)
@@ -120,190 +95,6 @@ def parse_args():
     return args
 
 
-def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch, args):
-    timer = TimeMeter(frequency=5)
-
-    model.train()
-
-    nodes = ["atom", "bond", "global"]
-
-    # class weights
-    atom_in_center_weight = class_weights["atom_in_reaction_center"].to(args.device)
-    bond_type_weight = class_weights["bond_type"].to(args.device)
-
-    if not args.distributed or args.rank == 0:
-        timer.display(epoch, f"In epoch; class weight")
-
-    # evaluation metrics
-    metrics = {
-        "bond_type": MultiClassificationMetrics(num_classes=3),
-        "atom_in_reaction_center": BinaryClassificationMetrics(),
-    }
-
-    # cluster to get assignments and centroids
-    assignments, centroids = reaction_cluster.get_cluster_assignments()
-
-    if not args.distributed or args.rank == 0:
-        timer.display(epoch, f"In epoch; clustering")
-
-    # keep track of data and index to be used in the next clustering run (to save time)
-    data_for_cluster = []
-    index_for_cluster = []
-
-    epoch_loss = 0.0
-    for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
-        data_loader
-    ):
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; getting data")
-
-        mol_graphs = mol_graphs.to(args.device)
-        rxn_graphs = rxn_graphs.to(args.device)
-        feats = {
-            nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device) for nt in nodes
-        }
-        labels = {k: v.to(args.device) for k, v in labels.items()}
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; to cuda")
-
-        preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; model predict")
-
-        # ========== loss for bond type prediction ==========
-        loss_bond_type = F.cross_entropy(
-            preds["bond_type"],
-            labels["bond_type"],
-            reduction="mean",
-            weight=bond_type_weight,
-        )
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; bond type prediction loss")
-
-        # ========== loss for atom in reaction center prediction ==========
-        preds["atom_in_reaction_center"] = preds["atom_in_reaction_center"].flatten()
-        loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
-            preds["atom_in_reaction_center"],
-            labels["atom_in_reaction_center"],
-            reduction="mean",
-            pos_weight=atom_in_center_weight,
-        )
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; reaction center loss")
-
-        # ========== loss for clustering prediction ==========
-        loss_reaction_cluster = []
-        for a, c in zip(assignments, centroids):
-            a = a[indices].to(args.device)  # select for current batch from all
-            c = c.to(args.device)
-            p = torch.mm(preds["reaction_cluster"], c.t()) / args.temperature
-            e = F.cross_entropy(p, a)
-            loss_reaction_cluster.append(e)
-        loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; clustering loss")
-
-        # total loss
-        # TODO may be assign different weights for atoms and bonds, giving each
-        #  reaction have the same weight?
-        loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
-
-        # ========== update model parameters ==========
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        epoch_loss += loss.detach().item()
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; back propagation")
-
-        # ========== metrics ==========
-        # bond type
-        p = torch.argmax(preds["bond_type"], dim=1)
-        metrics["bond_type"].step(p, labels["bond_type"])
-
-        # atom in reaction center
-        p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
-        metrics["atom_in_reaction_center"].step(p, labels["atom_in_reaction_center"])
-
-        # ========== keep track of data ==========
-        data_for_cluster.append(preds["reaction_cluster"].detach().cpu())
-        index_for_cluster.append(indices.cpu())
-
-        if not args.distributed or args.rank == 0:
-            timer.display(it, f"Batch {it}; keep data for metric and clustering")
-
-    if not args.distributed or args.rank == 0:
-        timer.display(epoch, f"In epoch; Finish looping batch")
-
-    # compute metric values
-    epoch_loss /= it + 1
-    metrics["bond_type"].compute_metric_values(class_reduction="weighted")
-    metrics["atom_in_reaction_center"].compute_metric_values()
-
-    if not args.distributed or args.rank == 0:
-        timer.display(epoch, f"In epoch; Compute metric")
-
-    # keep track of clustering data to be used in the next iteration
-    reaction_cluster.set_local_data_and_index(
-        torch.cat(data_for_cluster), torch.cat(index_for_cluster)
-    )
-
-    return epoch_loss, metrics
-
-
-def evaluate(model, data_loader, args):
-    model.eval()
-
-    nodes = ["atom", "bond", "global"]
-
-    metrics = {
-        "bond_type": MultiClassificationMetrics(num_classes=3),
-        "atom_in_reaction_center": BinaryClassificationMetrics(),
-    }
-
-    with torch.no_grad():
-
-        for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
-            data_loader
-        ):
-            mol_graphs = mol_graphs.to(args.device)
-            rxn_graphs = rxn_graphs.to(args.device)
-            feats = {
-                nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device)
-                for nt in nodes
-            }
-            labels = {k: v.to(args.device) for k, v in labels.items()}
-
-            preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
-
-            # ========== metrics ==========
-            # bond type
-            p = torch.argmax(preds["bond_type"], dim=1)
-            metrics["bond_type"].step(p, labels["bond_type"])
-
-            # atom in reaction center
-            preds["atom_in_reaction_center"] = torch.flatten(
-                preds["atom_in_reaction_center"]
-            )
-            p = torch.sigmoid(preds["atom_in_reaction_center"]) > 0.5
-            metrics["atom_in_reaction_center"].step(
-                p, labels["atom_in_reaction_center"]
-            )
-
-    # compute metric values
-    metrics["bond_type"].compute_metric_values(class_reduction="weighted")
-    metrics["atom_in_reaction_center"].compute_metric_values()
-
-    return metrics
-
-
 def load_dataset(args):
 
     # check dataset state dict if restore model
@@ -324,7 +115,7 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    trainset = USPTODataset(
+    trainset = SchneiderDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -332,7 +123,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict_filename,
     )
-    valset = USPTODataset(
+    valset = SchneiderDataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -340,7 +131,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=trainset.state_dict(),
     )
-    testset = USPTODataset(
+    testset = SchneiderDataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -398,9 +189,118 @@ def load_dataset(args):
 
     # set args for model
     args.feature_size = trainset.feature_size
-    args.bond_type_decoder_num_classes = 3
 
     return train_loader, val_loader, test_loader, train_sampler
+
+
+def train(optimizer, model, data_loader, class_weight, epoch, args):
+    timer = TimeMeter(frequency=5)
+
+    model.train()
+
+    nodes = ["atom", "bond", "global"]
+
+    # class weights
+    class_weight = class_weight.to(args.device)
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; class weight")
+
+    # evaluation metrics
+    metrics = MultiClassificationMetrics(num_classes=args.num_classes)
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; clustering")
+
+    epoch_loss = 0.0
+    for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
+        data_loader
+    ):
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; getting data")
+
+        mol_graphs = mol_graphs.to(args.device)
+        rxn_graphs = rxn_graphs.to(args.device)
+        feats = {
+            nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device) for nt in nodes
+        }
+        labels = labels["reaction_class"].to(args.device)
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; to cuda")
+
+        preds = model(mol_graphs, rxn_graphs, feats, metadata)
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; model predict")
+
+        loss = F.cross_entropy(preds, labels, reduction="mean", weight=class_weight)
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; computing loss")
+
+        # ========== update model parameters ==========
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        epoch_loss += loss.detach().item()
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; back propagation")
+
+        # ========== metrics ==========
+        p = torch.argmax(preds, dim=1)
+        metrics.step(p, labels)
+
+        if not args.distributed or args.rank == 0:
+            timer.display(it, f"Batch {it}; keep data for metric")
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; Finish looping batch")
+
+    # compute metric values
+    epoch_loss /= it + 1
+    metrics.compute_metric_values(class_reduction="weighted")
+
+    if not args.distributed or args.rank == 0:
+        timer.display(epoch, f"In epoch; Compute metric")
+
+    return epoch_loss, metrics
+
+
+def evaluate(model, data_loader, args):
+    model.eval()
+
+    nodes = ["atom", "bond", "global"]
+
+    # evaluation metrics
+    metrics = MultiClassificationMetrics(num_classes=args.num_classes)
+
+    with torch.no_grad():
+
+        for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
+            data_loader
+        ):
+            mol_graphs = mol_graphs.to(args.device)
+            rxn_graphs = rxn_graphs.to(args.device)
+            feats = {
+                nt: mol_graphs.nodes[nt].data.pop("feat").to(args.device)
+                for nt in nodes
+            }
+            labels = labels["reaction_class"].to(args.device)
+
+            preds = model(mol_graphs, rxn_graphs, feats, metadata)
+
+            # ========== metrics ==========
+            # bond type
+            p = torch.argmax(preds, dim=1)
+            metrics.step(p, labels)
+
+    # compute metric values
+    metrics.compute_metric_values(class_reduction="weighted")
+
+    return metrics
 
 
 def main(args):
@@ -425,15 +325,15 @@ def main(args):
     #  set up dataset, model, optimizer ...
     ################################################################################
 
-    ### dataset
+    # dataset
     train_loader, val_loader, test_loader, train_sampler = load_dataset(args)
 
     # save args (need to do this here since additional args are attached in load_dataset)
     if not args.distributed or args.rank == 0:
         yaml_dump(args, "train_args.yaml")
 
-    ### model
-    model = ReactionRepresentation(
+    # model
+    model = LinearClassification(
         in_feats=args.feature_size,
         embedding_size=args.embedding_size,
         # encoder
@@ -449,18 +349,8 @@ def main(args):
         reaction_activation=args.reaction_activation,
         reaction_residual=args.reaction_residual,
         reaction_dropout=args.reaction_dropout,
-        # bond type decoder
-        bond_type_decoder_hidden_layer_sizes=args.node_decoder_hidden_layer_sizes,
-        bond_type_decoder_activation=args.node_decoder_activation,
-        # atom in reaction center decoder
-        atom_in_reaction_center_decoder_hidden_layer_sizes=args.node_decoder_hidden_layer_sizes,
-        atom_in_reaction_center_decoder_activation=args.node_decoder_activation,
-        # clustering decoder
-        reaction_cluster_decoder_hidden_layer_sizes=args.cluster_decoder_hidden_layer_sizes,
-        reaction_cluster_decoder_activation=args.cluster_decoder_activation,
-        reaction_cluster_decoder_output_size=args.cluster_decoder_projection_head_size,
-        # bond type decoder
-        bond_type_decoder_num_classes=args.bond_type_decoder_num_classes,
+        # classification head
+        num_classes=args.num_classes,
     )
 
     if not args.distributed or args.rank == 0:
@@ -477,41 +367,21 @@ def main(args):
         if args.gpu:
             model.to(args.device)
 
-    ### optimizer
+    # TODO freeze model parameters
+
+    # optimizer
     optimizer = torch.optim.Adam(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
 
-    ### learning rate scheduler and stopper
+    # learning rate scheduler and stopper
     scheduler = ReduceLROnPlateau(
         optimizer, mode="min", factor=0.4, patience=50, verbose=True
     )
     stopper = EarlyStopping(patience=150)
 
-    ### prepare class weight for classification tasks
-    (
-        atom_in_reaction_center_weight,
-        bond_type_weight,
-    ) = train_loader.dataset.get_atom_in_reaction_center_and_bond_type_class_weight()
-    class_weights = {
-        "atom_in_reaction_center": atom_in_reaction_center_weight,
-        "bond_type": bond_type_weight,
-    }
-
-    ### cluster
-    if args.distributed:
-        reaction_cluster = DistributedReactionCluster(
-            model,
-            train_loader,
-            args.batch_size,
-            num_centroids=[22, 22],
-            device=args.device,
-        )
-    else:
-        trainset = train_loader.dataset
-        reaction_cluster = ReactionCluster(
-            model, trainset, args.batch_size, num_centroids=[22, 22], device=args.device
-        )
+    # class weight
+    class_weight = train_loader.dataset.get_class_weight(num_classes=args.num_classes)
 
     best = -np.finfo(np.float32).max
 
@@ -532,6 +402,7 @@ def main(args):
         except FileNotFoundError as e:
             warnings.warn(str(e) + " Continue without loading checkpoints.")
             pass
+
     ################################################################################
     # training loop
     ################################################################################
@@ -547,7 +418,7 @@ def main(args):
 
         # train
         loss, train_metrics = train(
-            optimizer, model, train_loader, reaction_cluster, class_weights, epoch, args
+            optimizer, model, train_loader, class_weight, epoch, args
         )
         if not args.distributed or args.rank == 0:
             timer.display(epoch, f"Epoch {epoch}, train")
@@ -563,31 +434,28 @@ def main(args):
         if not args.distributed or args.rank == 0:
             timer.display(epoch, f"Epoch {epoch}, evaluate")
 
-        f1_sum = val_metrics["bond_type"].f1 + val_metrics["atom_in_reaction_center"].f1
+        f1 = val_metrics.f1
 
-        if stopper.step(-f1_sum):
+        if stopper.step(-f1):
             break
 
-        scheduler.step(f1_sum)
+        scheduler.step(f1)
 
-        is_best = f1_sum > best
+        is_best = f1 > best
         if is_best:
-            best = f1_sum
+            best = f1
 
         # save checkpoint
         if not args.distributed or args.rank == 0:
             misc_objs = {"best": best, "epoch": epoch}
             save_checkpoints(
-                state_dict_objs,
-                misc_objs,
-                is_best,
-                msg=f"epoch: {epoch}, score {f1_sum}",
+                state_dict_objs, misc_objs, is_best, msg=f"epoch: {epoch}, score {f1}"
             )
 
             _, epoch_time = timer.display(epoch, f"Epoch {epoch}, epoch time")
+
             stat = {"epoch": epoch, "loss": loss, "time": epoch_time}
-            stat.update(train_metrics["bond_type"].as_dict("tr_bt"))
-            stat.update(train_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
+            stat.update(train_metrics.as_dict("tr_metrics"))
             progress.update(stat, save=True)
             progress.display()
 
@@ -603,9 +471,7 @@ def main(args):
 
         test_metrics = evaluate(model, test_loader, args)
 
-        stat = test_metrics["bond_type"].as_dict("tr_bt")
-        stat.update(test_metrics["atom_in_reaction_center"].as_dict("tr_airc"))
-
+        stat = test_metrics.as_dict("test_metrics")
         progress = ProgressMeter("test_result.csv")
         progress.update(stat, save=True)
         print("\nTest result:")
@@ -619,4 +485,4 @@ if __name__ == "__main__":
     main(args)
 
     # to run distributed CPU training, do
-    # python -m torch.distributed.launch --nproc_per_node=2 train_distributed.py  --distributed 1
+    # python -m torch.distributed.launch --nproc_per_node=2 train_uspto.py  --distributed 1
