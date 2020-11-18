@@ -60,6 +60,12 @@ def parse_args():
 
     # linear classification head
     parser.add_argument("--num-classes", type=int, default=50)
+    parser.add_argument(
+        "--only-train-classification-head",
+        type=int,
+        default=1,
+        help="whether to only train the classification head",
+    )
 
     # ========== training ==========
     parser.add_argument("--start-epoch", type=int, default=0)
@@ -367,11 +373,29 @@ def main(args):
         if args.gpu:
             model.to(args.device)
 
-    # TODO freeze model parameters
+    if args.only_train_classification_head:
+        # freeze encoder parameters
+        for p in model.encoder.parameters():
+            p.requires_grad = False
+        # freeze set2set parameters
+        for p in model.set2set.parameters():
+            p.requires_grad = False
+        training_params = list(filter(lambda p: p.requires_grad, model.parameters()))
+
+        # check only classification head params is trained
+        num_params_classification_head = sum(
+            p.numel() for p in model.classification_head.parameters()
+        )
+        num_params_trainable = sum(p.numel() for p in training_params)
+        assert (
+            num_params_classification_head == num_params_trainable
+        ), "parameters other than classification head are trained"
+    else:
+        training_params = model.parameters()
 
     # optimizer
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+        training_params, lr=args.lr, weight_decay=args.weight_decay
     )
 
     # learning rate scheduler and stopper
