@@ -16,9 +16,11 @@ from rxnrep.model.metric import MultiClassificationMetrics
 from rxnrep.scripts.utils import (
     EarlyStopping,
     seed_all,
-    load_checkpoints,
     save_checkpoints,
+    load_checkpoints,
+    load_part_pretrained_model,
 )
+
 from rxnrep.utils import yaml_dump
 from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter, TimeMeter
 
@@ -73,6 +75,14 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
+    parser.add_argument(
+        "--pretrained-model-filename",
+        type=str,
+        default=None,
+        help="Path to the checkpoint of the pretrained model to use part of its "
+        "parameters. If `None`, will not use it.",
+    )
+
     parser.add_argument("--restore", type=int, default=0, help="restore training")
     parser.add_argument(
         "--dataset-state-dict-filename", type=str, default="dataset_state_dict.yaml"
@@ -362,6 +372,7 @@ def main(args):
     if not args.distributed or args.rank == 0:
         print(model)
 
+    # DDP
     if args.distributed:
         if args.gpu:
             model.to(args.device)
@@ -373,6 +384,15 @@ def main(args):
         if args.gpu:
             model.to(args.device)
 
+    # load pretrained models
+    if args.pretrained_model_filename is not None:
+        load_part_pretrained_model(
+            model, map_location=args.device, filename=args.pretrained_model_filename
+        )
+        if not args.distributed or args.rank == 0:
+            print("\nLoad pretrained model...")
+
+    # freeze parameters
     if args.only_train_classification_head:
         # freeze encoder parameters
         for p in model.encoder.parameters():
@@ -390,6 +410,9 @@ def main(args):
         assert (
             num_params_classification_head == num_params_trainable
         ), "parameters other than classification head are trained"
+
+        if not args.distributed or args.rank == 0:
+            print("\nFreeze some parameters to only train classification head...")
     else:
         training_params = model.parameters()
 

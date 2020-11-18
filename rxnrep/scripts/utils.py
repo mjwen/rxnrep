@@ -78,9 +78,13 @@ def load_checkpoints(state_dict_objects, map_location=None, filename="checkpoint
     """
     Load checkpoints for all objects for later recovery.
 
+    For example, the checkpoint saved by `save_checkpoints()`.
+
     Args:
-        state_dict_objects (dict): A dictionary of objects to save. The object should
+        state_dict_objects: A dictionary of objects to load. The object should
             have load_state_dict() (e.g. model, optimizer, ...)
+        map_location: device location to map the parameters
+        filename: path to the saved checkpoint (e.g. by `save_checkpoint()`)
     """
     checkpoints = torch.load(str(filename), map_location)
     for k, obj in state_dict_objects.items():
@@ -89,6 +93,38 @@ def load_checkpoints(state_dict_objects, map_location=None, filename="checkpoint
     misc_objects = checkpoints
 
     return misc_objects
+
+
+def load_part_pretrained_model(model, map_location=None, filename="checkpoint.pkl"):
+    """
+    Load part of a pretrained model.
+
+    Suppose pretrained model A has layers L1, L2, and L3, model B has layers L1, L2,
+    L4, this function will load parameters of L1 and L2 from model A to model B.
+
+    Take from: https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113
+
+
+    Args:
+        model: the model to load parameters in
+        map_location: device location to map the parameters
+        filename: path to the saved checkpoint (e.g. by `save_checkpoint()`)
+
+    Returns:
+
+    """
+    checkpoints = torch.load(str(filename), map_location)
+    pretrained_dict = checkpoints["model"]
+    model_dict = model.state_dict()
+
+    # filter out unnecessary keys
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+
+    # overwrite entries in the existing state dict
+    model_dict.update(pretrained_dict)
+
+    # load the new state dict
+    model.load_state_dict(model_dict)
 
 
 def init_distributed_mode(args):
