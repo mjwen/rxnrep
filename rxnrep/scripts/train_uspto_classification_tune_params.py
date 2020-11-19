@@ -5,8 +5,10 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 
+import optuna
 import torch
 import torch.nn.functional as F
+import torch.multiprocessing as mp
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -24,7 +26,7 @@ from rxnrep.scripts.utils import (
 )
 
 from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter, TimeMeter
-from rxnrep.utils import yaml_dump
+from rxnrep.utils import yaml_dump, to_path
 
 
 def parse_args():
@@ -94,13 +96,14 @@ def parse_args():
     parser.add_argument(
         "--launch-mode",
         type=str,
-        default="torch_launch",
+        default="spawn",
         help="How to launch distributed training: [`torch_launch`| `srun` | `spawn`]",
     )
     parser.add_argument("--gpu", type=int, default=0, help="Whether to use GPU.")
     parser.add_argument(
         "--distributed", type=int, default=0, help="Whether distributed DDP training.",
     )
+    parser.add_argument("--world-size", type=int, default=None)
     parser.add_argument(
         "--dist-url",
         type=str,
@@ -321,9 +324,12 @@ def evaluate(model, data_loader, args):
     return metrics
 
 
-def main(args):
+def main(rank, trial, args):
+    args.rank = rank
 
     if args.distributed:
+        port = 15678 + trial.number
+        args.dist_url = f"tcp://localhost:{port}"
         init_distributed_mode(args)
     else:
         if args.gpu:
@@ -535,10 +541,77 @@ def main(args):
 
         print(f"\nFinish training at: {datetime.now()}")
 
+        # write best value for optuna
+        with open("score_for_optuna.txt", "w") as f:
+            f.write(str(best))
+
+    return best
+
+
+def create_optuna_study(filename="optuna.db"):
+    """
+    Create a optuna study using a sqlite database.
+
+    Args:
+        filename: path to the sqlite database.
+
+    Returns:
+        study
+    """
+    path = str(to_path(filename))
+
+    study = optuna.create_study(
+        storage=f"sqlite:///{path}",
+        study_name="rxnrep_hyperparams",
+        load_if_exists=True,
+    )
+
+    return study
+
+
+def copy_trail_value_to_args(trial, args):
+
+    args.embedding_size = trial.suggest_categorical(
+        "embedding_size", choices=[24, 36, 48]
+    )
+
+    num_molecule_conv_layers = trial.suggest_int("num_molecule_conv_layers", 2, 4)
+    molecule_conv_layer_size = trial.suggest_categorical(
+        "molecule_conv_layer_size", choices=[64, 128, 256]
+    )
+    args.molecule_conv_layer_sizes = [
+        molecule_conv_layer_size
+    ] * num_molecule_conv_layers
+
+    return args
+
+
+def objective(trial):
+    args = parse_args()
+    args = copy_trail_value_to_args(trial, args)
+
+    # @@@ NOTE (temporary) set these values to run distributed training
+    args.distributed = 1
+    args.world_size = 2
+    # @@@
+
+    if args.distributed:
+        if args.world_size is None:
+            raise RuntimeError("running distributed mode but `world_size` not set")
+        mp.spawn(main, nprocs=args.world_size, args=(trial, args))
+
+        # write best value for optuna
+        with open("score_for_optuna.txt", "r") as f:
+            score = float(f.readline().strip())
+    else:
+        score = main(None, trial, args)
+
+    return score
+
 
 if __name__ == "__main__":
-    args = parse_args()
-    main(args)
+    study = create_optuna_study(filename="optuna.db")
+    study.optimize(objective, n_trials=20)
 
-    # to run distributed CPU training, do
-    # python -m torch.distributed.launch --nproc_per_node=2 train_uspto.py  --distributed 1
+    # to run distributed CPU training:
+    # python this_file_name.py --distributed 1 --world-size 2

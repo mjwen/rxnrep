@@ -161,8 +161,18 @@ def init_distributed_mode(args):
         dist_url = f"tcp://{root_node}:{default_port}"
 
     # job started with spawn (should set args.rank and args.world_size)
-    else:
+    elif args.launch_mode == "spawn":
+        try:
+            assert args.rank is not None and args.rank >= 0
+            assert args.world_size is not None and args.world_size >= 1
+        except AttributeError as e:
+            raise RuntimeError(
+                "spawn launch mode needs `rank` and `world_size` be set in args"
+            )
+
         dist_url = f"tcp://localhost:15678"
+    else:
+        raise ValueError("Not supported launch mode")
 
     # override dist_url is provided in args
     if args.dist_url is not None:
