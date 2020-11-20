@@ -6,7 +6,7 @@ from rxnrep.model.decoder import (
     BondTypeDecoder,
     AtomInReactionCenterDecoder,
     ReactionClusterDecoder,
-    LinearClassificationHead,
+    FCNNDecoder,
 )
 from rxnrep.model.readout import Set2SetThenCat
 from typing import List, Dict, Any, Tuple
@@ -233,7 +233,9 @@ class LinearClassification(nn.Module):
         reaction_residual,
         reaction_dropout,
         # classification head
+        head_hidden_layer_sizes,
         num_classes,
+        head_activation,
         # readout reaction features
         set2set_num_iterations: int = 6,
         set2set_num_layers: int = 3,
@@ -271,8 +273,8 @@ class LinearClassification(nn.Module):
 
         # linear classification head
         in_size = reaction_conv_layer_sizes[-1] * 5
-        self.classification_head = LinearClassificationHead(
-            in_size, num_classes, use_bias=True
+        self.classification_head = FCNNDecoder(
+            in_size, num_classes, head_hidden_layer_sizes, head_activation
         )
 
     def forward(

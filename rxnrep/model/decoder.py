@@ -11,6 +11,10 @@ class BaseDecoder(nn.Module):
 
     This uses N fully connected layer as the decoder.
 
+    Note, there will be an additional layer applied after the hidden layers,
+    which transforms the features to `num_classes` dimensions without applying the
+    activation.
+
     Args:
         in_size: input size of the features
         num_classes: number of classes
@@ -24,16 +28,10 @@ class BaseDecoder(nn.Module):
         self,
         in_size: int,
         num_classes: int,
-        hidden_layer_sizes: List[int] = None,
+        hidden_layer_sizes: List[int],
         activation: str = "ReLU",
     ):
         super(BaseDecoder, self).__init__()
-
-        # set default values
-        if hidden_layer_sizes is None:
-            hidden_layer_sizes = [64]
-        if isinstance(activation, str):
-            activation = getattr(nn, activation)()
 
         # no activation for last layer
         out_sizes = hidden_layer_sizes + [num_classes]
@@ -77,8 +75,8 @@ class BondTypeDecoder(BaseDecoder):
     def __init__(
         self,
         in_size: int,
+        hidden_layer_sizes: List[int],
         num_classes: int = 3,
-        hidden_layer_sizes: List[int] = None,
         activation: str = "ReLU",
     ):
         super(BondTypeDecoder, self).__init__(
@@ -102,10 +100,7 @@ class AtomInReactionCenterDecoder(BaseDecoder):
     """
 
     def __init__(
-        self,
-        in_size: int,
-        hidden_layer_sizes: List[int] = None,
-        activation: str = "ReLU",
+        self, in_size: int, hidden_layer_sizes: List[int], activation: str = "ReLU"
     ):
         # Note, for binary classification, the sigmoid function takes a scalar,
         # so `num_classes` is set to 1
@@ -115,29 +110,8 @@ class AtomInReactionCenterDecoder(BaseDecoder):
         )
 
 
-class ReactionClusterDecoder(BaseDecoder):
-    """
-    A decoder to predict the clustering labels from reaction features.
-
-    Args:
-        in_size: input size of the features
-        num_classes: number of classes
-        hidden_layer_sizes: size of the hidden layers to transform the features.
-            Note, there will be an additional layer applied after this,
-            which transforms the features to `num_classes` dimensions.
-        activation: activation function applied after the hidden layer
-    """
-
-    def __init__(
-        self,
-        in_size: int,
-        num_classes: int,
-        hidden_layer_sizes: List[int] = None,
-        activation: str = "ReLU",
-    ):
-        super(ReactionClusterDecoder, self).__init__(
-            in_size, num_classes, hidden_layer_sizes, activation,
-        )
+ReactionClusterDecoder = BaseDecoder
+FCNNDecoder = BaseDecoder
 
 
 class LinearClassificationHead(nn.Module):

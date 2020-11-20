@@ -65,11 +65,15 @@ def parse_args():
     parser.add_argument("--reaction-dropout", type=float, default="0.0")
 
     # linear classification head
+    parser.add_argument(
+        "--head-hidden-layer-sizes", type=int, nargs="+", default=[256, 128]
+    )
+    parser.add_argument("--head-activation", type=str, default="ReLU")
     parser.add_argument("--num-classes", type=int, default=50)
     parser.add_argument(
         "--only-train-classification-head",
         type=int,
-        default=1,
+        default=0,
         help="whether to only train the classification head",
     )
 
@@ -374,7 +378,9 @@ def main(rank, trial, args):
         reaction_residual=args.reaction_residual,
         reaction_dropout=args.reaction_dropout,
         # classification head
+        head_hidden_layer_sizes=args.head_hidden_layer_sizes,
         num_classes=args.num_classes,
+        head_activation=args.head_activation,
     )
 
     if not args.distributed or args.rank == 0:
@@ -501,7 +507,7 @@ def main(rank, trial, args):
         if stopper.step(-f1):
             break
 
-        scheduler.step(f1)
+        scheduler.step(-f1)
 
         is_best = f1 > best
         if is_best:
@@ -564,6 +570,7 @@ def create_optuna_study(filename="optuna.db"):
         storage=f"sqlite:///{path}",
         study_name="rxnrep_hyperparams",
         load_if_exists=True,
+        direction="maximize",
     )
 
     return study
@@ -589,11 +596,6 @@ def copy_trail_value_to_args(trial, args):
 def objective(trial):
     args = parse_args()
     args = copy_trail_value_to_args(trial, args)
-
-    # @@@ NOTE (temporary) set these values to run distributed training
-    args.distributed = 1
-    args.world_size = 2
-    # @@@
 
     if args.distributed:
         if args.world_size is None:

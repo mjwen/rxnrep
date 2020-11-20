@@ -34,14 +34,14 @@ class ReactionEncoder(nn.Module):
         self,
         in_feats: Dict[str, int],
         embedding_size: Optional[int] = None,
-        molecule_conv_layer_sizes: Optional[List[int]] = None,
+        molecule_conv_layer_sizes: Optional[List[int]] = (64, 64),
         molecule_num_fc_layers: Optional[int] = 2,
         molecule_graph_norm: Optional[bool] = False,
         molecule_batch_norm: Optional[bool] = True,
         molecule_activation: Optional[str] = "ReLU",
         molecule_residual: Optional[bool] = True,
         molecule_dropout: Optional[float] = 0.0,
-        reaction_conv_layer_sizes: Optional[List[int]] = None,
+        reaction_conv_layer_sizes: Optional[List[int]] = (64, 64),
         reaction_num_fc_layers: Optional[int] = 2,
         reaction_graph_norm: Optional[bool] = False,
         reaction_batch_norm: Optional[bool] = True,
@@ -53,12 +53,8 @@ class ReactionEncoder(nn.Module):
         super(ReactionEncoder, self).__init__()
 
         # set default values
-        if molecule_conv_layer_sizes is None:
-            molecule_conv_layer_sizes = [64, 64, 32]
         if isinstance(molecule_activation, str):
             molecule_activation = getattr(nn, molecule_activation)()
-        if reaction_conv_layer_sizes is None:
-            reaction_conv_layer_sizes = [64, 64, 32]
         if isinstance(reaction_activation, str):
             reaction_activation = getattr(nn, reaction_activation)()
 

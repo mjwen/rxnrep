@@ -1,5 +1,5 @@
 import torch.nn as nn
-from typing import List, Callable
+from typing import List, Callable, Union
 
 
 class UnifySize(nn.Module):
@@ -47,6 +47,7 @@ class FCNN(nn.Module):
         out_sizes: size of each layer
         activations: activation function of each layer. If an element is `None`,
             then activation is not applied for that layer.
+            If a string, this will call nn.<the_string>
         use_bias: whether to use bias for each layer
     """
 
@@ -54,22 +55,26 @@ class FCNN(nn.Module):
         self,
         in_size: int,
         out_sizes: List[int],
-        activations: List[Callable],
+        activations: List[Union[Callable, str]],
         use_bias: List[bool],
     ):
         super(FCNN, self).__init__()
 
-        self.fc_layers = nn.ModuleList()
+        self.layers = nn.ModuleList()
         for out, act, b in zip(out_sizes, activations, use_bias):
-            self.fc_layers.append(nn.Linear(in_size, out, bias=b))
+            self.layers.append(nn.Linear(in_size, out, bias=b))
             if act is not None:
-                self.fc_layers.append(act)
+                if isinstance(act, str):
+                    act = getattr(nn, act)()
+                self.layers.append(act)
             in_size = out
 
+        self.num_layers = len(activations)
+
     def forward(self, x):
-        for layer in self.fc_layers:
+        for layer in self.layers:
             x = layer(x)
         return x
 
     def __repr__(self):
-        return f"FCNN, num layers={len(self.fc_layers)}"
+        return f"FCNN, num layers={self.num_layers}"
