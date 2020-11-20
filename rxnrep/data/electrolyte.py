@@ -94,11 +94,14 @@ class ElectrolyteDataset(USPTODataset):
 
         if nprocs == 1:
             reactions = [
-                process_one_reaction_from_input_file(rxn) for rxn in pmg_reactions
+                process_one_reaction_from_input_file(rxn, i)
+                for i, rxn in enumerate(pmg_reactions)
             ]
         else:
+            ids = list(range(len(pmg_reactions)))
+            args = zip(pmg_reactions, ids)
             with multiprocessing.Pool(nprocs) as p:
-                reactions = p.map(process_one_reaction_from_input_file, pmg_reactions)
+                reactions = p.starmap(process_one_reaction_from_input_file, args)
 
         failed = []
         succeed_reactions = []
@@ -201,7 +204,7 @@ class ElectrolyteDatasetTwoBondType(ElectrolyteDataset):
         Returns:
             1D tensor of the class for each bond. The order is the same as the bond
             nodes in the reaction graph.
-       """
+        """
         result = reaction.get_num_unchanged_lost_and_added_bonds()
         num_unchanged, num_lost, num_added = result
 
@@ -214,23 +217,24 @@ class ElectrolyteDatasetTwoBondType(ElectrolyteDataset):
 
 
 def process_one_reaction_from_input_file(
-    pmg_reaction: PMG_Reaction,
+    pmg_reaction: PMG_Reaction, index: int
 ) -> Union[Reaction, None]:
 
     try:
-        reaction = pymatgen_reaction_to_reaction(pmg_reaction)
+        reaction = pymatgen_reaction_to_reaction(pmg_reaction, index)
     except (MoleculeError, ReactionError):
         return None
 
     return reaction
 
 
-def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction) -> Reaction:
+def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction, index: int) -> Reaction:
     """
     Convert a pymatgen reaction to a rxnrep reaction.
 
     Args:
         pmg_reaction: pymatgen reaction
+        index: index of the reaction in the whole dataset
 
     Returns:
         a rxnrep reaction
@@ -275,7 +279,7 @@ def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction) -> Reaction:
 
     reactant_ids = "+".join([str(i) for i in pmg_reaction.reactant_ids])
     product_ids = "+".join([str(i) for i in pmg_reaction.product_ids])
-    reaction_id = reactant_ids + " -> " + product_ids
+    reaction_id = f"{reactant_ids}->{product_ids}_index-{index}"
 
     reaction = Reaction(reactants, products, id=reaction_id, sanity_check=False)
 

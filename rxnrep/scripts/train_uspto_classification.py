@@ -63,11 +63,15 @@ def parse_args():
     parser.add_argument("--reaction-dropout", type=float, default="0.0")
 
     # linear classification head
+    parser.add_argument(
+        "--head-hidden-layer-sizes", type=int, nargs="+", default=[256, 128]
+    )
+    parser.add_argument("--head-activation", type=str, default="ReLU")
     parser.add_argument("--num-classes", type=int, default=50)
     parser.add_argument(
         "--only-train-classification-head",
         type=int,
-        default=1,
+        default=0,
         help="whether to only train the classification head",
     )
 
@@ -99,7 +103,10 @@ def parse_args():
     )
     parser.add_argument("--gpu", type=int, default=0, help="Whether to use GPU.")
     parser.add_argument(
-        "--distributed", type=int, default=0, help="Whether distributed DDP training.",
+        "--distributed",
+        type=int,
+        default=0,
+        help="Whether distributed DDP training.",
     )
     parser.add_argument(
         "--dist-url",
@@ -368,7 +375,9 @@ def main(args):
         reaction_residual=args.reaction_residual,
         reaction_dropout=args.reaction_dropout,
         # classification head
+        head_hidden_layer_sizes=args.head_hidden_layer_sizes,
         num_classes=args.num_classes,
+        head_activation=args.head_activation,
     )
 
     if not args.distributed or args.rank == 0:
@@ -495,7 +504,7 @@ def main(args):
         if stopper.step(-f1):
             break
 
-        scheduler.step(f1)
+        scheduler.step(-f1)
 
         is_best = f1 > best
         if is_best:
@@ -540,5 +549,5 @@ if __name__ == "__main__":
     args = parse_args()
     main(args)
 
-    # to run distributed CPU training, do
+    # to run distributed CPU training:
     # python -m torch.distributed.launch --nproc_per_node=2 train_uspto.py  --distributed 1

@@ -102,11 +102,12 @@ class USPTODataset(BaseDataset):
 
         if nprocs == 1:
             rxn_lb = [
-                process_one_reaction_from_input_file(smi, lb)
-                for smi, lb in zip(smiles_reactions, labels)
+                process_one_reaction_from_input_file(smi, lb, smi + f"_index-{i}")
+                for i, (smi, lb) in enumerate(zip(smiles_reactions, labels))
             ]
         else:
-            args = zip(smiles_reactions, labels)
+            ids = [smi + f"_index-{i}" for i, smi in enumerate(smiles_reactions)]
+            args = zip(smiles_reactions, labels, ids)
             with multiprocessing.Pool(nprocs) as p:
                 rxn_lb = p.starmap(process_one_reaction_from_input_file, args)
         reactions, labels = map(list, zip(*rxn_lb))
@@ -299,7 +300,7 @@ class USPTODataset(BaseDataset):
         Returns:
             1D tensor of the class for each bond. The order is the same as the bond
             nodes in the reaction graph.
-       """
+        """
         result = reaction.get_num_unchanged_lost_and_added_bonds()
         num_unchanged, num_lost, num_added = result
 
@@ -338,7 +339,8 @@ class USPTODataset(BaseDataset):
         return in_reaction_center
 
     def __getitem__(self, item: int):
-        """Get data point with index.
+        """
+        Get data point with index.
         """
         reactants_g, products_g, reaction_g = self.reaction_graphs[item]
         reaction = self.reactions[item]
@@ -492,13 +494,13 @@ class SchneiderDataset(USPTODataset):
 
 
 def process_one_reaction_from_input_file(
-    smiles_reaction: str, label: str
+    smiles_reaction: str, label: str, id: str
 ) -> Tuple[Union[Reaction, None], Any]:
     # create reaction
     try:
         reaction = smiles_to_reaction(
             smiles_reaction,
-            id=smiles_reaction,
+            id=id,
             ignore_reagents=True,
             sanity_check=False,
         )
@@ -555,26 +557,36 @@ def build_hetero_graph_and_featurize_one_reaction(
 
         return g
 
-    reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
-    product_graphs = [featurize_one_mol(m) for m in reaction.products]
+    try:
+        reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
+        product_graphs = [featurize_one_mol(m) for m in reaction.products]
 
-    # combine small graphs to form one big graph for reactants and products
-    atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
-    bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
-    reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
+        # combine small graphs to form one big graph for reactants and products
+        atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
+        reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
 
-    atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
-    bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
-    products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
+        atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
+        products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
-    # combine reaction graph from the combined reactant graph and product graph
-    (
-        num_unchanged,
-        num_lost,
-        num_added,
-    ) = reaction.get_num_unchanged_lost_and_added_bonds()
-    reaction_g = create_reaction_graph(
-        reactants_g, products_g, num_unchanged, num_lost, num_added, self_loop,
-    )
+        # combine reaction graph from the combined reactant graph and product graph
+        (
+            num_unchanged,
+            num_lost,
+            num_added,
+        ) = reaction.get_num_unchanged_lost_and_added_bonds()
+        reaction_g = create_reaction_graph(
+            reactants_g,
+            products_g,
+            num_unchanged,
+            num_lost,
+            num_added,
+            self_loop,
+        )
+
+    except Exception as e:
+        logger.error(f"Error build graph and featurize for reaction: {reaction.id}")
+        raise Exception(e)
 
     return reactants_g, products_g, reaction_g

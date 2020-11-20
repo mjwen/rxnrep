@@ -106,7 +106,7 @@ def parse_args():
     )
     parser.add_argument("--gpu", type=int, default=0, help="Whether to use GPU.")
     parser.add_argument(
-        "--distributed", type=int, default=0, help="Whether distributed DDP training.",
+        "--distributed", type=int, default=0, help="Whether distributed DDP training."
     )
     parser.add_argument("--world-size", type=int, default=None)
     parser.add_argument(
