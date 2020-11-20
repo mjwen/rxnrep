@@ -7,6 +7,7 @@ from datetime import datetime
 
 import optuna
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -476,6 +477,9 @@ def main(rank, trial, args):
     ################################################################################
     progress = ProgressMeter("progress.csv", restore=args.restore)
 
+    # prune by optuna when using distributed
+    prune = torch.tensor(0)
+
     for epoch in range(args.start_epoch, args.epochs):
         timer = TimeMeter()
 
@@ -527,6 +531,27 @@ def main(rank, trial, args):
             progress.update(stat, save=True)
             progress.display()
 
+        # Handle pruning based on the intermediate value.
+        if not args.distributed:
+            trial.report(best, epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+        else:
+            if args.rank == 0:
+                trial.report(best, epoch)
+
+                if trial.should_prune():
+                    # signal error by file
+                    with open("score_for_optuna.txt", "w") as f:
+                        f.write("prune")
+                    prune = torch.tensor(1)
+
+            # rank 0 signaled prune in the last epoch
+            if args.distributed:
+                dist.broadcast(prune, 0)
+                if prune == 1:
+                    return
+
     ################################################################################
     # test
     ################################################################################
@@ -576,7 +601,7 @@ def create_optuna_study(filename="optuna.db"):
     return study
 
 
-def copy_trail_value_to_args(trial, args):
+def copy_trial_value_to_args(trial, args):
 
     args.embedding_size = trial.suggest_categorical(
         "embedding_size", choices=[24, 36, 48]
@@ -595,7 +620,7 @@ def copy_trail_value_to_args(trial, args):
 
 def objective(trial):
     args = parse_args()
-    args = copy_trail_value_to_args(trial, args)
+    args = copy_trial_value_to_args(trial, args)
 
     if args.distributed:
         if args.world_size is None:
@@ -604,7 +629,16 @@ def objective(trial):
 
         # write best value for optuna
         with open("score_for_optuna.txt", "r") as f:
-            score = float(f.readline().strip())
+            line = f.readline().strip()
+            if line == "prune":
+                raise optuna.TrialPruned()
+            else:
+                score = float()
+
+        # remove it so as not to use it the next time
+        f = to_path("score_for_optuna.txt")
+        f.unlink()
+
     else:
         score = main(None, trial, args)
 
