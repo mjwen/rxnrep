@@ -13,7 +13,7 @@ from pymatgen.entries.mol_entry import MoleculeEntry
 from monty.serialization import loadfn
 
 from rxnrep.core.molecule import Molecule, MoleculeError
-from rxnrep.core.reaction import Reaction
+from rxnrep.core.reaction import Reaction, ReactionError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 from rxnrep.data.uspto import USPTODataset
 
@@ -219,7 +219,7 @@ def process_one_reaction_from_input_file(
 
     try:
         reaction = pymatgen_reaction_to_reaction(pmg_reaction)
-    except MoleculeError:
+    except (MoleculeError, ReactionError):
         return None
 
     return reaction
@@ -277,7 +277,7 @@ def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction) -> Reaction:
     product_ids = "+".join([str(i) for i in pmg_reaction.product_ids])
     reaction_id = reactant_ids + " -> " + product_ids
 
-    reaction = Reaction(reactants, products, id=reaction_id)
+    reaction = Reaction(reactants, products, id=reaction_id, sanity_check=False)
 
     return reaction
 

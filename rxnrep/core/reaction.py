@@ -384,7 +384,10 @@ class Reaction:
 
 
 def smiles_to_reaction(
-    smiles: str, id: Optional[Union[int, str]] = None, ignore_reagents: bool = False
+    smiles: str,
+    id: Optional[Union[int, str]] = None,
+    ignore_reagents: bool = False,
+    sanity_check: bool = True,
 ):
     """
     Convert a reaction given in smiles to :class:`Reaction`.
@@ -395,6 +398,7 @@ def smiles_to_reaction(
             '[C:1](=[O:2])-[OD1].[N!H0:3]>>[C:1](=[O:2])[N:3]'
         id: identifier of the reaction.
         ignore_reagents: whether to ignore reagents, regardless of its existence
+        sanity_check: whether to check the correctness of the reaction
     """
 
     reactants, reagents, products = smiles.split(">")
@@ -407,7 +411,7 @@ def smiles_to_reaction(
     else:
         rgts = [Molecule.from_smiles(s) for s in reagents.split(".")]
 
-    reaction = Reaction(rcts, prdts, rgts, sanity_check=False, id=id)
+    reaction = Reaction(rcts, prdts, rgts, sanity_check=sanity_check, id=id)
 
     return reaction
 

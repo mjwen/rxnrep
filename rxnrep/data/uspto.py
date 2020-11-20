@@ -14,7 +14,7 @@ import pandas as pd
 from sklearn.utils import class_weight
 
 from rxnrep.core.molecule import Molecule, MoleculeError
-from rxnrep.core.reaction import Reaction, smiles_to_reaction
+from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
 from rxnrep.data.grapher import (
     create_hetero_molecule_graph,
@@ -497,9 +497,12 @@ def process_one_reaction_from_input_file(
     # create reaction
     try:
         reaction = smiles_to_reaction(
-            smiles_reaction, smiles_reaction, ignore_reagents=True
+            smiles_reaction,
+            id=smiles_reaction,
+            ignore_reagents=True,
+            sanity_check=False,
         )
-    except MoleculeError:
+    except (MoleculeError, ReactionError):
         return None, None
 
     return reaction, label

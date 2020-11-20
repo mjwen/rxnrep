@@ -289,11 +289,24 @@ def canonicalize_smiles_reaction(
     except (MoleculeCreationError, AtomMapNumberError) as e:
         return None, str(e).rstrip()
 
+    reactants_smi, reagents_smi, products_smi = rxn_smi.strip().split(">")
+    reactants = Chem.MolFromSmiles(reactants_smi)
+    products = Chem.MolFromSmiles(products_smi)
+
+    # Step 1.1 check isotope H
+    # If a reactant contains isotope H (e.g. [3H]), after editing to generate the
+    # products, the isotope info is lost. Later when reading in from smiles, these H are
+    # treated as normal H and rdkit will set them to non-graph H. As a result,
+    # there will be mismatch between atom numbers since reactant contains isotope H,
+    # but product does not.
+    # Of course, we can set all such H to be isotope in the products and the reactant,
+    # but here we ignore these reactions because in the ML model, we do not
+    # differentiate between isotope H and normal H.
+    if check_H_isotope([reactants, products]):
+        return None, "Step 1.1, isotope H"
+
     # Step 2, adjust atom mapping
     try:
-        reactants_smi, reagents_smi, products_smi = rxn_smi.strip().split(">")
-        reactants = Chem.MolFromSmiles(reactants_smi)
-        products = Chem.MolFromSmiles(products_smi)
         reactants = set_no_graph_H(reactants)
         products = set_no_graph_H(products)
         reactants, products = adjust_atom_map_number(reactants, products)
@@ -349,7 +362,7 @@ def canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds(
     In `canonicalize_smiles_reaction()`. bond connectivity of the reactant is edited to
     simulate the reaction to obtain the product. A problem with this method is that it
     edits many unnecessary bonds (e.g. bonds that change bond type). This function uses
-    a differnet approach:
+    a different approach:
 
     1. remove reactant molecules from reactants if none of their atoms are present in
        the products
@@ -375,11 +388,24 @@ def canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds(
     except (MoleculeCreationError, AtomMapNumberError) as e:
         return None, "Step 1 " + str(e).rstrip()
 
+    reactants_smi, reagents_smi, products_smi = rxn_smi.strip().split(">")
+    reactants = Chem.MolFromSmiles(reactants_smi)
+    products = Chem.MolFromSmiles(products_smi)
+
+    # Step 1.1 check isotope H
+    # If a reactant contains isotope H (e.g. [3H]), after editing to generate the
+    # products, the isotope info is lost. Later when reading in from smiles, these H are
+    # treated as normal H and rdkit will set them to non-graph H. As a result,
+    # there will be mismatch between atom numbers since reactant contains isotope H,
+    # but product does not.
+    # Of course, we can set all such H to be isotope in the products and the reactant,
+    # but here we ignore these reactions because in the ML model, we do not
+    # differentiate between isotope H and normal H.
+    if check_H_isotope([reactants, products]):
+        return None, "Step 1.1, isotope H"
+
     # Step 2, adjust atom mapping
     try:
-        reactants_smi, reagents_smi, products_smi = rxn_smi.strip().split(">")
-        reactants = Chem.MolFromSmiles(reactants_smi)
-        products = Chem.MolFromSmiles(products_smi)
         reactants = set_no_graph_H(reactants)
         products = set_no_graph_H(products)
         reactants, products = adjust_atom_map_number(reactants, products)
@@ -914,6 +940,18 @@ def add_nonexist_atoms_and_bonds_to_product(
     Chem.SanitizeMol(new_mol)
 
     return new_mol
+
+
+def check_H_isotope(molecules: List[Chem.Mol]) -> bool:
+    """
+    Check whether there is isotope H (e.g. [3H]) in the molecules.
+    """
+    for mol in molecules:
+        for atom in mol.GetAtoms():
+            if atom.GetSymbol() == "H" and atom.GetIsotope() != 0:
+                return True
+
+    return False
 
 
 def set_no_graph_H(m: Chem.Mol) -> Chem.Mol:
