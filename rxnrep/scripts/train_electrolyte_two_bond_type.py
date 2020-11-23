@@ -1,14 +1,16 @@
 import sys
 import warnings
-import torch
 import argparse
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+
+import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
+
 from rxnrep.data.electrolyte import ElectrolyteDatasetTwoBondType
 from rxnrep.data.featurizer import (
     AtomFeaturizerMinimum,
@@ -24,8 +26,8 @@ from rxnrep.scripts.utils import (
     load_checkpoints,
     save_checkpoints,
 )
-from rxnrep.utils import yaml_dump
 from rxnrep.scripts.utils import init_distributed_mode, ProgressMeter, TimeMeter
+from rxnrep.utils import yaml_dump
 
 
 def parse_args():
@@ -429,14 +431,14 @@ def main(args):
     #  set up dataset, model, optimizer ...
     ################################################################################
 
-    ### dataset
+    # dataset
     train_loader, val_loader, test_loader, train_sampler = load_dataset(args)
 
     # save args (need to do this here since additional args are attached in load_dataset)
     if not args.distributed or args.rank == 0:
         yaml_dump(args, "train_args.yaml")
 
-    ### model
+    # model
     model = ReactionRepresentation(
         in_feats=args.feature_size,
         embedding_size=args.embedding_size,
@@ -481,18 +483,18 @@ def main(args):
         if args.gpu:
             model.to(args.device)
 
-    ### optimizer
+    # optimizer
     optimizer = torch.optim.Adam(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
 
-    ### learning rate scheduler and stopper
+    # learning rate scheduler and stopper
     scheduler = ReduceLROnPlateau(
         optimizer, mode="min", factor=0.4, patience=50, verbose=True
     )
     stopper = EarlyStopping(patience=150)
 
-    ### prepare class weight for classification tasks
+    # prepare class weight for classification tasks
     (
         atom_in_reaction_center_weight,
         bond_type_weight,
@@ -536,6 +538,7 @@ def main(args):
         except FileNotFoundError as e:
             warnings.warn(str(e) + " Continue without loading checkpoints.")
             pass
+
     ################################################################################
     # training loop
     ################################################################################
@@ -572,7 +575,7 @@ def main(args):
         if stopper.step(-f1_sum):
             break
 
-        scheduler.step(f1_sum)
+        scheduler.step(-f1_sum)
 
         is_best = f1_sum > best
         if is_best:
@@ -626,5 +629,5 @@ if __name__ == "__main__":
     args = parse_args()
     main(args)
 
-    # to run distributed CPU training, do
+    # to run distributed CPU training:
     # python -m torch.distributed.launch --nproc_per_node=2 train_electrolyte.py  --distributed 1

@@ -521,6 +521,8 @@ def main(args):
 
             stat = {"epoch": epoch, "loss": loss, "time": epoch_time}
             stat.update(train_metrics.as_dict("tr_metrics"))
+            stat.update(val_metrics.as_dict("va_metrics"))
+
             progress.update(stat, save=True)
             progress.display()
 
@@ -536,7 +538,7 @@ def main(args):
 
         test_metrics = evaluate(model, test_loader, args)
 
-        stat = test_metrics.as_dict("test_metrics")
+        stat = test_metrics.as_dict("te_metrics")
         progress = ProgressMeter("test_result.csv")
         progress.update(stat, save=True)
         print("\nTest result:")

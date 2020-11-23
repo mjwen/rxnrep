@@ -7,8 +7,8 @@ from datetime import datetime
 
 import optuna
 import torch
-import torch.distributed as dist
 import torch.nn.functional as F
+import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
@@ -478,7 +478,7 @@ def main(rank, trial, args):
     progress = ProgressMeter("progress.csv", restore=args.restore)
 
     # prune by optuna when using distributed
-    prune = torch.tensor(0)
+    prune = torch.tensor(0, device=args.device)
 
     for epoch in range(args.start_epoch, args.epochs):
         timer = TimeMeter()
@@ -528,6 +528,8 @@ def main(rank, trial, args):
 
             stat = {"epoch": epoch, "loss": loss, "time": epoch_time}
             stat.update(train_metrics.as_dict("tr_metrics"))
+            stat.update(val_metrics.as_dict("va_metrics"))
+
             progress.update(stat, save=True)
             progress.display()
 
@@ -544,7 +546,7 @@ def main(rank, trial, args):
                     # signal error by file
                     with open("score_for_optuna.txt", "w") as f:
                         f.write("prune")
-                    prune = torch.tensor(1)
+                    prune = torch.tensor(1, device=args.device)
 
             # rank 0 signaled prune in the last epoch
             if args.distributed:
@@ -564,7 +566,7 @@ def main(rank, trial, args):
 
         test_metrics = evaluate(model, test_loader, args)
 
-        stat = test_metrics.as_dict("test_metrics")
+        stat = test_metrics.as_dict("te_metrics")
         progress = ProgressMeter("test_result.csv")
         progress.update(stat, save=True)
         print("\nTest result:")
@@ -647,7 +649,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = create_optuna_study(filename="optuna.db")
-    study.optimize(objective, n_trials=20)
+    study.optimize(objective, n_trials=2)
 
     # to run distributed CPU training:
     # python this_file_name.py --distributed 1 --world-size 2
