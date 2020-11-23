@@ -635,7 +635,7 @@ def objective(trial):
             if line == "prune":
                 raise optuna.TrialPruned()
             else:
-                score = float()
+                score = float(line)
 
         # remove it so as not to use it the next time
         f = to_path("score_for_optuna.txt")
@@ -649,7 +649,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = create_optuna_study(filename="optuna.db")
-    study.optimize(objective, n_trials=2)
+    study.optimize(objective, n_trials=4)
 
     # to run distributed CPU training:
     # python this_file_name.py --distributed 1 --world-size 2
