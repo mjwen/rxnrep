@@ -17,7 +17,7 @@ from rxnrep.scripts.utils import get_latest_checkpoint_path
 def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
-    # ========== input files ==========
+    # ========== dataset ==========
     prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
 
     fname_tr = prefix + "schneider_n200_processed_train_label_manipulated.tsv"
@@ -27,11 +27,15 @@ def parse_args():
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
     parser.add_argument("--testset-filename", type=str, default=fname_test)
+    parser.add_argument(
+        "--dataset-state-dict-filename", type=str, default="dataset_state_dict.yaml"
+    )
 
-    # ========== embedding layer ==========
+    # ========== model ==========
+    # embedding
     parser.add_argument("--embedding-size", type=int, default=24)
 
-    # ========== encoder ==========
+    # encoder
     parser.add_argument(
         "--molecule-conv-layer-sizes", type=int, nargs="+", default=[64, 64, 64]
     )
@@ -56,6 +60,10 @@ def parse_args():
     parser.add_argument("--head-activation", type=str, default="ReLU")
     parser.add_argument("--num-classes", type=int, default=50)
 
+    # ========== training ==========
+
+    # restore
+    parser.add_argument("--restore", type=int, default=0, help="restore training")
     parser.add_argument(
         "--pretrained-model-checkpoint",
         type=str,
@@ -70,17 +78,17 @@ def parse_args():
         help="whether to only train the classification head",
     )
 
-    # ========== training ==========
-    parser.add_argument("--start-epoch", type=int, default=0)
+    # accelerator
+    parser.add_argument("--num-nodes", type=int, default=None, help="number of nodes")
+    parser.add_argument(
+        "--gpus", type=int, default=None, help="number of gpus per node"
+    )
+
+    # training algorithm
     parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
     parser.add_argument("--batch-size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
-
-    parser.add_argument("--restore", type=int, default=0, help="restore training")
-    parser.add_argument(
-        "--dataset-state-dict-filename", type=str, default="dataset_state_dict.yaml"
-    )
 
     args = parser.parse_args()
 
@@ -305,12 +313,10 @@ def freeze_params_other_than_classification_head(model):
 
 
 def main():
-
     print("\nStart training at:", datetime.now())
 
     pl.seed_everything(25)
 
-    # ========== args ==========
     args = parse_args()
 
     # ========== dataset ==========
@@ -339,8 +345,11 @@ def main():
         checkpoint_path = None
     trainer = pl.Trainer(
         max_epochs=10,
-        resume_from_checkpoint=checkpoint_path,
+        gpus=args.gpus,
+        accelerator=None,
         progress_bar_refresh_rate=10,
+        resume_from_checkpoint=checkpoint_path,
+        # profiler="simple",
     )
 
     # ========== fit and test ==========
