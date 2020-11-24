@@ -139,3 +139,5 @@ dmypy.json
 *.pkl
 *.txt
 *.json
+
+lightning_logs

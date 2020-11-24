@@ -1,14 +1,17 @@
-import random
 import os
 import shutil
+import random
 import logging
+import time
+from pathlib import Path
+from typing import Any, Dict
+
 import numpy as np
 import pandas as pd
-import time
+
 import torch
 import torch.distributed as dist
 import dgl
-from typing import Any, Dict
 
 
 logger = logging.getLogger(__name__)
@@ -259,3 +262,18 @@ class ProgressMeter:
         fmt_str = ["{}: {:.2f}".format(k, v) for k, v in latest.items()]
         fmt_str = ", ".join(fmt_str)
         print(fmt_str)
+
+
+def get_latest_checkpoint_path(lightning_logs_path="./lightning_logs"):
+    """
+    Get the latest checkpoint path for lightning model.
+    """
+    path = Path(lightning_logs_path).resolve()
+    versions = os.listdir(path)
+    v = sorted(versions)[-1]
+    checkpoints = os.listdir(path.joinpath(f"{v}/checkpoints"))
+    ckpt = sorted(checkpoints)[-1]
+
+    ckpt_path = str(path.joinpath(f"{v}/checkpoints/{ckpt}"))
+
+    return ckpt_path
