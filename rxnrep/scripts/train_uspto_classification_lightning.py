@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
@@ -217,7 +217,7 @@ class LightningModel(pl.LightningModule):
         )
 
         self.train_f1 = pl.metrics.F1(
-            num_classes=self.hparams.num_classes, compute_on_step=True
+            num_classes=self.hparams.num_classes, compute_on_step=False
         )
         self.val_f1 = pl.metrics.F1(
             num_classes=self.hparams.num_classes, compute_on_step=False
@@ -239,17 +239,18 @@ class LightningModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         preds, labels, loss = self.shared_step(batch)
 
-        # compute metric and update states
-        f1 = self.train_f1(preds, labels)
+        # update states
+        self.train_f1(preds, labels)
 
-        # stuff added here will not be written by logger
-        self.log("train_f1_step", f1, prog_bar=True)
+        # set on_epoch=True, such that it is mean reduced and logged at each epoch
+        # by default it is False
+        self.log("train_loss", loss, on_epoch=True)
 
         return loss
 
     def training_epoch_end(self, outputs):
         # compute metric (using all data points)
-        self.log("train_f1_epoch", self.train_f1.compute())
+        self.log("train_f1", self.train_f1.compute(), prog_bar=True)
 
     def validation_step(self, batch, batch_idx):
         preds, labels, loss = self.shared_step(batch)
@@ -257,13 +258,13 @@ class LightningModel(pl.LightningModule):
         # update metric states
         self.val_f1(preds, labels)
 
-        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True)
 
         return loss
 
     def validation_epoch_end(self, outputs):
         # compute metric (using all data points)
-        self.log("val_f1_epoch", self.val_f1.compute())
+        self.log("val_f1", self.val_f1.compute(), prog_bar=True)
 
         # time it
         delta_t, cumulative_t = self.timer.update()
@@ -276,13 +277,13 @@ class LightningModel(pl.LightningModule):
         # update metric states
         self.test_f1(preds, labels)
 
-        self.log("test_loss", loss, prog_bar=False)
+        self.log("test_loss", loss, on_epoch=True)
 
         return loss
 
     def test_epoch_end(self, outputs):
         # compute metric (using all data points)
-        self.log("test_f1_epoch", self.test_f1.compute())
+        self.log("test_f1", self.test_f1.compute())
 
     def shared_step(self, batch):
         nodes = ["atom", "bond", "global"]
@@ -321,7 +322,7 @@ class LightningModel(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "val_f1_epoch",
+            "monitor": "val_f1",
         }
 
 
@@ -406,8 +407,11 @@ def main():
         checkpoint_path = None
 
     # callbacks
+    checkpoint_callback = ModelCheckpoint(
+        monitor="val_f1", mode="max", save_last=True, save_top_k=5, verbose=True
+    )
     early_stop_callback = EarlyStopping(
-        monitor="val_f1_epoch", min_delta=0.0, patience=50, verbose=True, mode="min"
+        monitor="val_f1", min_delta=0.0, patience=50, verbose=True, mode="min"
     )
 
     trainer = pl.Trainer(
@@ -417,7 +421,9 @@ def main():
         accelerator=args.accelerator,
         progress_bar_refresh_rate=5,
         resume_from_checkpoint=checkpoint_path,
-        callbacks=[early_stop_callback],
+        callbacks=[checkpoint_callback, early_stop_callback],
+        flush_logs_every_n_steps=50,
+        weights_summary="full",
         # profiler="simple",
         # deterministic=True,
     )
