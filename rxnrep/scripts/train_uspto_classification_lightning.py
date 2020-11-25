@@ -28,62 +28,62 @@ def parse_args():
     fname_val = prefix + "schneider_n200_processed_val.tsv"
     fname_test = prefix + "schneider_n200_processed_test.tsv"
 
-    parser.add_argument("--trainset-filename", type=str, default=fname_tr)
-    parser.add_argument("--valset-filename", type=str, default=fname_val)
-    parser.add_argument("--testset-filename", type=str, default=fname_test)
+    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
+    parser.add_argument("--valset_filename", type=str, default=fname_val)
+    parser.add_argument("--testset_filename", type=str, default=fname_test)
     parser.add_argument(
-        "--dataset-state-dict-filename", type=str, default="dataset_state_dict.yaml"
+        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
     )
 
     # ========== model ==========
     # embedding
-    parser.add_argument("--embedding-size", type=int, default=24)
+    parser.add_argument("--embedding_size", type=int, default=24)
 
     # encoder
     parser.add_argument(
-        "--molecule-conv-layer-sizes", type=int, nargs="+", default=[64, 64, 64]
+        "--molecule_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
     )
-    parser.add_argument("--molecule-num-fc-layers", type=int, default=2)
-    parser.add_argument("--molecule-batch-norm", type=int, default=1)
-    parser.add_argument("--molecule-activation", type=str, default="ReLU")
-    parser.add_argument("--molecule-residual", type=int, default=1)
+    parser.add_argument("--molecule_num_fc_layers", type=int, default=2)
+    parser.add_argument("--molecule_batch_norm", type=int, default=1)
+    parser.add_argument("--molecule_activation", type=str, default="ReLU")
+    parser.add_argument("--molecule_residual", type=int, default=1)
     parser.add_argument("--molecule-dropout", type=float, default="0.0")
     parser.add_argument(
-        "--reaction-conv-layer-sizes", type=int, nargs="+", default=[64, 64, 64]
+        "--reaction_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
     )
-    parser.add_argument("--reaction-num-fc-layers", type=int, default=2)
-    parser.add_argument("--reaction-batch-norm", type=int, default=1)
-    parser.add_argument("--reaction-activation", type=str, default="ReLU")
-    parser.add_argument("--reaction-residual", type=int, default=1)
-    parser.add_argument("--reaction-dropout", type=float, default="0.0")
+    parser.add_argument("--reaction_num_fc_layers", type=int, default=2)
+    parser.add_argument("--reaction_batch_norm", type=int, default=1)
+    parser.add_argument("--reaction_activation", type=str, default="ReLU")
+    parser.add_argument("--reaction_residual", type=int, default=1)
+    parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
     # linear classification head
     parser.add_argument(
-        "--head-hidden-layer-sizes", type=int, nargs="+", default=[256, 128]
+        "--head_hidden_layer_sizes", type=int, nargs="+", default=[256, 128]
     )
-    parser.add_argument("--head-activation", type=str, default="ReLU")
-    parser.add_argument("--num-classes", type=int, default=50)
+    parser.add_argument("--head_activation", type=str, default="ReLU")
+    parser.add_argument("--num_classes", type=int, default=50)
 
     # ========== training ==========
 
     # restore
     parser.add_argument("--restore", type=int, default=0, help="restore training")
     parser.add_argument(
-        "--pretrained-model-checkpoint",
+        "--pretrained_model_checkpoint",
         type=str,
         default=None,
         help="Path to the checkpoint of the pretrained model to use part of its "
         "parameters. If `None`, will not use it.",
     )
     parser.add_argument(
-        "--only-train-classification-head",
+        "--only_train_classification_head",
         type=int,
         default=0,
         help="whether to only train the classification head",
     )
 
     # accelerator
-    parser.add_argument("--num-nodes", type=int, default=1, help="number of nodes")
+    parser.add_argument("--num_nodes", type=int, default=1, help="number of nodes")
     parser.add_argument(
         "--gpus", type=int, default=None, help="number of gpus per node"
     )
@@ -93,9 +93,9 @@ def parse_args():
 
     # training algorithm
     parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
-    parser.add_argument("--batch-size", type=int, default=100, help="batch size")
+    parser.add_argument("--batch_size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
-    parser.add_argument("--weight-decay", type=float, default=0.0, help="weight decay")
+    parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
 
     args = parser.parse_args()
 
@@ -320,11 +320,7 @@ class LightningModel(pl.LightningModule):
             optimizer, mode="max", factor=0.4, patience=20, verbose=True
         )
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/f1",
-        }
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
 
 def load_pretrained_model(model, pretrained_model_checkpoint: Path, map_location=None):
@@ -402,10 +398,10 @@ def main():
 
     # callbacks
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=True
+        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
     )
     early_stop_callback = EarlyStopping(
-        monitor="val/f1", min_delta=0.0, patience=50, verbose=True, mode="min"
+        monitor="val/f1", min_delta=0.0, patience=50, mode="min", verbose=True
     )
 
     # logger
@@ -433,7 +429,7 @@ def main():
         callbacks=[checkpoint_callback, early_stop_callback],
         logger=wandb_logger,
         flush_logs_every_n_steps=50,
-        weights_summary="full",
+        weights_summary="top",
         # profiler="simple",
         # deterministic=True,
     )
