@@ -7,11 +7,15 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
 import pytorch_lightning as pl
+from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+
 
 from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.model.model import LinearClassification
 from rxnrep.scripts.utils import get_latest_checkpoint_path
+from rxnrep.scripts.utils import TimeMeter
 
 
 def parse_args():
@@ -79,9 +83,12 @@ def parse_args():
     )
 
     # accelerator
-    parser.add_argument("--num-nodes", type=int, default=None, help="number of nodes")
+    parser.add_argument("--num-nodes", type=int, default=1, help="number of nodes")
     parser.add_argument(
         "--gpus", type=int, default=None, help="number of gpus per node"
+    )
+    parser.add_argument(
+        "--accelerator", type=str, default=None, help="backend, e.g. `ddp`"
     )
 
     # training algorithm
@@ -154,25 +161,24 @@ def load_dataset(args):
         shuffle=True,
         collate_fn=trainset.collate_fn,
         drop_last=False,
+        pin_memory=True,
     )
 
-    # larger val and test set batch_size is faster but needs more memory
-    # adjust the batch size of to fit memory
-    bs = max(len(valset) // 10, 1)
     val_loader = DataLoader(
         valset,
-        batch_size=bs,
+        batch_size=args.batch_size,
         shuffle=False,
         collate_fn=valset.collate_fn,
         drop_last=False,
+        pin_memory=True,
     )
-    bs = max(len(testset) // 10, 1)
     test_loader = DataLoader(
         testset,
-        batch_size=bs,
+        batch_size=args.batch_size,
         shuffle=False,
         collate_fn=testset.collate_fn,
         drop_last=False,
+        pin_memory=True,
     )
 
     # set args for model
@@ -211,37 +217,82 @@ class LightningModel(pl.LightningModule):
             head_activation=self.hparams.head_activation,
         )
 
+        self.train_f1 = pl.metrics.F1(
+            num_classes=self.hparams.num_classes, compute_on_step=True
+        )
+        self.val_f1 = pl.metrics.F1(
+            num_classes=self.hparams.num_classes, compute_on_step=False
+        )
+        self.test_f1 = pl.metrics.F1(
+            num_classes=self.hparams.num_classes, compute_on_step=False
+        )
+
+        self.timer = TimeMeter()
+
     def forward(self, x):
         nodes = ["atom", "bond", "global"]
 
         indices, mol_graphs, rxn_graphs, labels, metadata = x
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
-        labels = labels["reaction_class"]
 
         return self.model(mol_graphs, rxn_graphs, feats, metadata)
 
     def training_step(self, batch, batch_idx):
-        loss = self._shared_step(batch, batch_idx)
-        self.log("train_loss", loss)
+        preds, labels, loss = self.shared_step(batch)
+
+        # compute metric and update states
+        f1 = self.train_f1(preds, labels)
+
+        # stuff added here will not be written by logger
+        self.log("train_f1_step", f1, prog_bar=True)
 
         return loss
+
+    def training_epoch_end(self, outputs):
+        # compute metric (using all data points)
+        self.log("train_f1_epoch", self.train_f1.compute())
 
     def validation_step(self, batch, batch_idx):
-        loss = self._shared_step(batch, batch_idx)
-        self.log("val_loss", loss)
+        preds, labels, loss = self.shared_step(batch)
+
+        # update metric states
+        self.val_f1(preds, labels)
+
+        self.log("val_loss", loss, prog_bar=True)
 
         return loss
+
+    def validation_epoch_end(self, outputs):
+        # compute metric (using all data points)
+        self.log("val_f1_epoch", self.val_f1.compute())
+
+        # time it
+        delta_t, cumulative_t = self.timer.update()
+        self.log("epoch time", delta_t)
+        self.log("cumulative time", cumulative_t)
 
     def test_step(self, batch, batch_idx):
-        loss = self._shared_step(batch, batch_idx)
-        self.log("test_loss", loss)
+        preds, labels, loss = self.shared_step(batch)
+
+        # update metric states
+        self.test_f1(preds, labels)
+
+        self.log("test_loss", loss, prog_bar=False)
 
         return loss
 
-    def _shared_step(self, batch, batch_idx):
+    def test_epoch_end(self, outputs):
+        # compute metric (using all data points)
+        self.log("test_f1_epoch", self.test_f1.compute())
+
+    def shared_step(self, batch):
         nodes = ["atom", "bond", "global"]
 
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
+
+        # lightning cannot move dgl graphs to gpu, so do it manually
+        mol_graphs = mol_graphs.to(self.device)
+        rxn_graphs = rxn_graphs.to(self.device)
 
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
         labels = labels["reaction_class"]
@@ -249,10 +300,13 @@ class LightningModel(pl.LightningModule):
         preds = self.model(mol_graphs, rxn_graphs, feats, metadata)
 
         loss = F.cross_entropy(
-            preds, labels, reduction="mean", weight=self.hparams.class_weights
+            preds,
+            labels,
+            reduction="mean",
+            weight=torch.as_tensor(self.hparams.class_weights, device=self.device),
         )
 
-        return loss
+        return preds, labels, loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -262,6 +316,7 @@ class LightningModel(pl.LightningModule):
         )
 
         return optimizer
+        # return [optimizer], [schedular]
 
 
 def load_pretrained_model(model, pretrained_model_checkpoint: Path, map_location=None):
@@ -337,19 +392,29 @@ def main():
 
     # ========== trainer ==========
 
-    # restores model, epoch, step, LR schedulers, apex, etc...
+    # restores model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and Path("./lightning_logs").resolve().exists():
         checkpoint_path = get_latest_checkpoint_path("./lightning_logs")
     # create new
     else:
         checkpoint_path = None
+
+    # callbacks
+    early_stop_callback = EarlyStopping(
+        monitor="val_f1_epoch", min_delta=0.0, patience=50, verbose=True, mode="min"
+    )
+
     trainer = pl.Trainer(
         max_epochs=10,
+        num_nodes=args.num_nodes,
         gpus=args.gpus,
-        accelerator=None,
-        progress_bar_refresh_rate=10,
+        accelerator=args.accelerator,
+        progress_bar_refresh_rate=5,
         resume_from_checkpoint=checkpoint_path,
+        callbacks=[early_stop_callback],
         # profiler="simple",
+        # deterministic=True,
+        # logger=pl_loggers.CSVLogger(save_dir="csv_logs"),
     )
 
     # ========== fit and test ==========
