@@ -6,10 +6,9 @@ from datetime import datetime
 import torch
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
-from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-
 
 from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
@@ -315,8 +314,15 @@ class LightningModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        return optimizer
-        # return [optimizer], [schedular]
+        scheduler = ReduceLROnPlateau(
+            optimizer, mode="max", factor=0.4, patience=20, verbose=True
+        )
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+            "monitor": "val_f1_epoch",
+        }
 
 
 def load_pretrained_model(model, pretrained_model_checkpoint: Path, map_location=None):
@@ -414,7 +420,6 @@ def main():
         callbacks=[early_stop_callback],
         # profiler="simple",
         # deterministic=True,
-        # logger=pl_loggers.CSVLogger(save_dir="csv_logs"),
     )
 
     # ========== fit and test ==========
