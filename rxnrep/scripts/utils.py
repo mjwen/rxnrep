@@ -269,16 +269,30 @@ class ProgressMeter:
         print(fmt_str)
 
 
-def get_latest_checkpoint_path(lightning_logs_path="./lightning_logs"):
+def get_latest_checkpoint_tensorboard(save_dir="./lightning_logs"):
     """
-    Get the latest checkpoint path for lightning model.
+    Get the latest checkpoint path of tensorboard logger.
     """
-    path = Path(lightning_logs_path).resolve()
+    path = Path(save_dir).resolve()
     versions = os.listdir(path)
     v = sorted(versions)[-1]
     checkpoints = os.listdir(path.joinpath(f"{v}/checkpoints"))
     ckpt = sorted(checkpoints)[-1]
 
     ckpt_path = str(path.joinpath(f"{v}/checkpoints/{ckpt}"))
+
+    return ckpt_path
+
+
+def get_latest_checkpoint_wandb(save_dir: Path, project: str):
+    """
+    Get the latest checkpoint path of wandb logger.
+    """
+    latest_run = Path(save_dir).joinpath("wandb", "latest-run").resolve()
+    version = str(latest_run).split("-")[-1]
+    ckpt_path = (
+        Path(save_dir).joinpath(project, version, "checkpoints", "last.ckpt").resolve()
+    )
+    ckpt_path = str(ckpt_path)
 
     return ckpt_path

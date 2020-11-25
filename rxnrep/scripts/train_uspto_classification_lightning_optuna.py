@@ -8,13 +8,12 @@ import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.model.model import LinearClassification
-from rxnrep.scripts.utils import get_latest_checkpoint_wandb
+from rxnrep.scripts.utils import get_latest_checkpoint_tensorboard
 from rxnrep.scripts.utils import TimeMeter
 
 
@@ -218,7 +217,7 @@ class LightningModel(pl.LightningModule):
         )
 
         self.train_f1 = pl.metrics.F1(
-            num_classes=self.hparams.num_classes, compute_on_step=False
+            num_classes=self.hparams.num_classes, compute_on_step=True
         )
         self.val_f1 = pl.metrics.F1(
             num_classes=self.hparams.num_classes, compute_on_step=False
@@ -240,18 +239,17 @@ class LightningModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         preds, labels, loss = self.shared_step(batch)
 
-        # update states
-        self.train_f1(preds, labels)
+        # compute metric and update states
+        f1 = self.train_f1(preds, labels)
 
-        # set on_epoch=True, such that it is mean reduced and logged at each epoch
-        # by default it is False
-        self.log("train/loss", loss, on_epoch=True)
+        # stuff added here will not be written by logger
+        self.log("train_f1_step", f1, prog_bar=True)
 
         return loss
 
     def training_epoch_end(self, outputs):
         # compute metric (using all data points)
-        self.log("train/f1", self.train_f1.compute(), prog_bar=True)
+        self.log("train_f1_epoch", self.train_f1.compute())
 
     def validation_step(self, batch, batch_idx):
         preds, labels, loss = self.shared_step(batch)
@@ -259,13 +257,13 @@ class LightningModel(pl.LightningModule):
         # update metric states
         self.val_f1(preds, labels)
 
-        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
+        self.log("val_loss", loss, prog_bar=True)
 
         return loss
 
     def validation_epoch_end(self, outputs):
         # compute metric (using all data points)
-        self.log("val/f1", self.val_f1.compute(), prog_bar=True)
+        self.log("val_f1_epoch", self.val_f1.compute())
 
         # time it
         delta_t, cumulative_t = self.timer.update()
@@ -278,13 +276,13 @@ class LightningModel(pl.LightningModule):
         # update metric states
         self.test_f1(preds, labels)
 
-        self.log("test/loss", loss, on_epoch=True)
+        self.log("test_loss", loss, prog_bar=False)
 
         return loss
 
     def test_epoch_end(self, outputs):
         # compute metric (using all data points)
-        self.log("test/f1", self.test_f1.compute())
+        self.log("test_f1_epoch", self.test_f1.compute())
 
     def shared_step(self, batch):
         nodes = ["atom", "bond", "global"]
@@ -323,7 +321,7 @@ class LightningModel(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "val/f1",
+            "monitor": "val_f1_epoch",
         }
 
 
@@ -390,7 +388,7 @@ def main():
 
     # load pretrained models
     if args.pretrained_model_checkpoint is not None:
-        load_pretrained_model(model, args.pretrained_model_checkpoint)
+        load_pretrained_model(model, args.pre)
         print("\nLoad pretrained model...")
 
     # freeze parameters
@@ -400,40 +398,26 @@ def main():
 
     # ========== trainer ==========
 
-    # callbacks
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=True
-    )
-    early_stop_callback = EarlyStopping(
-        monitor="val/f1", min_delta=0.0, patience=50, verbose=True, mode="min"
-    )
-
-    # logger
-    log_save_dir = Path("wandb_logs").resolve()
-    project = "schneider-classification"
-
     # restores model, epoch, shared_step, LR schedulers, apex, etc...
-    if args.restore and log_save_dir.exists():
-        checkpoint_path = get_latest_checkpoint_wandb(log_save_dir, project)
+    if args.restore and Path("./lightning_logs").resolve().exists():
+        checkpoint_path = get_latest_checkpoint_tensorboard("./lightning_logs")
     # create new
     else:
         checkpoint_path = None
 
-    if not log_save_dir.exists():
-        log_save_dir.mkdir()
-    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
+    # callbacks
+    early_stop_callback = EarlyStopping(
+        monitor="val_f1_epoch", min_delta=0.0, patience=50, verbose=True, mode="min"
+    )
 
     trainer = pl.Trainer(
-        max_epochs=args.epochs,
+        max_epochs=10,
         num_nodes=args.num_nodes,
         gpus=args.gpus,
         accelerator=args.accelerator,
         progress_bar_refresh_rate=5,
         resume_from_checkpoint=checkpoint_path,
-        callbacks=[checkpoint_callback, early_stop_callback],
-        logger=wandb_logger,
-        flush_logs_every_n_steps=50,
-        weights_summary="full",
+        callbacks=[early_stop_callback],
         # profiler="simple",
         # deterministic=True,
     )
