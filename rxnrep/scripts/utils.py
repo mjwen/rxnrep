@@ -154,6 +154,7 @@ def init_distributed_mode(args):
         # Based on pytorch-lightning setup at:
         # https://github.com/PyTorchLightning/pytorch-lightning/blob/2b255a3df4e20911c5a3704e8004a6c6958f8dfc/pytorch_lightning/trainer/connectors/slurm_connector.py
 
+        # see also https://github.com/PyTorchLightning/pytorch-lightning/blob/0f64f15f525ae887bb1db7b643684d6f4e1b2d1e/pytorch_lightning/cluster_environments/slurm_environment.py#L21
         # use slurm job id for the port number
         # guarantees unique ports across jobs from same grid search
         default_port = os.environ["SLURM_JOB_ID"]

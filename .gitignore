@@ -139,5 +139,5 @@ dmypy.json
 *.pkl
 *.txt
 *.json
+wandb
 
-lightning_logs

@@ -130,21 +130,25 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict_filename,
     )
+
+    state_dict = trainset.state_dict()
+
     valset = SchneiderDataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
-        init_state_dict=trainset.state_dict(),
+        init_state_dict=state_dict,
     )
+
     testset = SchneiderDataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
-        init_state_dict=trainset.state_dict(),
+        init_state_dict=state_dict,
     )
 
     # save dataset state dict for retraining or prediction
@@ -181,7 +185,10 @@ def load_dataset(args):
         pin_memory=True,
     )
 
-    # set args for model
+    # Add dataset state dict to args to log it
+    args.dataset_state_dict = state_dict
+
+    # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
     args.class_weights = train_loader.dataset.get_class_weight(
         num_classes=args.num_classes
@@ -405,7 +412,7 @@ def main():
     )
 
     # logger
-    log_save_dir = Path("wandb_logs").resolve()
+    log_save_dir = Path("wandb").resolve()
     project = "schneider-classification"
 
     # restores model, epoch, shared_step, LR schedulers, apex, etc...
