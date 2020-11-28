@@ -278,7 +278,7 @@ class USPTODataset(BaseDataset):
                 w_in_center.append((num_atoms - num_changed) / num_changed)
 
         weight_atom_in_reaction_center = torch.as_tensor(
-            np.mean(w_in_center), dtype=torch.float32
+            [np.mean(w_in_center)], dtype=torch.float32
         )
 
         weight_bond_type = [np.mean(w_unchanged), np.mean(w_lost), np.mean(w_added)]

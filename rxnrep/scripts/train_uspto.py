@@ -33,10 +33,8 @@ def parse_args():
     prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
 
     fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
-    fname_val = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_val.tsv"
-    fname_test = (
-        prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_test.tsv"
-    )
+    fname_val = fname_tr
+    fname_test = fname_tr
 
     parser.add_argument("--trainset-filename", type=str, default=fname_tr)
     parser.add_argument("--valset-filename", type=str, default=fname_val)
@@ -272,7 +270,8 @@ def train(optimizer, model, data_loader, reaction_cluster, class_weights, epoch,
         if not args.distributed or args.rank == 0:
             timer.display(it, f"Batch {it}; to cuda")
 
-        preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
+        feats, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
+        preds = model.decode(feats, rxn_feats)
 
         if not args.distributed or args.rank == 0:
             timer.display(it, f"Batch {it}; model predict")
@@ -385,7 +384,8 @@ def evaluate(model, data_loader, args):
             }
             labels = {k: v.to(args.device) for k, v in labels.items()}
 
-            preds, rxn_embeddings = model(mol_graphs, rxn_graphs, feats, metadata)
+            feats, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
+            preds = model.decode(feats, rxn_feats)
 
             # ========== metrics ==========
             # bond type

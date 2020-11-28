@@ -177,9 +177,7 @@ def load_dataset(args):
 
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
-    args.class_weights = train_loader.dataset.get_class_weight(
-        num_classes=args.num_classes
-    )
+    args.class_weights = trainset.get_class_weight(num_classes=args.num_classes)
 
     return train_loader, val_loader, test_loader
 
@@ -187,38 +185,41 @@ def load_dataset(args):
 class LightningModel(pl.LightningModule):
     def __init__(self, params):
         super().__init__()
+
+        # save params to be accessible via self.hparams
         self.save_hyperparameters(params)
 
         self.model = LinearClassification(
-            in_feats=self.hparams.feature_size,
-            embedding_size=self.hparams.embedding_size,
+            in_feats=params.feature_size,
+            embedding_size=params.embedding_size,
             # encoder
-            molecule_conv_layer_sizes=self.hparams.molecule_conv_layer_sizes,
-            molecule_num_fc_layers=self.hparams.molecule_num_fc_layers,
-            molecule_batch_norm=self.hparams.molecule_batch_norm,
-            molecule_activation=self.hparams.molecule_activation,
-            molecule_residual=self.hparams.molecule_residual,
-            molecule_dropout=self.hparams.molecule_dropout,
-            reaction_conv_layer_sizes=self.hparams.reaction_conv_layer_sizes,
-            reaction_num_fc_layers=self.hparams.reaction_num_fc_layers,
-            reaction_batch_norm=self.hparams.reaction_batch_norm,
-            reaction_activation=self.hparams.reaction_activation,
-            reaction_residual=self.hparams.reaction_residual,
-            reaction_dropout=self.hparams.reaction_dropout,
+            molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
+            molecule_num_fc_layers=params.molecule_num_fc_layers,
+            molecule_batch_norm=params.molecule_batch_norm,
+            molecule_activation=params.molecule_activation,
+            molecule_residual=params.molecule_residual,
+            molecule_dropout=params.molecule_dropout,
+            reaction_conv_layer_sizes=params.reaction_conv_layer_sizes,
+            reaction_num_fc_layers=params.reaction_num_fc_layers,
+            reaction_batch_norm=params.reaction_batch_norm,
+            reaction_activation=params.reaction_activation,
+            reaction_residual=params.reaction_residual,
+            reaction_dropout=params.reaction_dropout,
             # classification head
-            head_hidden_layer_sizes=self.hparams.head_hidden_layer_sizes,
-            num_classes=self.hparams.num_classes,
-            head_activation=self.hparams.head_activation,
+            head_hidden_layer_sizes=params.head_hidden_layer_sizes,
+            num_classes=params.num_classes,
+            head_activation=params.head_activation,
         )
 
+        # metrics
         self.train_f1 = pl.metrics.F1(
-            num_classes=self.hparams.num_classes, compute_on_step=False
+            num_classes=params.num_classes, compute_on_step=False
         )
         self.val_f1 = pl.metrics.F1(
-            num_classes=self.hparams.num_classes, compute_on_step=False
+            num_classes=params.num_classes, compute_on_step=False
         )
         self.test_f1 = pl.metrics.F1(
-            num_classes=self.hparams.num_classes, compute_on_step=False
+            num_classes=params.num_classes, compute_on_step=False
         )
 
         self.timer = TimeMeter()

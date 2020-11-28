@@ -591,7 +591,9 @@ def get_reaction_features(
                 nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes
             }
 
-            preds, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
+            feats, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
+            preds = model.decode(feats, rxn_feats)
+
             all_feats.append(preds["reaction_cluster"].detach())
 
     indices = torch.cat(all_indices)
