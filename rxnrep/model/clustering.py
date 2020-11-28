@@ -20,17 +20,7 @@ class DistributedReactionCluster:
     https://github.com/facebookresearch/swav/blob/master/main_deepclusterv2.py
 
     Args:
-        local_data: data distributed to the local process.
-            shape (N_local, D), where `N_local` is number of data points distributed to
-            the local process and the `D` is the feature dimension. If `None`, will
-            automatically get the data from the data loader.
-        local_index: index of the data distributed to the local process. The index is
-            the global index of the data point in the data array stored in the dataset.
-            For example, index [3,2,5] means the local data are items 3, 2, 5 in the
-            dataset.
-            shape (N_local,), where `N_local` is number of data points distributed to
-            the local process. If `None`, will automatically get the data from the data
-            loader.
+
         num_centroids: the number of centroids in each cluster head. For example,
             `[K1, K2, K3]` means three cluster heads are used, with K1, K2, and K3
             number of centroids, respectively.
@@ -45,26 +35,19 @@ class DistributedReactionCluster:
         self,
         model,
         data_loader,
-        batch_size: int,
-        local_data: Optional[torch.Tensor] = None,
-        local_index: Optional[torch.Tensor] = None,
-        num_centroids: List[int] = None,
+        num_centroids: List[int] = (10, 10),
         centroids: Optional[List[torch.Tensor]] = None,
         device=None,
     ):
         super(DistributedReactionCluster, self).__init__()
         self.model = model
         self.data_loader = data_loader
-        self.batch_size = batch_size
-
-        self.local_data = local_data
-        self.local_index = local_index
-        self.num_centroids = [10, 10] if num_centroids is None else num_centroids
+        self.num_centroids = num_centroids
         self.centroids = centroids
-
         self.device = device
 
-        self.dataset_size = len(data_loader.dataset)  # total number of data in dataset
+        self.local_data = None
+        self.local_index = None
 
     def get_cluster_assignments(
         self, num_iters: int = 10, centroids_init="random", similarity: str = "cosine"
@@ -115,7 +98,7 @@ class DistributedReactionCluster:
         assignments, centroids = distributed_kmeans(
             local_data,
             local_index,
-            self.dataset_size,
+            len(self.data_loader.dataset),
             self.num_centroids,
             centroids,
             num_iters,
@@ -131,8 +114,17 @@ class DistributedReactionCluster:
     def set_local_data_and_index(self, data: torch.Tensor, index: torch.Tensor):
         """
         Args:
-            data: shape (N_local, D): data
-            index: shape (N_local,): index of the data
+            data: data distributed to the local process.
+                shape (N_local, D), where `N_local` is number of data points distributed to
+                the local process and the `D` is the feature dimension. If `None`, will
+                automatically get the data from the data loader.
+            index: index of the data distributed to the local process. The index is
+                the global index of the data point in the data array stored in the dataset.
+                For example, index [3,2,5] means the local data are items 3, 2, 5 in the
+                dataset.
+                shape (N_local,), where `N_local` is number of data points distributed to
+                the local process. If `None`, will automatically get the data from the data
+                loader.
         """
         self.local_data = data
         self.local_index = index
@@ -149,26 +141,19 @@ class ReactionCluster:
     def __init__(
         self,
         model,
-        dataset,
-        batch_size: int,
-        data: Optional[torch.Tensor] = None,
-        num_centroids: List[int] = None,
+        data_loader,
+        num_centroids: List[int] = (10, 10),
         centroids: Optional[List[torch.Tensor]] = None,
         device=None,
     ):
         super(ReactionCluster, self).__init__()
         self.model = model
-        self.device = device
-        self.data_loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, collate_fn=dataset.collate_fn
-        )
-        self.data = data
-
-        if num_centroids is None:
-            self.num_centroids = [10, 10]
-        else:
-            self.num_centroids = num_centroids
+        self.data_loader = data_loader
+        self.num_centroids = num_centroids
         self.centroids = centroids
+        self.device = device
+
+        self.data = None
 
     def get_cluster_assignments(
         self,

@@ -79,6 +79,7 @@ def parse_args():
         default=33,
         help="projection head size for the clustering decoder",
     )
+    parser.add_argument("--num_centroids", type=int, nargs="+", default=[20, 20])
     parser.add_argument(
         "--temperature",
         type=float,
@@ -508,14 +509,12 @@ def main(args):
         reaction_cluster = DistributedReactionCluster(
             model,
             train_loader,
-            args.batch_size,
-            num_centroids=[22, 22],
+            num_centroids=args.num_centroids,
             device=args.device,
         )
     else:
-        trainset = train_loader.dataset
         reaction_cluster = ReactionCluster(
-            model, trainset, args.batch_size, num_centroids=[22, 22], device=args.device
+            model, train_loader, num_centroids=args.num_centroids, device=args.device
         )
 
     best = -np.finfo(np.float32).max

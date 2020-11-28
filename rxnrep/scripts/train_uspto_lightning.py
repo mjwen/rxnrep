@@ -73,9 +73,17 @@ def parse_args():
     parser.add_argument(
         "--cluster_decoder_projection_head_size",
         type=int,
-        default=33,
+        default=30,
         help="projection head size for the clustering decoder",
     )
+    parser.add_argument(
+        "--num_centroids",
+        type=int,
+        nargs="+",
+        default=[20, 20],
+        help="number of centroids for each clustering prototype",
+    )
+
     parser.add_argument(
         "--temperature",
         type=float,
@@ -243,14 +251,15 @@ class LightningModel(pl.LightningModule):
             bond_type_decoder_num_classes=params.bond_type_decoder_num_classes,
         )
 
-        # reaction cluster
-        self.train_reaction_cluster = None
-        self.val_reaction_cluster = None
-        self.test_reaction_cluster = None
+        # reaction cluster functions
+        self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
+        self.assignments = {mode: None for mode in ["train", "val", "test"]}
+        self.centroids = {mode: None for mode in ["train", "val", "test"]}
 
         # metrics
-        for i in range(3):
-            m = {
+        self.metrics = {}
+        for mode in ["train", "val", "test"]:
+            self.metrics[mode] = {
                 "bond_type": {
                     "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                     "precision": pl.metrics.Precision(
@@ -275,12 +284,6 @@ class LightningModel(pl.LightningModule):
                     ),
                 },
             }
-            if i == 0:
-                self.train_metrics = m
-            elif i == 1:
-                self.val_metrics = m
-            else:
-                self.test_metrics = m
 
         self.timer = TimeMeter()
 
@@ -300,180 +303,87 @@ class LightningModel(pl.LightningModule):
         return reaction_feats
 
     def on_fit_start(self):
-        if self.train_reaction_cluster is None:
-            self.train_reaction_cluster = self._init_reaction_cluster(
+        if self.reaction_cluster_fn["train"] is None:
+            self.reaction_cluster_fn["train"] = self._init_reaction_cluster_fn(
                 self.train_dataloader()
             )
 
-        if self.val_reaction_cluster is None:
-            self.val_reaction_cluster = self._init_reaction_cluster(
+        if self.reaction_cluster_fn["val"] is None:
+            self.reaction_cluster_fn["val"] = self._init_reaction_cluster_fn(
                 self.val_dataloader()
             )
 
-    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        # cluster to get assignments and centroids
-
-        (
-            self.train_assignments,
-            self.train_centroids,
-        ) = self.train_reaction_cluster.get_cluster_assignments()
+    def on_train_epoch_start(self):
+        self._compute_reaction_cluster_assignments("train")
 
     def training_step(self, batch, batch_idx):
         indices, preds, labels, loss = self.shared_step(
-            batch, self.train_assignments, self.train_centroids
+            batch, self.assignments["train"], self.centroids["train"]
         )
-
-        # update metric states
-        keys = ["bond_type", "atom_in_reaction_center"]
-        for key in keys:
-            for metric in self.train_metrics[key]:
-                self.train_metrics[key][metric].update(preds[key], labels[key])
-
-        # set on_epoch=True, such that the loss of each step is aggregated (average by
-        # default) and logged at each epoch
-        self.log("train/loss", loss, on_epoch=True)
+        self._update_metrics(preds, labels, "train")
+        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
 
         return {
             "loss": loss,
             "indices": indices.cpu(),
-            "data_for_cluster": preds["reaction_cluster"].detach().cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
         }
 
     def training_epoch_end(self, outputs):
-        # compute metric (using all data points)
-        keys = ["bond_type", "atom_in_reaction_center"]
-        for key in keys:
-            for metric in self.train_metrics[key]:
-                v = self.train_metrics[key][metric].compute()
-                self.log(f"train/{key}_{metric}", v, prog_bar=True)
+        self._compute_metrics("train")
+        self._track_reaction_cluster_data(outputs, "train")
 
-        # keep track of clustering data to be used in the next iteration
-        indices = torch.cat([x["indices"] for x in outputs])
-        data_for_cluster = torch.cat([x["data_for_cluster"] for x in outputs])
-        self.train_reaction_cluster.set_local_data_and_index(data_for_cluster, indices)
-
-    def on_validation_batch_start(self, batch, batch_idx, dataloader_idx):
-        # cluster to get assignments and centroids
-
-        (
-            self.val_assignments,
-            self.val_centroids,
-        ) = self.val_reaction_cluster.get_cluster_assignments()
+    def on_validation_epoch_start(self):
+        self._compute_reaction_cluster_assignments("val")
 
     def validation_step(self, batch, batch_idx):
         indices, preds, labels, loss = self.shared_step(
-            batch, self.val_assignments, self.val_centroids
+            batch, self.assignments["val"], self.centroids["val"]
         )
-
-        # update metric states
-        keys = ["bond_type", "atom_in_reaction_center"]
-        for key in keys:
-            for metric in self.val_metrics[key]:
-                self.val_metrics[key][metric].update(preds[key], labels[key])
-
-        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
+        self._update_metrics(preds, labels, "val")
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return {
             "loss": loss,
             "indices": indices.cpu(),
-            "data_for_cluster": preds["reaction_cluster"].detach().cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
         }
 
     def validation_epoch_end(self, outputs):
-        # compute metric (using all data points)
+        # sum f1 to look for early stop and learning rate scheduler
+        sum_f1 = self._compute_metrics("val")
+        self._track_reaction_cluster_data(outputs, "val")
 
-        # total f1 to look for early stop and learning rate scheduler
-        val_f1 = 0
-
-        keys = ["bond_type", "atom_in_reaction_center"]
-        for key in keys:
-            for metric in self.val_metrics[key]:
-                v = self.val_metrics[key][metric].compute()
-                self.log(f"val/{key}_{metric}", v, prog_bar=True)
-                if metric == "f1":
-                    val_f1 += v
-
-        # keep track of clustering data to be used in the next iteration
-        indices = torch.cat([x["indices"] for x in outputs])
-        data_for_cluster = torch.cat([x["data_for_cluster"] for x in outputs])
-        self.val_reaction_cluster.set_local_data_and_index(data_for_cluster, indices)
-
-        self.log(f"val/f1", val_f1, prog_bar=True)
+        self.log(f"val/f1", sum_f1, on_step=False, on_epoch=True, prog_bar=True)
 
         # time it
         delta_t, cumulative_t = self.timer.update()
-        self.log("epoch time", delta_t)
-        self.log("cumulative time", cumulative_t)
+        self.log("epoch time", delta_t, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
-    def on_test_batch_start(self, batch, batch_idx, dataloader_idx):
-        # cluster to get assignments and centroids
-        if self.test_reaction_cluster is None:
-            self.test_reaction_cluster = self._init_reaction_cluster(
+    def on_test_epoch_start(self):
+        if self.reaction_cluster_fn["test"] is None:
+            self.reaction_cluster_fn["test"] = self._init_reaction_cluster_fn(
                 self.test_dataloader()
             )
-        (
-            self.test_assignments,
-            self.test_centroids,
-        ) = self.test_reaction_cluster.get_cluster_assignments()
+        self._compute_reaction_cluster_assignments("test")
 
     def test_step(self, batch, batch_idx):
         indices, preds, labels, loss = self.shared_step(
-            batch, self.train_assignments, self.train_centroids
+            batch, self.assignments["test"], self.centroids["test"]
         )
-
-        # update metric states
-        keys = ["bond_type", "atom_in_reaction_center"]
-        for key in keys:
-            for metric in self.test_metrics[key]:
-                self.test_metrics[key][metric].update(preds[key], labels[key])
-
-        self.log("test/loss", loss, on_epoch=True, prog_bar=True)
+        self._update_metrics(preds, labels, "test")
+        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return {
             "loss": loss,
             "indices": indices.cpu(),
-            "data_for_cluster": preds["reaction_cluster"].detach().cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
         }
 
     def test_epoch_end(self, outputs):
-        # compute metric (using all data points)
-        keys = ["bond_type", "atom_in_reaction_center"]
-        for key in keys:
-            for metric in self.test_metrics[key]:
-                v = self.test_metrics[key][metric].compute()
-                self.log(f"test/{key}_{metric}", v, prog_bar=True)
-
-        # keep track of clustering data to be used in the next iteration
-        indices = torch.cat([x["indices"] for x in outputs])
-        data_for_cluster = torch.cat([x["data_for_cluster"] for x in outputs])
-        self.test_reaction_cluster.set_local_data_and_index(data_for_cluster, indices)
-
-    def _init_reaction_cluster(self, dataloader):
-
-        # TODO, reaction cluster requires data loader now, so we init it here.
-        #  need to move it to __init__ once we remove dataloader from the initializer
-        # ALSO, make num_centroids a hyperparams
-
-        # distributed
-        if self.use_ddp:
-            reaction_cluster = DistributedReactionCluster(
-                self.model,
-                dataloader,
-                self.hparams.batch_size,
-                num_centroids=[22, 22],
-                device=self.device,
-            )
-        # single process
-        else:
-            reaction_cluster = ReactionCluster(
-                self.model,
-                dataloader.dataset,
-                self.hparams.batch_size,
-                num_centroids=[22, 22],
-                device=self.device,
-            )
-
-        return reaction_cluster
+        self._compute_metrics("test")
+        self._track_reaction_cluster_data(outputs, "test")
 
     def shared_step(self, batch, cluster_assignments, cluster_centroids):
         nodes = ["atom", "bond", "global"]
@@ -539,6 +449,75 @@ class LightningModel(pl.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
+    def _init_reaction_cluster_fn(self, dataloader):
+        # distributed
+        if self.use_ddp:
+            reaction_cluster_fn = DistributedReactionCluster(
+                self.model,
+                dataloader,
+                num_centroids=self.hparams.num_centroids,
+                device=self.device,
+            )
+
+        # single process
+        else:
+            reaction_cluster_fn = ReactionCluster(
+                self.model,
+                dataloader,
+                num_centroids=self.hparams.num_centroids,
+                device=self.device,
+            )
+
+        return reaction_cluster_fn
+
+    def _compute_reaction_cluster_assignments(self, mode):
+        """
+        cluster the reactions based on reaction features after mapping head
+        """
+        assi, cent = self.reaction_cluster_fn[mode].get_cluster_assignments()
+        self.assignments[mode] = assi
+        self.centroids[mode] = cent
+
+    def _track_reaction_cluster_data(self, outputs, mode):
+        """
+        Keep track of reaction clustering data to be used in the next iteration, including
+        feats used for clustering (after projection head mapping) and their indices.
+        """
+        indices = torch.cat([x["indices"] for x in outputs])
+        feats = torch.cat([x["reaction_cluster_feats"] for x in outputs])
+        self.reaction_cluster_fn[mode].set_local_data_and_index(feats, indices)
+
+    def _update_metrics(self, preds, labels, mode):
+        """
+        update metric states at each step
+        """
+        keys = ["bond_type", "atom_in_reaction_center"]
+        for key in keys:
+            for mt in self.metrics[mode][key]:
+                self.metrics[mode][key][mt].update(preds[key], labels[key])
+
+    def _compute_metrics(self, mode):
+        """
+        compute metric and log it at each epoch
+        """
+        sum_f1 = 0
+        keys = ["bond_type", "atom_in_reaction_center"]
+        for key in keys:
+            for mt in self.metrics[mode][key]:
+                v = self.metrics[mode][key][mt].compute()
+                self.log(
+                    f"{mode}/{key}_{mt}",
+                    v,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=False,
+                )
+
+                if mt == "f1":
+                    sum_f1 += v
+
+        return sum_f1
+
 
 def main():
     print("\nStart training at:", datetime.now())
@@ -565,7 +544,7 @@ def main():
 
     # logger
     log_save_dir = Path("wandb").resolve()
-    project = "schneider-classification"
+    project = "rxnrep-uspto"
 
     # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
@@ -577,7 +556,7 @@ def main():
 
     if not log_save_dir.exists():
         log_save_dir.mkdir()
-    # wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
+    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -587,7 +566,7 @@ def main():
         progress_bar_refresh_rate=5,
         resume_from_checkpoint=checkpoint_path,
         callbacks=[checkpoint_callback, early_stop_callback],
-        #    logger=wandb_logger,
+        logger=wandb_logger,
         flush_logs_every_n_steps=50,
         weights_summary="top",
         # profiler="simple",
