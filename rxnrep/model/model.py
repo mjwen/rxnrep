@@ -151,20 +151,36 @@ class ReactionRepresentation(nn.Module):
         metadata: Dict[str, List[int]],
     ) -> Tuple[Dict[str, Any], torch.Tensor]:
         """
+        We let forward only returns features and the part to map the features to logits
+        in another function: `decode`.
+
         Args:
             molecule_graphs:
             reaction_graphs:
             feats:
             metadata:
-
-        Returns:
-            predictions: {decoder_name: value} predictions of the decoders.
-            reaction_features: a tensor of the embeddings of all reactions.
         """
         # encoder
         feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
 
-        ### node level decoder
+        # readout reaction features, a 1D tensor for each reaction
+        reaction_feats = self.set2set(reaction_graphs, feats)
+
+        return feats, reaction_feats
+
+    def decode(
+        self, feats: torch.Tensor, reaction_feats: torch.Tensor
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Decode the molecule and reaction features to properties.
+
+        Args:
+            feats: first output of `forward()`
+            reaction_feats: second output of `forward()`
+
+        Returns:
+            predictions: {decoder_name: value} predictions of the decoders.
+        """
 
         # bond type decoder
         bond_feats = feats["bond"]
@@ -174,20 +190,17 @@ class ReactionRepresentation(nn.Module):
         atom_feats = feats["atom"]
         atom_in_reaction_center = self.atom_in_reaction_center_decoder(atom_feats)
 
-        ### graph level decoder
-        # readout reaction features, a 1D tensor for each reaction
-        reaction_feats = self.set2set(reaction_graphs, feats)
-
+        # reaction decoder
         reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
 
-        ### predictions
+        # predictions
         predictions = {
             "bond_type": bond_type,
             "atom_in_reaction_center": atom_in_reaction_center,
             "reaction_cluster": reaction_cluster,
         }
 
-        return predictions, reaction_feats
+        return predictions
 
 
 class LinearClassification(nn.Module):
@@ -283,23 +296,37 @@ class LinearClassification(nn.Module):
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        We let forward only returns features and the part to map the features to logits
+        in another function: `decode`.
+
         Args:
             molecule_graphs:
             reaction_graphs:
             feats:
             metadata:
-
-        Returns:
-            logits: a tensor of shape (N, num_classes), where N is the number of data
-                points, and num_classes is the number of reaction classes
         """
         # encoder
         feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
 
         # readout reaction features, a 1D tensor for each reaction
         reaction_feats = self.set2set(reaction_graphs, feats)
+
+        return feats, reaction_feats
+
+    def decode(self, feats: torch.Tensor, reaction_feats: torch.Tensor) -> torch.Tensor:
+        """
+        Decode the molecule and reaction features to properties.
+
+        Args:
+            feats: first output of `forward()`
+            reaction_feats: second output of `forward()`
+
+        Returns:
+            logits: a tensor of shape (N, num_classes), where N is the number of data
+                points, and num_classes is the number of reaction classes
+        """
 
         # classification head
         logits = self.classification_head(reaction_feats)

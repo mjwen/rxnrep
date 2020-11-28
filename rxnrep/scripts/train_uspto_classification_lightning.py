@@ -68,19 +68,6 @@ def parse_args():
 
     # restore
     parser.add_argument("--restore", type=int, default=0, help="restore training")
-    parser.add_argument(
-        "--pretrained_model_checkpoint",
-        type=str,
-        default=None,
-        help="Path to the checkpoint of the pretrained model to use part of its "
-        "parameters. If `None`, will not use it.",
-    )
-    parser.add_argument(
-        "--only_train_classification_head",
-        type=int,
-        default=0,
-        help="whether to only train the classification head",
-    )
 
     # accelerator
     parser.add_argument("--num_nodes", type=int, default=1, help="number of nodes")
@@ -236,22 +223,29 @@ class LightningModel(pl.LightningModule):
 
         self.timer = TimeMeter()
 
-    def forward(self, x):
+    def forward(self, batch):
         nodes = ["atom", "bond", "global"]
 
-        indices, mol_graphs, rxn_graphs, labels, metadata = x
+        indices, mol_graphs, rxn_graphs, labels, metadata = batch
+
+        # lightning cannot move dgl graphs to gpu, so do it manually
+        mol_graphs = mol_graphs.to(self.device)
+        rxn_graphs = rxn_graphs.to(self.device)
+
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
-        return self.model(mol_graphs, rxn_graphs, feats, metadata)
+        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+
+        return reaction_feats
 
     def training_step(self, batch, batch_idx):
-        preds, labels, loss = self.shared_step(batch)
+        logits, labels, loss = self.shared_step(batch)
 
         # update states
-        self.train_f1(preds, labels)
+        self.train_f1(logits, labels)
 
-        # set on_epoch=True, such that it is mean reduced and logged at each epoch
-        # by default it is False
+        # set on_epoch=True, such that the loss of each step is aggregated (average by
+        # default) and logged at each epoch
         self.log("train/loss", loss, on_epoch=True)
 
         return loss
@@ -261,10 +255,10 @@ class LightningModel(pl.LightningModule):
         self.log("train/f1", self.train_f1.compute(), prog_bar=True)
 
     def validation_step(self, batch, batch_idx):
-        preds, labels, loss = self.shared_step(batch)
+        logits, labels, loss = self.shared_step(batch)
 
         # update metric states
-        self.val_f1(preds, labels)
+        self.val_f1(logits, labels)
 
         self.log("val/loss", loss, on_epoch=True, prog_bar=True)
 
@@ -280,10 +274,10 @@ class LightningModel(pl.LightningModule):
         self.log("cumulative time", cumulative_t)
 
     def test_step(self, batch, batch_idx):
-        preds, labels, loss = self.shared_step(batch)
+        logits, labels, loss = self.shared_step(batch)
 
         # update metric states
-        self.test_f1(preds, labels)
+        self.test_f1(logits, labels)
 
         self.log("test/loss", loss, on_epoch=True)
 
@@ -305,16 +299,18 @@ class LightningModel(pl.LightningModule):
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
         labels = labels["reaction_class"]
 
-        preds = self.model(mol_graphs, rxn_graphs, feats, metadata)
+        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+
+        logits = self.model.decode(feats, reaction_feats)
 
         loss = F.cross_entropy(
-            preds,
+            logits,
             labels,
             reduction="mean",
             weight=torch.as_tensor(self.hparams.class_weights, device=self.device),
         )
 
-        return preds, labels, loss
+        return logits, labels, loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -330,54 +326,6 @@ class LightningModel(pl.LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
 
-def load_pretrained_model(model, pretrained_model_checkpoint: Path, map_location=None):
-    """
-    Load pretrained representational learning model for fine tuning like learning
-    classification head. So, this is typically used together with
-    `freeze_params_other_than_classification_head(model):
-    """
-    checkpoints = torch.load(pretrained_model_checkpoint, map_location=None)
-
-    # state_dict is the pretrained model's parameters, see
-    # https://github.com/PyTorchLightning/pytorch-lightning/blob/42e59c6add29a5f91654a9c3a76febbe435df981/pytorch_lightning/trainer/connectors/checkpoint_connector.py#L255
-    pretrained_dict = checkpoints["state_dict"]
-    model_dict = model.state_dict()
-
-    # filter out unnecessary keys
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-
-    # overwrite entries in the existing state dict
-    model_dict.update(pretrained_dict)
-
-    # load the new state dict
-    model.load_state_dict(model_dict)
-    print("\nLoad pretrained model...")
-
-
-def freeze_params_other_than_classification_head(model):
-    """
-    Free encoder and set2set parameters so that we train classification head only.
-    """
-
-    # freeze encoder parameters
-    for p in model.model.encoder.parameters():
-        p.requires_grad = False
-    # freeze set2set parameters
-    for p in model.model.set2set.parameters():
-        p.requires_grad = False
-
-    # check only classification head params is trained
-    num_params_classification_head = sum(
-        p.numel() for p in model.model.classification_head.parameters()
-    )
-    num_params_trainable = sum(
-        [p.numel() for p in model.model.parameters() if p.requires_grad]
-    )
-    assert (
-        num_params_classification_head == num_params_trainable
-    ), "parameters other than classification head are trained"
-
-
 def main():
     print("\nStart training at:", datetime.now())
 
@@ -390,16 +338,6 @@ def main():
 
     # ========== model ==========
     model = LightningModel(args)
-
-    # load pretrained models
-    if args.pretrained_model_checkpoint is not None:
-        load_pretrained_model(model, args.pretrained_model_checkpoint)
-        print("\nLoad pretrained model...")
-
-    # freeze parameters
-    if args.only_train_classification_head:
-        freeze_params_other_than_classification_head(model)
-        print("\nFreeze some parameters to only train classification head...")
 
     # ========== trainer ==========
 
@@ -415,11 +353,12 @@ def main():
     log_save_dir = Path("wandb").resolve()
     project = "schneider-classification"
 
-    # restores model, epoch, shared_step, LR schedulers, apex, etc...
+    # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
+        # restore
         checkpoint_path = get_latest_checkpoint_wandb(log_save_dir, project)
-    # create new
     else:
+        # create new
         checkpoint_path = None
 
     if not log_save_dir.exists():
