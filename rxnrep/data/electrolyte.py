@@ -8,8 +8,8 @@ from typing import Callable, Optional, Union, Dict, Tuple
 import torch
 import numpy as np
 
-from pymatgen.reaction_network.reaction import Reaction as PMG_Reaction
-from pymatgen.entries.mol_entry import MoleculeEntry
+from mrnet.core.mol_entry import MoleculeEntry
+from mrnet.core.reactions import Reaction as PMG_Reaction
 from monty.serialization import loadfn
 
 from rxnrep.core.molecule import Molecule, MoleculeError

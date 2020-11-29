@@ -2,8 +2,9 @@ from typing import List, Tuple, Dict
 import numpy as np
 import networkx as nx
 
-from pymatgen.entries.mol_entry import MoleculeEntry
-from pymatgen.reaction_network.reaction import bucket_mol_entries, Reaction
+from mrnet.core.mol_entry import MoleculeEntry
+from mrnet.core.reactions import bucket_mol_entries, Reaction
+
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 
 
