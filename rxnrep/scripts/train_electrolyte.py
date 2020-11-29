@@ -226,8 +226,8 @@ class LightningModel(pl.LightningModule):
         self.save_hyperparameters(params)
 
         self.model = ReactionRepresentation(
-            in_feats=self.hparams.feature_size,
-            embedding_size=self.hparams.embedding_size,
+            in_feats=params.feature_size,
+            embedding_size=params.embedding_size,
             # encoder
             molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
             molecule_num_fc_layers=params.molecule_num_fc_layers,
@@ -321,11 +321,8 @@ class LightningModel(pl.LightningModule):
         self._compute_reaction_cluster_assignments("train")
 
     def training_step(self, batch, batch_idx):
-        indices, preds, labels, loss = self.shared_step(
-            batch, self.assignments["train"], self.centroids["train"]
-        )
+        loss, preds, labels, indices = self.shared_step(batch, "train")
         self._update_metrics(preds, labels, "train")
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
 
         return {
             "loss": loss,
@@ -341,11 +338,8 @@ class LightningModel(pl.LightningModule):
         self._compute_reaction_cluster_assignments("val")
 
     def validation_step(self, batch, batch_idx):
-        indices, preds, labels, loss = self.shared_step(
-            batch, self.assignments["val"], self.centroids["val"]
-        )
+        loss, preds, labels, indices = self.shared_step(batch, "val")
         self._update_metrics(preds, labels, "val")
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return {
             "loss": loss,
@@ -373,11 +367,8 @@ class LightningModel(pl.LightningModule):
         self._compute_reaction_cluster_assignments("test")
 
     def test_step(self, batch, batch_idx):
-        indices, preds, labels, loss = self.shared_step(
-            batch, self.assignments["test"], self.centroids["test"]
-        )
+        loss, preds, labels, indices = self.shared_step(batch, "test")
         self._update_metrics(preds, labels, "test")
-        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return {
             "loss": loss,
@@ -389,21 +380,23 @@ class LightningModel(pl.LightningModule):
         self._compute_metrics("test")
         self._track_reaction_cluster_data(outputs, "test")
 
-    def shared_step(self, batch, cluster_assignments, cluster_centroids):
-        nodes = ["atom", "bond", "global"]
+    def shared_step(self, batch, mode):
 
+        # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs = mol_graphs.to(self.device)
         rxn_graphs = rxn_graphs.to(self.device)
 
+        nodes = ["atom", "bond", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
         preds = self.model.decode(feats, reaction_feats)
 
-        # ========== loss for bond type prediction ==========
+        # ========== compute losses ==========
+        # loss for bond type prediction
         loss_bond_type = F.cross_entropy(
             preds["bond_type"],
             labels["bond_type"],
@@ -413,7 +406,7 @@ class LightningModel(pl.LightningModule):
             ),
         )
 
-        # ========== loss for atom in reaction center prediction ==========
+        # loss for atom in reaction center prediction
         preds["atom_in_reaction_center"] = preds["atom_in_reaction_center"].flatten()
         loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
             preds["atom_in_reaction_center"],
@@ -424,7 +417,9 @@ class LightningModel(pl.LightningModule):
             ),
         )
 
-        # ========== loss for clustering prediction ==========
+        # loss for clustering prediction
+        cluster_assignments = self.assignments[mode]
+        cluster_centroids = self.centroids[mode]
         loss_reaction_cluster = []
         for a, c in zip(cluster_assignments, cluster_centroids):
             a = a[indices].to(self.device)  # select for current batch from all
@@ -438,7 +433,20 @@ class LightningModel(pl.LightningModule):
         # total loss
         loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
 
-        return indices, preds, labels, loss
+        # ========== log loss ==========
+        self.log_dict(
+            {
+                f"{mode}/loss/bond_type": loss_bond_type,
+                f"{mode}/loss/atom_in_reaction_center": loss_atom_in_reaction_center,
+                f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
+            },
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+        )
+        self.log(f"{mode}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        return loss, preds, labels, indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -507,18 +515,25 @@ class LightningModel(pl.LightningModule):
         sum_f1 = 0
         keys = ["bond_type", "atom_in_reaction_center"]
         for key in keys:
-            for mt in self.metrics[mode][key]:
-                v = self.metrics[mode][key][mt].compute()
+            for name in self.metrics[mode][key]:
+
+                metric_obj = self.metrics[mode][key][name]
+                value = metric_obj.compute()
+
                 self.log(
-                    f"{mode}/{key}_{mt}",
-                    v,
+                    f"{mode}/{key}_{name}",
+                    value,
                     on_step=False,
                     on_epoch=True,
                     prog_bar=False,
                 )
 
-                if mt == "f1":
-                    sum_f1 += v
+                # reset is called automatically somewhere by lightning, here we call it
+                # explicitly just in case
+                metric_obj.reset()
+
+                if name == "f1":
+                    sum_f1 += value
 
         return sum_f1
 
@@ -560,7 +575,7 @@ def main():
 
     if not log_save_dir.exists():
         log_save_dir.mkdir()
-    # wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
+    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -570,7 +585,7 @@ def main():
         progress_bar_refresh_rate=5,
         resume_from_checkpoint=checkpoint_path,
         callbacks=[checkpoint_callback, early_stop_callback],
-        # logger=wandb_logger,
+        logger=wandb_logger,
         flush_logs_every_n_steps=50,
         weights_summary="top",
         # profiler="simple",

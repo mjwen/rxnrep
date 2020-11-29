@@ -138,6 +138,7 @@ def load_dataset(args):
         init_state_dict=state_dict,
     )
 
+    # TODO should be done by only rank 0, maybe move to prepare_data() of model
     # save dataset state dict for retraining or prediction
     trainset.save_state_dict_file(args.dataset_state_dict_filename)
     print(
@@ -212,15 +213,20 @@ class LightningModel(pl.LightningModule):
         )
 
         # metrics
-        self.train_f1 = pl.metrics.F1(
-            num_classes=params.num_classes, compute_on_step=False
-        )
-        self.val_f1 = pl.metrics.F1(
-            num_classes=params.num_classes, compute_on_step=False
-        )
-        self.test_f1 = pl.metrics.F1(
-            num_classes=params.num_classes, compute_on_step=False
-        )
+        self.metrics = {}
+        for mode in ["train", "val", "test"]:
+            self.metrics[mode] = {
+                "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                "precision": pl.metrics.Precision(
+                    num_classes=params.num_classes, compute_on_step=False
+                ),
+                "recall": pl.metrics.Recall(
+                    num_classes=params.num_classes, compute_on_step=False
+                ),
+                "f1": pl.metrics.F1(
+                    num_classes=params.num_classes, compute_on_step=False
+                ),
+            }
 
         self.timer = TimeMeter()
 
@@ -241,67 +247,53 @@ class LightningModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         logits, labels, loss = self.shared_step(batch)
-
-        # update states
-        self.train_f1(logits, labels)
-
-        # set on_epoch=True, such that the loss of each step is aggregated (average by
-        # default) and logged at each epoch
+        self._update_metrics(logits, labels, "train")
         self.log("train/loss", loss, on_epoch=True)
 
         return loss
 
     def training_epoch_end(self, outputs):
-        # compute metric (using all data points)
-        self.log("train/f1", self.train_f1.compute(), prog_bar=True)
+        self._compute_metrics("train")
 
     def validation_step(self, batch, batch_idx):
         logits, labels, loss = self.shared_step(batch)
-
-        # update metric states
-        self.val_f1(logits, labels)
-
+        self._update_metrics(logits, labels, "val")
         self.log("val/loss", loss, on_epoch=True, prog_bar=True)
 
         return loss
 
     def validation_epoch_end(self, outputs):
-        # compute metric (using all data points)
-        self.log("val/f1", self.val_f1.compute(), prog_bar=True)
+        self._compute_metrics("val")
 
         # time it
         delta_t, cumulative_t = self.timer.update()
-        self.log("epoch time", delta_t)
-        self.log("cumulative time", cumulative_t)
+        self.log("epoch time", delta_t, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
         logits, labels, loss = self.shared_step(batch)
-
-        # update metric states
-        self.test_f1(logits, labels)
-
+        self._update_metrics(logits, labels, "test")
         self.log("test/loss", loss, on_epoch=True)
 
         return loss
 
     def test_epoch_end(self, outputs):
-        # compute metric (using all data points)
-        self.log("test/f1", self.test_f1.compute())
+        self._compute_metrics("test")
 
     def shared_step(self, batch):
-        nodes = ["atom", "bond", "global"]
 
+        # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs = mol_graphs.to(self.device)
         rxn_graphs = rxn_graphs.to(self.device)
 
+        nodes = ["atom", "bond", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
         labels = labels["reaction_class"]
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-
         logits = self.model.decode(feats, reaction_feats)
 
         loss = F.cross_entropy(
@@ -325,6 +317,26 @@ class LightningModel(pl.LightningModule):
         )
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
+
+    def _update_metrics(self, preds, labels, mode):
+        """
+        update metric states at each step
+        """
+        for mt in self.metrics[mode]:
+            self.metrics[mode][mt].update(preds, labels)
+
+    def _compute_metrics(self, mode):
+        """
+        compute metric and log it at each epoch
+        """
+        for mt in self.metrics[mode]:
+            metric_obj = self.metrics[mode][mt]
+            v = metric_obj.compute()
+            self.log(f"{mode}/{mt}", v, on_step=False, on_epoch=True, prog_bar=False)
+
+            # reset is called automatically somewhere by lightning, here we call it
+            # explicitly just in case
+            metric_obj.reset()
 
 
 def main():

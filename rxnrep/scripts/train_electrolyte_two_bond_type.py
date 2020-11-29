@@ -11,8 +11,12 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from rxnrep.data.uspto import USPTODataset
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.electrolyte import ElectrolyteDatasetTwoBondType
+from rxnrep.data.featurizer import (
+    AtomFeaturizerMinimum,
+    BondFeaturizerMinimum,
+    GlobalFeaturizer,
+)
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
 from rxnrep.scripts.utils import get_latest_checkpoint_wandb
@@ -23,11 +27,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
     # ========== dataset ==========
-    prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
+    prefix = "/Users/mjwen/Documents/Dataset/electrolyte/"
 
-    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
-    fname_val = fname_tr
-    fname_test = fname_tr
+    fname_tr = prefix + "reactions_n2000_train.json"
+    fname_val = prefix + "reactions_n2000_val.json"
+    fname_test = prefix + "reactions_n2000_test.json"
 
     parser.add_argument("--trainset_filename", type=str, default=fname_tr)
     parser.add_argument("--valset_filename", type=str, default=fname_val)
@@ -136,31 +140,31 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    trainset = USPTODataset(
+    trainset = ElectrolyteDatasetTwoBondType(
         filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=AtomFeaturizerMinimum(),
+        bond_featurizer=BondFeaturizerMinimum(),
+        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict_filename,
     )
 
     state_dict = trainset.state_dict()
 
-    valset = USPTODataset(
+    valset = ElectrolyteDatasetTwoBondType(
         filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=AtomFeaturizerMinimum(),
+        bond_featurizer=BondFeaturizerMinimum(),
+        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict,
     )
 
-    testset = USPTODataset(
+    testset = ElectrolyteDatasetTwoBondType(
         filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=AtomFeaturizerMinimum(),
+        bond_featurizer=BondFeaturizerMinimum(),
+        global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict,
     )
@@ -205,7 +209,7 @@ def load_dataset(args):
 
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
-    args.bond_type_decoder_num_classes = 3
+    args.bond_type_decoder_num_classes = 1
     (
         args.atom_in_reaction_center_class_weight,
         args.bond_type_class_weight,
@@ -222,8 +226,8 @@ class LightningModel(pl.LightningModule):
         self.save_hyperparameters(params)
 
         self.model = ReactionRepresentation(
-            in_feats=self.hparams.feature_size,
-            embedding_size=self.hparams.embedding_size,
+            in_feats=params.feature_size,
+            embedding_size=params.embedding_size,
             # encoder
             molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
             molecule_num_fc_layers=params.molecule_num_fc_layers,
@@ -260,13 +264,20 @@ class LightningModel(pl.LightningModule):
         self.metrics = {}
         for mode in ["train", "val", "test"]:
             self.metrics[mode] = {
+                # binary classification, so num_classes = 1
                 "bond_type": {
-                    "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                    "precision": pl.metrics.Precision(
-                        num_classes=3, compute_on_step=False
+                    "accuracy": pl.metrics.Accuracy(
+                        threshold=0.5, compute_on_step=False
                     ),
-                    "recall": pl.metrics.Recall(num_classes=3, compute_on_step=False),
-                    "f1": pl.metrics.F1(num_classes=3, compute_on_step=False),
+                    "precision": pl.metrics.Precision(
+                        num_classes=1, threshold=0.5, compute_on_step=False
+                    ),
+                    "recall": pl.metrics.Recall(
+                        num_classes=1, threshold=0.5, compute_on_step=False
+                    ),
+                    "f1": pl.metrics.F1(
+                        num_classes=1, threshold=0.5, compute_on_step=False
+                    ),
                 },
                 # binary classification, so num_classes = 1
                 "atom_in_reaction_center": {
@@ -317,11 +328,8 @@ class LightningModel(pl.LightningModule):
         self._compute_reaction_cluster_assignments("train")
 
     def training_step(self, batch, batch_idx):
-        indices, preds, labels, loss = self.shared_step(
-            batch, self.assignments["train"], self.centroids["train"]
-        )
+        loss, preds, labels, indices = self.shared_step(batch, "train")
         self._update_metrics(preds, labels, "train")
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
 
         return {
             "loss": loss,
@@ -337,11 +345,8 @@ class LightningModel(pl.LightningModule):
         self._compute_reaction_cluster_assignments("val")
 
     def validation_step(self, batch, batch_idx):
-        indices, preds, labels, loss = self.shared_step(
-            batch, self.assignments["val"], self.centroids["val"]
-        )
+        loss, preds, labels, indices = self.shared_step(batch, "val")
         self._update_metrics(preds, labels, "val")
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return {
             "loss": loss,
@@ -369,11 +374,8 @@ class LightningModel(pl.LightningModule):
         self._compute_reaction_cluster_assignments("test")
 
     def test_step(self, batch, batch_idx):
-        indices, preds, labels, loss = self.shared_step(
-            batch, self.assignments["test"], self.centroids["test"]
-        )
+        loss, preds, labels, indices = self.shared_step(batch, "test")
         self._update_metrics(preds, labels, "test")
-        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return {
             "loss": loss,
@@ -385,31 +387,34 @@ class LightningModel(pl.LightningModule):
         self._compute_metrics("test")
         self._track_reaction_cluster_data(outputs, "test")
 
-    def shared_step(self, batch, cluster_assignments, cluster_centroids):
-        nodes = ["atom", "bond", "global"]
+    def shared_step(self, batch, mode):
 
+        # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs = mol_graphs.to(self.device)
         rxn_graphs = rxn_graphs.to(self.device)
 
+        nodes = ["atom", "bond", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
         preds = self.model.decode(feats, reaction_feats)
 
-        # ========== loss for bond type prediction ==========
-        loss_bond_type = F.cross_entropy(
+        # ========== compute losses ==========
+        # loss for bond type prediction
+        preds["bond_type"] = preds["bond_type"].flatten()
+        loss_bond_type = F.binary_cross_entropy_with_logits(
             preds["bond_type"],
             labels["bond_type"],
             reduction="mean",
-            weight=torch.as_tensor(
-                self.hparams.bond_type_class_weight, device=self.device
+            pos_weight=torch.as_tensor(
+                self.hparams.bond_type_class_weight[0], device=self.device
             ),
         )
 
-        # ========== loss for atom in reaction center prediction ==========
+        # loss for atom in reaction center prediction
         preds["atom_in_reaction_center"] = preds["atom_in_reaction_center"].flatten()
         loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
             preds["atom_in_reaction_center"],
@@ -420,7 +425,9 @@ class LightningModel(pl.LightningModule):
             ),
         )
 
-        # ========== loss for clustering prediction ==========
+        # loss for clustering prediction
+        cluster_assignments = self.assignments[mode]
+        cluster_centroids = self.centroids[mode]
         loss_reaction_cluster = []
         for a, c in zip(cluster_assignments, cluster_centroids):
             a = a[indices].to(self.device)  # select for current batch from all
@@ -434,7 +441,20 @@ class LightningModel(pl.LightningModule):
         # total loss
         loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
 
-        return indices, preds, labels, loss
+        # ========== log loss ==========
+        self.log_dict(
+            {
+                f"{mode}/loss/bond_type": loss_bond_type,
+                f"{mode}/loss/atom_in_reaction_center": loss_atom_in_reaction_center,
+                f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
+            },
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+        )
+        self.log(f"{mode}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        return loss, preds, labels, indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -503,18 +523,25 @@ class LightningModel(pl.LightningModule):
         sum_f1 = 0
         keys = ["bond_type", "atom_in_reaction_center"]
         for key in keys:
-            for mt in self.metrics[mode][key]:
-                v = self.metrics[mode][key][mt].compute()
+            for name in self.metrics[mode][key]:
+
+                metric_obj = self.metrics[mode][key][name]
+                value = metric_obj.compute()
+
                 self.log(
-                    f"{mode}/{key}_{mt}",
-                    v,
+                    f"{mode}/{name}/{key}",
+                    value,
                     on_step=False,
                     on_epoch=True,
                     prog_bar=False,
                 )
 
-                if mt == "f1":
-                    sum_f1 += v
+                # reset is called automatically somewhere by lightning, here we call it
+                # explicitly just in case
+                metric_obj.reset()
+
+                if name == "f1":
+                    sum_f1 += value
 
         return sum_f1
 
@@ -544,7 +571,7 @@ def main():
 
     # logger
     log_save_dir = Path("wandb").resolve()
-    project = "rxnrep-uspto"
+    project = "rxnrep-electrolyte-two-bond-type"
 
     # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
