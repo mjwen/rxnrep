@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -257,33 +258,47 @@ class LightningModel(pl.LightningModule):
         self.centroids = {mode: None for mode in ["train", "val", "test"]}
 
         # metrics
-        self.metrics = {}
-        for mode in ["train", "val", "test"]:
-            self.metrics[mode] = {
-                "bond_type": {
-                    "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                    "precision": pl.metrics.Precision(
-                        num_classes=3, compute_on_step=False
+        # (should be modules so that metric tensors can be placed in the correct device)
+        self.metrics = nn.ModuleDict()
+        for mode in ["metric_train", "metric_val", "metric_test"]:
+            self.metrics[mode] = nn.ModuleDict(
+                {
+                    # binary classification, so num_classes = 1
+                    "bond_type": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(
+                                threshold=0.5, compute_on_step=False
+                            ),
+                            "precision": pl.metrics.Precision(
+                                num_classes=1, threshold=0.5, compute_on_step=False
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=1, threshold=0.5, compute_on_step=False
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=1, threshold=0.5, compute_on_step=False
+                            ),
+                        }
                     ),
-                    "recall": pl.metrics.Recall(num_classes=3, compute_on_step=False),
-                    "f1": pl.metrics.F1(num_classes=3, compute_on_step=False),
-                },
-                # binary classification, so num_classes = 1
-                "atom_in_reaction_center": {
-                    "accuracy": pl.metrics.Accuracy(
-                        threshold=0.5, compute_on_step=False
+                    # binary classification, so num_classes = 1
+                    "atom_in_reaction_center": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(
+                                threshold=0.5, compute_on_step=False
+                            ),
+                            "precision": pl.metrics.Precision(
+                                num_classes=1, threshold=0.5, compute_on_step=False
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=1, threshold=0.5, compute_on_step=False
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=1, threshold=0.5, compute_on_step=False
+                            ),
+                        }
                     ),
-                    "precision": pl.metrics.Precision(
-                        num_classes=1, threshold=0.5, compute_on_step=False
-                    ),
-                    "recall": pl.metrics.Recall(
-                        num_classes=1, threshold=0.5, compute_on_step=False
-                    ),
-                    "f1": pl.metrics.F1(
-                        num_classes=1, threshold=0.5, compute_on_step=False
-                    ),
-                },
-            }
+                }
+            )
 
         self.timer = TimeMeter()
 
@@ -302,18 +317,12 @@ class LightningModel(pl.LightningModule):
 
         return reaction_feats
 
-    def on_fit_start(self):
+    def on_train_epoch_start(self):
         if self.reaction_cluster_fn["train"] is None:
             self.reaction_cluster_fn["train"] = self._init_reaction_cluster_fn(
                 self.train_dataloader()
             )
 
-        if self.reaction_cluster_fn["val"] is None:
-            self.reaction_cluster_fn["val"] = self._init_reaction_cluster_fn(
-                self.val_dataloader()
-            )
-
-    def on_train_epoch_start(self):
         self._compute_reaction_cluster_assignments("train")
 
     def training_step(self, batch, batch_idx):
@@ -331,6 +340,11 @@ class LightningModel(pl.LightningModule):
         self._track_reaction_cluster_data(outputs, "train")
 
     def on_validation_epoch_start(self):
+        if self.reaction_cluster_fn["val"] is None:
+            self.reaction_cluster_fn["val"] = self._init_reaction_cluster_fn(
+                self.val_dataloader()
+            )
+
         self._compute_reaction_cluster_assignments("val")
 
     def validation_step(self, batch, batch_idx):
@@ -360,6 +374,7 @@ class LightningModel(pl.LightningModule):
             self.reaction_cluster_fn["test"] = self._init_reaction_cluster_fn(
                 self.test_dataloader()
             )
+
         self._compute_reaction_cluster_assignments("test")
 
     def test_step(self, batch, batch_idx):
@@ -499,15 +514,20 @@ class LightningModel(pl.LightningModule):
         """
         update metric states at each step
         """
+        mode = "metric_" + mode
+
         keys = ["bond_type", "atom_in_reaction_center"]
         for key in keys:
             for mt in self.metrics[mode][key]:
-                self.metrics[mode][key][mt].update(preds[key], labels[key])
+                metric_obj = self.metrics[mode][key][mt]
+                metric_obj(preds[key], labels[key])
 
     def _compute_metrics(self, mode):
         """
         compute metric and log it at each epoch
         """
+        mode = "metric_" + mode
+
         sum_f1 = 0
         keys = ["bond_type", "atom_in_reaction_center"]
         for key in keys:
@@ -517,7 +537,7 @@ class LightningModel(pl.LightningModule):
                 value = metric_obj.compute()
 
                 self.log(
-                    f"{mode}/{key}_{name}",
+                    f"{mode}/{name}/{key}",
                     value,
                     on_step=False,
                     on_epoch=True,
@@ -570,7 +590,11 @@ def main():
         checkpoint_path = None
 
     if not log_save_dir.exists():
-        log_save_dir.mkdir()
+        # put in try except in case it throws errors in distributed training
+        try:
+            log_save_dir.mkdir()
+        except FileExistsError:
+            pass
     wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
 
     trainer = pl.Trainer(

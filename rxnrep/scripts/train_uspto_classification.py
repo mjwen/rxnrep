@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -213,20 +214,23 @@ class LightningModel(pl.LightningModule):
         )
 
         # metrics
-        self.metrics = {}
-        for mode in ["train", "val", "test"]:
-            self.metrics[mode] = {
-                "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                "precision": pl.metrics.Precision(
-                    num_classes=params.num_classes, compute_on_step=False
-                ),
-                "recall": pl.metrics.Recall(
-                    num_classes=params.num_classes, compute_on_step=False
-                ),
-                "f1": pl.metrics.F1(
-                    num_classes=params.num_classes, compute_on_step=False
-                ),
-            }
+        # (should be modules so that metric tensors can be placed in the correct device)
+        self.metrics = nn.ModuleDict()
+        for mode in ["metric_train", "metric_val", "metric_test"]:
+            self.metrics[mode] = nn.ModuleDict(
+                {
+                    "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                    "precision": pl.metrics.Precision(
+                        num_classes=params.num_classes, compute_on_step=False
+                    ),
+                    "recall": pl.metrics.Recall(
+                        num_classes=params.num_classes, compute_on_step=False
+                    ),
+                    "f1": pl.metrics.F1(
+                        num_classes=params.num_classes, compute_on_step=False
+                    ),
+                }
+            )
 
         self.timer = TimeMeter()
 
@@ -316,19 +320,28 @@ class LightningModel(pl.LightningModule):
             optimizer, mode="max", factor=0.4, patience=20, verbose=True
         )
 
-        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+            "monitor": "metric_val/f1",
+        }
 
     def _update_metrics(self, preds, labels, mode):
         """
         update metric states at each step
         """
+        mode = "metric_" + mode
+
         for mt in self.metrics[mode]:
-            self.metrics[mode][mt].update(preds, labels)
+            metric_obj = self.metrics[mode][mt]
+            metric_obj(preds, labels)
 
     def _compute_metrics(self, mode):
         """
         compute metric and log it at each epoch
         """
+        mode = "metric_" + mode
+
         for mt in self.metrics[mode]:
             metric_obj = self.metrics[mode][mt]
             v = metric_obj.compute()
@@ -356,10 +369,10 @@ def main():
 
     # callbacks
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
+        monitor="metric_val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
     )
     early_stop_callback = EarlyStopping(
-        monitor="val/f1", min_delta=0.0, patience=50, mode="min", verbose=True
+        monitor="metric_val/f1", min_delta=0.0, patience=50, mode="min", verbose=True
     )
 
     # logger
@@ -375,7 +388,11 @@ def main():
         checkpoint_path = None
 
     if not log_save_dir.exists():
-        log_save_dir.mkdir()
+        # put in try except in case it throws errors in distributed training
+        try:
+            log_save_dir.mkdir()
+        except FileExistsError:
+            pass
     wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
 
     trainer = pl.Trainer(
