@@ -20,8 +20,8 @@ from rxnrep.data.featurizer import (
 )
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.model.clustering import ReactionCluster, DistributedReactionCluster
-from rxnrep.scripts.utils import get_latest_checkpoint_wandb
-from rxnrep.scripts.utils import TimeMeter
+from rxnrep.scripts.launch_environment import PyTorchLaunch
+from rxnrep.scripts.utils import get_latest_checkpoint_wandb, TimeMeter
 
 
 def parse_args():
@@ -109,6 +109,15 @@ def parse_args():
     parser.add_argument(
         "--accelerator", type=str, default=None, help="backend, e.g. `ddp`"
     )
+    parser.add_argument(
+        "--num_workers", type=int, default=0, help="number of workers for dataloader"
+    )
+    parser.add_argument(
+        "--nprocs",
+        type=int,
+        default=1,
+        help="number of processes for constructing graphs in dataset",
+    )
 
     # training algorithm
     parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
@@ -148,6 +157,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict_filename,
+        num_processes=args.nprocs,
     )
 
     state_dict = trainset.state_dict()
@@ -159,6 +169,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict,
+        num_processes=args.nprocs,
     )
 
     testset = ElectrolyteDataset(
@@ -168,6 +179,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         init_state_dict=state_dict,
+        num_processes=args.nprocs,
     )
 
     # TODO should be done by only rank 0, maybe move to prepare_data() of model
@@ -186,6 +198,7 @@ def load_dataset(args):
         collate_fn=trainset.collate_fn,
         drop_last=False,
         pin_memory=True,
+        num_workers=args.num_workers,
     )
 
     val_loader = DataLoader(
@@ -195,7 +208,9 @@ def load_dataset(args):
         collate_fn=valset.collate_fn,
         drop_last=False,
         pin_memory=True,
+        num_workers=args.num_workers,
     )
+
     test_loader = DataLoader(
         testset,
         batch_size=args.batch_size,
@@ -203,6 +218,7 @@ def load_dataset(args):
         collate_fn=testset.collate_fn,
         drop_last=False,
         pin_memory=True,
+        num_workers=args.num_workers,
     )
 
     # Add dataset state dict to args to log it
@@ -270,17 +286,15 @@ class LightningModel(pl.LightningModule):
                     # binary classification, so num_classes = 1
                     "bond_type": nn.ModuleDict(
                         {
-                            "accuracy": pl.metrics.Accuracy(
-                                threshold=0.5, compute_on_step=False
-                            ),
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                             "precision": pl.metrics.Precision(
-                                num_classes=1, threshold=0.5, compute_on_step=False
+                                num_classes=3, average="macro", compute_on_step=False
                             ),
                             "recall": pl.metrics.Recall(
-                                num_classes=1, threshold=0.5, compute_on_step=False
+                                num_classes=3, average="macro", compute_on_step=False
                             ),
                             "f1": pl.metrics.F1(
-                                num_classes=1, threshold=0.5, compute_on_step=False
+                                num_classes=3, average="macro", compute_on_step=False
                             ),
                         }
                     ),
@@ -583,7 +597,7 @@ def main():
 
     # logger
     log_save_dir = Path("wandb").resolve()
-    project = "rxnrep-electrolyte"
+    project = "tmp-rxnrep"
 
     # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
@@ -601,15 +615,20 @@ def main():
             pass
     wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
 
+    # cluster environment to use torch.distributed.launch, e.g.
+    # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
+    cluster = PyTorchLaunch()
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         num_nodes=args.num_nodes,
         gpus=args.gpus,
         accelerator=args.accelerator,
-        progress_bar_refresh_rate=5,
-        resume_from_checkpoint=checkpoint_path,
+        plugins=[cluster],
         callbacks=[checkpoint_callback, early_stop_callback],
         logger=wandb_logger,
+        resume_from_checkpoint=checkpoint_path,
+        progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
         # profiler="simple",
