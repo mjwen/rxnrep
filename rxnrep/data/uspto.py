@@ -212,6 +212,7 @@ class USPTODataset(BaseDataset):
 
         return graphs
 
+    # TODO to use class_weight from sklearn
     def get_atom_in_reaction_center_and_bond_type_class_weight(
         self,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -253,9 +254,9 @@ class USPTODataset(BaseDataset):
         w_lost = []
         w_added = []
         for rxn in self.reactions:
-            unchanged, lost, added = rxn.get_unchanged_lost_and_added_bonds(
-                zero_based=True
-            )
+            unchanged = rxn.unchanged_bonds
+            lost = rxn.lost_bonds
+            added = rxn.added_bonds
 
             # bond weight
             n_unchanged = len(unchanged)
@@ -301,8 +302,10 @@ class USPTODataset(BaseDataset):
             1D tensor of the class for each bond. The order is the same as the bond
             nodes in the reaction graph.
         """
-        result = reaction.get_num_unchanged_lost_and_added_bonds()
-        num_unchanged, num_lost, num_added = result
+
+        num_unchanged = len(reaction.unchanged_bonds)
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
 
         # Note, reaction graph bond nodes are ordered in the sequence of unchanged bonds,
         # lost bonds, and added bonds in `create_reaction_graph()`
@@ -328,9 +331,8 @@ class USPTODataset(BaseDataset):
             nodes in the reaction graph.
         """
         num_atoms = sum([m.num_atoms for m in reaction.reactants])
-
-        _, lost, added = reaction.get_unchanged_lost_and_added_bonds(zero_based=True)
-        changed_atoms = set([i for i in itertools.chain.from_iterable(lost + added)])
+        changed_bonds = reaction.lost_bonds + reaction.added_bonds
+        changed_atoms = set([i for i in itertools.chain.from_iterable(changed_bonds)])
 
         in_reaction_center = torch.zeros(num_atoms)
         for i in changed_atoms:
@@ -361,17 +363,12 @@ class USPTODataset(BaseDataset):
         if item in self.metadata:
             meta = self.metadata[item]
         else:
-            (
-                num_unchanged,
-                num_lost,
-                num_added,
-            ) = reaction.get_num_unchanged_lost_and_added_bonds()
             meta = {
                 "reactant_num_molecules": len(reaction.reactants),
                 "product_num_molecules": len(reaction.products),
-                "num_unchanged_bonds": num_unchanged,
-                "num_lost_bonds": num_lost,
-                "num_added_bonds": num_added,
+                "num_unchanged_bonds": len(reaction.unchanged_bonds),
+                "num_lost_bonds": len(reaction.lost_bonds),
+                "num_added_bonds": len(reaction.added_bonds),
             }
             self.metadata[item] = meta
 
@@ -473,17 +470,12 @@ class SchneiderDataset(USPTODataset):
         if item in self.metadata:
             meta = self.metadata[item]
         else:
-            (
-                num_unchanged,
-                num_lost,
-                num_added,
-            ) = reaction.get_num_unchanged_lost_and_added_bonds()
             meta = {
                 "reactant_num_molecules": len(reaction.reactants),
                 "product_num_molecules": len(reaction.products),
-                "num_unchanged_bonds": num_unchanged,
-                "num_lost_bonds": num_lost,
-                "num_added_bonds": num_added,
+                "num_unchanged_bonds": len(reaction.unchanged_bonds),
+                "num_lost_bonds": len(reaction.lost_bonds),
+                "num_added_bonds": len(reaction.added_bonds),
             }
             self.metadata[item] = meta
 
@@ -571,11 +563,10 @@ def build_hetero_graph_and_featurize_one_reaction(
         products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
         # combine reaction graph from the combined reactant graph and product graph
-        (
-            num_unchanged,
-            num_lost,
-            num_added,
-        ) = reaction.get_num_unchanged_lost_and_added_bonds()
+        num_unchanged = len(reaction.unchanged_bonds)
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
+
         reaction_g = create_reaction_graph(
             reactants_g,
             products_g,

@@ -82,17 +82,6 @@ class TestReaction:
             assert "check_atom_map_number" in str(e)
         mols[0].set_atom_map_number({0: 3})  # set back
 
-    def test_get_num_bonds(self):
-        rxn, _ = create_reaction()
-        (
-            num_unchanged,
-            num_lost,
-            num_added,
-        ) = rxn.get_num_unchanged_lost_and_added_bonds()
-        assert num_unchanged == 1
-        assert num_lost == 1
-        assert num_added == 1
-
     def test_get_atom_map_number(self):
         rxn, _ = create_reaction()
 

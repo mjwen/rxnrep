@@ -35,6 +35,10 @@ class Reaction:
         self._reagents = reagents
         self._id = id
 
+        self._unchanged_bonds = None
+        self._lost_bonds = None
+        self._added_bonds = None
+
         if sanity_check:
             self.check_composition()
             self.check_charge()
@@ -58,6 +62,48 @@ class Reaction:
         Returns the identifier of the reaction.
         """
         return self._id
+
+    @property
+    def unchanged_bonds(self) -> List[Tuple[int, int]]:
+        """
+        Unchanged bonds, i.e. bonds exist in both the reactants and products.
+        """
+        if self._unchanged_bonds is None:
+            (
+                self._unchanged_bonds,
+                self._lost_bonds,
+                self._added_bonds,
+            ) = self.get_unchanged_lost_and_added_bonds(zero_based=True)
+
+        return self._unchanged_bonds
+
+    @property
+    def lost_bonds(self) -> List[Tuple[int, int]]:
+        """
+        Lost bonds, i.e. bonds in reactants but not in products.
+        """
+        if self._lost_bonds is None:
+            (
+                self._unchanged_bonds,
+                self._lost_bonds,
+                self._added_bonds,
+            ) = self.get_unchanged_lost_and_added_bonds(zero_based=True)
+
+        return self._lost_bonds
+
+    @property
+    def added_bonds(self) -> List[Tuple[int, int]]:
+        """
+        Added bonds, i.e. bonds in products but not in reactants.
+        """
+        if self._added_bonds is None:
+            (
+                self._unchanged_bonds,
+                self._lost_bonds,
+                self._added_bonds,
+            ) = self.get_unchanged_lost_and_added_bonds(zero_based=True)
+
+        return self._added_bonds
 
     def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
         """
@@ -177,16 +223,6 @@ class Reaction:
         added_bonds = list(added_bonds)
 
         return unchanged_bonds, lost_bonds, added_bonds
-
-    def get_num_unchanged_lost_and_added_bonds(self) -> Tuple[int, int, int]:
-        """
-        Get the number of unchanged, lost, and added bonds in the reaction.
-
-        Returns:
-            (num_unchanged_bonds, num_lost_bonds, num_added_bonds).
-        """
-        unchanged, lost, added = self.get_unchanged_lost_and_added_bonds()
-        return len(unchanged), len(lost), len(added)
 
     @staticmethod
     def _get_atom_map_number(molecules: List[Molecule], zero_based=False):

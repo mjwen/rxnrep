@@ -161,9 +161,9 @@ class ElectrolyteDatasetTwoBondType(ElectrolyteDataset):
         w_in_center = []
         w_changed_bond = []
         for rxn in self.reactions:
-            unchanged, lost, added = rxn.get_unchanged_lost_and_added_bonds(
-                zero_based=True
-            )
+            unchanged = rxn.unchanged_bonds
+            lost = rxn.lost_bonds
+            added = rxn.added_bonds
 
             # bond weight
             n_unchanged = len(unchanged)
@@ -207,8 +207,9 @@ class ElectrolyteDatasetTwoBondType(ElectrolyteDataset):
             1D tensor of the class for each bond. The order is the same as the bond
             nodes in the reaction graph.
         """
-        result = reaction.get_num_unchanged_lost_and_added_bonds()
-        num_unchanged, num_lost, num_added = result
+        num_unchanged = len(reaction.unchanged_bonds)
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
 
         # Note, reaction graph bond nodes are ordered in the sequence of unchanged bonds,
         # lost bonds, and added bonds in `create_reaction_graph()`
