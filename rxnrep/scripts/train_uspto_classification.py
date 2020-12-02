@@ -206,6 +206,7 @@ class LightningModel(pl.LightningModule):
 
         # save params to be accessible via self.hparams
         self.save_hyperparameters(params)
+        params = self.hparams
 
         self.model = LinearClassification(
             in_feats=params.feature_size,

@@ -241,6 +241,7 @@ class LightningModel(pl.LightningModule):
 
         # save params to be accessible via self.hparams
         self.save_hyperparameters(params)
+        params = self.hparams
 
         self.model = ReactionRepresentation(
             in_feats=params.feature_size,
