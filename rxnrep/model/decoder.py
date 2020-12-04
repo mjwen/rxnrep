@@ -1,7 +1,9 @@
+from typing import List
+
 import torch
 import torch.nn as nn
+
 from rxnrep.model.utils import FCNN
-from typing import List
 
 
 class BaseDecoder(nn.Module):

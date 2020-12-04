@@ -1,13 +1,15 @@
 from __future__ import annotations
+
 import copy
 import logging
 from collections import defaultdict
-import numpy as np
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
 from rdkit import Chem
-from rdkit.Chem import Draw, AllChem
+from rdkit.Chem import AllChem, Draw
 from rdkit.Chem.Draw import rdMolDraw2D
-from typing import List, Tuple, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 

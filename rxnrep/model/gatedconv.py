@@ -1,13 +1,13 @@
-import torch
-from torch import nn
 import logging
+from typing import Callable, Dict, Union
+
+import dgl
+import torch
 from dgl import function as fn
+from torch import nn
 
 # from bondnet.layer.hgatconv import NodeAttentionLayer
 from rxnrep.model.utils import FCNN
-from typing import Callable, Union, Dict
-import dgl
-
 
 logger = logging.getLogger(__name__)
 

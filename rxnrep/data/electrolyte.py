@@ -1,20 +1,19 @@
-import multiprocessing
-import logging
 import itertools
-from pathlib import Path
+import logging
+import multiprocessing
 from collections import Counter
-from typing import Callable, Optional, Union, Dict, Tuple
+from pathlib import Path
+from typing import Callable, Dict, Optional, Tuple, Union
 
-import torch
 import numpy as np
-
+import torch
+from monty.serialization import loadfn
 from mrnet.core.mol_entry import MoleculeEntry
 from mrnet.core.reactions import Reaction as PMG_Reaction
-from monty.serialization import loadfn
 
 from rxnrep.core.molecule import Molecule, MoleculeError
-from rxnrep.core.reaction import Reaction, ReactionError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
+from rxnrep.core.reaction import Reaction, ReactionError
 from rxnrep.data.uspto import USPTODataset
 
 logger = logging.getLogger(__name__)

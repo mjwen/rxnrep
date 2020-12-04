@@ -1,11 +1,12 @@
 """
 Readout (pooling) layers.
 """
-import torch
-from torch import nn
+from typing import Dict, List, Optional, Tuple
+
 import dgl
+import torch
 from dgl import function as fn
-from typing import List, Tuple, Dict, Optional
+from torch import nn
 
 
 class ConcatenateMeanMax(nn.Module):

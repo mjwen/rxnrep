@@ -1,8 +1,10 @@
-import torch
 import logging
-import dgl
-import torch.nn as nn
 from typing import Dict, List, Optional
+
+import dgl
+import torch
+import torch.nn as nn
+
 from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.utils import UnifySize
 

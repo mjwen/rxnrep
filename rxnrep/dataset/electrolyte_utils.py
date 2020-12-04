@@ -1,9 +1,9 @@
-from typing import List, Tuple, Dict
-import numpy as np
-import networkx as nx
+from typing import Dict, List, Tuple
 
+import networkx as nx
+import numpy as np
 from mrnet.core.mol_entry import MoleculeEntry
-from mrnet.core.reactions import bucket_mol_entries, Reaction
+from mrnet.core.reactions import Reaction, bucket_mol_entries
 
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 

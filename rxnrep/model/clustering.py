@@ -2,14 +2,15 @@
 Distributed and serial K-means clustering methods.
 """
 
+from typing import List, Optional, Tuple
+
 import numpy as np
-from tqdm import tqdm
-from scipy.sparse import csr_matrix
 import torch
-import torch.nn.functional as F
 import torch.distributed as dist
+import torch.nn.functional as F
+from scipy.sparse import csr_matrix
 from torch.utils.data import DataLoader
-from typing import Tuple, List, Optional
+from tqdm import tqdm
 
 
 class DistributedReactionCluster:

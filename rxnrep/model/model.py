@@ -1,15 +1,17 @@
-import torch.nn as nn
-import torch
+from typing import Any, Dict, List, Tuple
+
 import dgl
-from rxnrep.model.encoder import ReactionEncoder
+import torch
+import torch.nn as nn
+
 from rxnrep.model.decoder import (
-    BondTypeDecoder,
     AtomInReactionCenterDecoder,
-    ReactionClusterDecoder,
+    BondTypeDecoder,
     FCNNDecoder,
+    ReactionClusterDecoder,
 )
+from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.readout import Set2SetThenCat
-from typing import List, Dict, Any, Tuple
 
 
 class ReactionRepresentation(nn.Module):

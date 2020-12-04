@@ -1,17 +1,15 @@
 import warnings
 from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-
-from rdkit import Chem
-from rdkit.Chem import BondType
-from rdkit.Geometry import Point3D
 from openbabel import openbabel as ob
-
 from pymatgen import Molecule
 from pymatgen.analysis.graphs import MoleculeGraph
 from pymatgen.io.babel import BabelMolAdaptor
-
-from typing import List, Tuple, Dict, Optional
+from rdkit import Chem
+from rdkit.Chem import BondType
+from rdkit.Geometry import Point3D
 
 
 def create_rdkit_mol(

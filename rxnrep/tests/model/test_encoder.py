@@ -1,5 +1,6 @@
-import torch
 import numpy as np
+import torch
+
 from rxnrep.model.encoder import create_reaction_features
 
 

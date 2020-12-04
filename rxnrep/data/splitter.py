@@ -1,6 +1,8 @@
 import logging
-import numpy as np
 from collections import defaultdict
+
+import numpy as np
+
 from rxnrep.data.dataset import Subset
 
 logger = logging.getLogger(__name__)

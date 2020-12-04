@@ -1,5 +1,6 @@
+from typing import Callable, List, Union
+
 import torch.nn as nn
-from typing import List, Callable, Union
 
 
 class UnifySize(nn.Module):

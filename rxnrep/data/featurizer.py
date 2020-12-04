@@ -2,10 +2,11 @@
 Featurize atoms, bonds, and the global state of molecules with rdkit.
 """
 
+from typing import Any, List, Optional
+
 import torch
 from rdkit import Chem
 from rdkit.Chem.rdchem import GetPeriodicTable
-from typing import List, Any, Optional
 
 
 def one_hot_encoding(x: Any, allowable_set: List[Any], encode_unknown: bool = False):

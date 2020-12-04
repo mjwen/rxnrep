@@ -1,11 +1,11 @@
 import logging
 from collections import defaultdict
+from typing import Dict, List, Optional
+
+import dgl
 import numpy as np
 import torch
-import dgl
 from sklearn.preprocessing import StandardScaler as sk_StandardScaler
-from typing import Optional, Dict, List
-
 
 logger = logging.getLogger(__name__)
 

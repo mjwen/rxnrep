@@ -1,14 +1,15 @@
 import copy
 import multiprocessing
+from typing import Any, Dict, List, Set, Tuple, Union
+
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import (
-    KekulizeException,
     AtomKekulizeException,
     AtomValenceException,
+    KekulizeException,
     MolSanitizeException,
 )
-from typing import List, Tuple, Dict, Union, Set, Any
 
 
 def get_atom_property(m: Chem.Mol, include_H: bool = True) -> List[Dict[str, Any]]:

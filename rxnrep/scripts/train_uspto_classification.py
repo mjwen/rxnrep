@@ -1,22 +1,22 @@
-import warnings
 import argparse
-from pathlib import Path
+import warnings
 from datetime import datetime
+from pathlib import Path
 
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data.dataloader import DataLoader
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.model.model import LinearClassification
 from rxnrep.scripts.launch_environment import PyTorchLaunch
-from rxnrep.scripts.utils import get_latest_checkpoint_wandb, TimeMeter
+from rxnrep.scripts.utils import TimeMeter, get_latest_checkpoint_wandb
 
 
 def parse_args():

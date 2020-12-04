@@ -1,11 +1,10 @@
 from pathlib import Path
-from typing import Dict, List, Any
-import numpy as np
+from typing import Any, Dict, List
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from rxnrep.data.uspto import USPTODataset
 from rxnrep.data.electrolyte import ElectrolyteDataset, ElectrolyteDatasetTwoBondType
 from rxnrep.data.featurizer import (
     AtomFeaturizer,
@@ -14,12 +13,13 @@ from rxnrep.data.featurizer import (
     BondFeaturizerMinimum,
     GlobalFeaturizer,
 )
-from rxnrep.utils import yaml_load, to_path
-from rxnrep.scripts.train_uspto import LightningModel as ModelUspto
+from rxnrep.data.uspto import USPTODataset
 from rxnrep.scripts.train_electrolyte import LightningModel as ModelElectrolyteFull
 from rxnrep.scripts.train_electrolyte_two_bond_type import (
     LightningModel as ModelElectrolyteTwoBondType,
 )
+from rxnrep.scripts.train_uspto import LightningModel as ModelUspto
+from rxnrep.utils import to_path, yaml_load
 
 
 def get_prediction(

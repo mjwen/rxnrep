@@ -1,14 +1,15 @@
 from rdkit import Chem
+
 from rxnrep.dataset.uspto_utils import (
-    adjust_reagents,
+    add_nonexist_atoms_and_bonds_to_product,
     adjust_atom_map_number,
-    get_reaction_bond_change,
-    edit_molecule,
+    adjust_reagents,
     canonicalize_smiles_reaction,
+    canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds,
+    edit_molecule,
     get_atom_property_as_dict,
     get_bond_change_nonexist_atoms,
-    add_nonexist_atoms_and_bonds_to_product,
-    canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds,
+    get_reaction_bond_change,
 )
 
 

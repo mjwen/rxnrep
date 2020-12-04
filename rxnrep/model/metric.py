@@ -1,6 +1,6 @@
-import torch
 import numpy as np
 import pytorch_lightning.metrics.functional as plm
+import torch
 from pytorch_lightning.metrics.functional.reduction import class_reduce
 
 

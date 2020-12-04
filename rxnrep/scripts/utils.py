@@ -1,18 +1,16 @@
-import os
-import shutil
-import random
 import logging
+import os
+import random
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict
 
+import dgl
 import numpy as np
 import pandas as pd
-
 import torch
 import torch.distributed as dist
-import dgl
-
 
 logger = logging.getLogger(__name__)
 

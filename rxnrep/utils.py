@@ -1,10 +1,11 @@
+import logging
 import os
 import pickle
-import yaml
-import torch
-import logging
 from pathlib import Path
-from typing import Union, Any
+from typing import Any, Union
+
+import torch
+import yaml
 
 logger = logging.getLogger(__name__)
 
