@@ -1,9 +1,13 @@
 import itertools
 import logging
 from collections import defaultdict
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
+from rdkit import Chem
+from rdkit.Chem import AllChem
+
 from rxnrep.core.molecule import Molecule
 
 logger = logging.getLogger(__name__)
@@ -451,6 +455,19 @@ class Reaction:
                 f"Failed `check_atom_map_number()` for reaction `{self.id}`. "
                 f"Reactants and products have different map numbers."
             )
+
+    def draw(self, filename: Path = None):
+        """
+        draw the reaction.
+
+        Args:
+             filename: Save to `filename` if it is not None. Example: reaction.png
+        """
+        rxn = AllChem.ReactionFromSmarts(str(self), useSmiles=True)
+        if filename is not None:
+            image = Chem.Draw.ReactionToImage(rxn)
+            image.save(str(filename))
+        return rxn
 
     def __str__(self):
         """Smiles representation of reaction."""

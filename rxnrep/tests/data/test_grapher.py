@@ -1,10 +1,15 @@
 from collections import defaultdict
-from rdkit import Chem
+
 import torch
+from rdkit import Chem
+
+from rxnrep.core.reaction import smiles_to_reaction
 from rxnrep.data.grapher import (
-    create_hetero_molecule_graph,
     combine_graphs,
+    create_hetero_molecule_graph,
     create_reaction_graph,
+    get_atom_distance_to_reaction_center,
+    get_bond_distance_to_reaction_center,
 )
 
 
@@ -385,7 +390,7 @@ def test_create_reaction_graph():
     C1-----C3-----C4-----C0
 
     combined union graph (the bond index is assigned to mimic combine_graphs() function)
-    
+
               2
           C2-----C0
                   |
@@ -419,7 +424,7 @@ def test_create_reaction_graph():
     b2a = get_bond_to_atom_map(g)
     a2b = get_atom_to_bond_map(g)
 
-    # referece bond to atom and atom to bond map
+    # reference bond to atom and atom to bond map
     ref_b2a_map = {0: [1, 3], 1: [3, 4], 2: [0, 2], 3: [0, 4]}
     ref_a2b_map = defaultdict(list)
     for b, atoms in ref_b2a_map.items():
@@ -429,3 +434,70 @@ def test_create_reaction_graph():
 
     assert b2a == ref_b2a_map
     assert a2b == ref_a2b_map
+
+
+def test_get_atom_bond_distance_to_reaction_center():
+    r"""Create a reaction: CH3CH2+ + CH3CH2CH2 --> CH3 + CH3CH2CH2CH2+
+
+    m1:
+        3
+    C2-----C0
+
+    m2:
+        0      2
+    C1-----C3-----C4
+     \     |
+     1 \   |  3
+         \ C5
+
+    m3:
+
+    C2
+
+    m4:
+        0      2      4
+    C1-----C3-----C4-----C0
+     \     |
+     1 \   |  3
+         \ C5
+
+
+    combined union graph (the bond index is assigned to mimic combine_graphs() function)
+
+              4
+          C2-----C0
+                  |
+                  |  5
+        0      2  |
+    C1-----C3-----C4
+     \     |
+     1 \   |  3
+         \ C5
+
+    atom hop distances:
+    [max_hop + 2, 2, 0, 1, max_hop + 1, 2]
+
+    bond hop distances:
+    [2, 3, 1, 2, 0, max_hop + 1]
+    """
+    smi_rxn = "[CH3:3][CH2+:1].[CH2:2]1[CH1:4]([CH2:6]1)[CH2:5]>>[CH3:3].[CH2:2]1[CH1:4]([CH2:6]1)[CH2:5][CH2+:1]"
+
+    rxn = smiles_to_reaction(smi_rxn)
+
+    max_hop = 1
+    atom_hop_dist = get_atom_distance_to_reaction_center(rxn, max_hop)
+    assert atom_hop_dist == [max_hop + 2, 1, 0, 1, max_hop + 1, 1]
+    bond_hop_dist = get_bond_distance_to_reaction_center(rxn, atom_hop_dist, max_hop)
+    assert bond_hop_dist == [1, 1, 1, 1, 0, max_hop + 1]
+
+    max_hop = 2
+    atom_hop_dist = get_atom_distance_to_reaction_center(rxn, max_hop)
+    assert atom_hop_dist == [max_hop + 2, 2, 0, 1, max_hop + 1, 2]
+    bond_hop_dist = get_bond_distance_to_reaction_center(rxn, atom_hop_dist, max_hop)
+    assert bond_hop_dist == [2, 2, 1, 2, 0, max_hop + 1]
+
+    max_hop = 3
+    atom_hop_dist = get_atom_distance_to_reaction_center(rxn, max_hop)
+    assert atom_hop_dist == [max_hop + 2, 2, 0, 1, max_hop + 1, 2]
+    bond_hop_dist = get_bond_distance_to_reaction_center(rxn, atom_hop_dist, max_hop)
+    assert bond_hop_dist == [2, 3, 1, 2, 0, max_hop + 1]
