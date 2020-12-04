@@ -54,33 +54,20 @@ class TestReaction:
     def test_with_H(self):
         self.assert_reaction_property(add_H=True)
 
-    def test_check_atom_map_number(self):
-        rxn, mols = create_reaction(add_H=False)
-        rxn.check_atom_map_number()
+    def test_get_bonds(self):
+        rxn, _ = create_reaction()
 
-        # let atom have no atom map number
-        mols[0].set_atom_map_number({0: None})
-        try:
-            rxn.check_atom_map_number()
-        except ReactionError as e:
-            assert "check_atom_map_number" in str(e)
-        mols[0].set_atom_map_number({0: 3})  # set back
+        # reactants
+        bonds = rxn.get_reactants_bonds(zero_based=False)
+        assert bonds == [[(1, 3)], [(2, 4)]]
+        bonds = rxn.get_reactants_bonds(zero_based=True)
+        assert bonds == [[(0, 2)], [(1, 3)]]
 
-        # let atom have the same map number
-        mols[0].set_atom_map_number({0: 1})
-        try:
-            rxn.check_atom_map_number()
-        except ReactionError as e:
-            assert "check_atom_map_number" in str(e)
-        mols[0].set_atom_map_number({0: 3})  # set back
-
-        # let reactants and products have different atom map number
-        mols[0].set_atom_map_number({0: 5})
-        try:
-            rxn.check_atom_map_number()
-        except ReactionError as e:
-            assert "check_atom_map_number" in str(e)
-        mols[0].set_atom_map_number({0: 3})  # set back
+        # products
+        bonds = rxn.get_products_bonds(zero_based=False)
+        assert bonds == [[], [(1, 2), (2, 4)]]
+        bonds = rxn.get_products_bonds(zero_based=True)
+        assert bonds == [[], [(0, 1), (1, 3)]]
 
     def test_get_atom_map_number(self):
         rxn, _ = create_reaction()
@@ -109,5 +96,31 @@ class TestReaction:
         # products
         bond_map_number = rxn.get_products_bond_map_number(for_changed=False)
         assert bond_map_number == [[], [None, 0]]
-        bond_map_number = rxn.get_products_bond_map_number(for_changed=True)
-        assert bond_map_number == [[], [1, 0]]
+
+    def test_check_atom_map_number(self):
+        rxn, mols = create_reaction(add_H=False)
+        rxn.check_atom_map_number()
+
+        # let atom have no atom map number
+        mols[0].set_atom_map_number({0: None})
+        try:
+            rxn.check_atom_map_number()
+        except ReactionError as e:
+            assert "check_atom_map_number" in str(e)
+        mols[0].set_atom_map_number({0: 3})  # set back
+
+        # let atom have the same map number
+        mols[0].set_atom_map_number({0: 1})
+        try:
+            rxn.check_atom_map_number()
+        except ReactionError as e:
+            assert "check_atom_map_number" in str(e)
+        mols[0].set_atom_map_number({0: 3})  # set back
+
+        # let reactants and products have different atom map number
+        mols[0].set_atom_map_number({0: 5})
+        try:
+            rxn.check_atom_map_number()
+        except ReactionError as e:
+            assert "check_atom_map_number" in str(e)
+        mols[0].set_atom_map_number({0: 3})  # set back

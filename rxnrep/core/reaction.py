@@ -1,9 +1,10 @@
-import logging
 import itertools
-import numpy as np
+import logging
 from collections import defaultdict
+from typing import List, Optional, Tuple, Union
+
+import numpy as np
 from rxnrep.core.molecule import Molecule
-from typing import List, Tuple, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class Reaction:
     def unchanged_bonds(self) -> List[Tuple[int, int]]:
         """
         Unchanged bonds, i.e. bonds exist in both the reactants and products.
+        Each bond is indexed by atom map number of the two atoms forming the bond.
         """
         if self._unchanged_bonds is None:
             (
@@ -81,6 +83,7 @@ class Reaction:
     def lost_bonds(self) -> List[Tuple[int, int]]:
         """
         Lost bonds, i.e. bonds in reactants but not in products.
+        Each bond is indexed by atom map number of the two atoms forming the bond.
         """
         if self._lost_bonds is None:
             (
@@ -95,6 +98,7 @@ class Reaction:
     def added_bonds(self) -> List[Tuple[int, int]]:
         """
         Added bonds, i.e. bonds in products but not in reactants.
+        Each bond is indexed by atom map number of the two atoms forming the bond.
         """
         if self._added_bonds is None:
             (
@@ -131,6 +135,42 @@ class Reaction:
         """
         return self._get_atom_map_number(self.products, zero_based)
 
+    def get_reactants_bonds(
+        self, zero_based: bool = False
+    ) -> List[List[Tuple[int, int]]]:
+        """
+        Get the bonds of all the reactants.
+
+        Args:
+            zero_based: whether to convert the bond index (a pair of atom map number)
+                to start from 0.
+
+        Returns:
+            Each inner list is the bonds for one reactant molecule. The bonds has the
+            same order as that in the underlying rdkit molecule. Each bond is indexed as
+            (atom1, atom2), and atom1 and atom2 are the two atoms forming the bonds.
+
+        """
+        return self._get_bonds(self.reactants, zero_based)
+
+    def get_products_bonds(
+        self, zero_based: bool = False
+    ) -> List[List[Tuple[int, int]]]:
+        """
+        Get the bonds of all the products.
+
+        Args:
+            zero_based: whether to convert the bond index (a pair of atom map number)
+                to start from 0.
+
+        Returns:
+            Each inner list is the bonds for one product molecule. The bonds has the
+            same order as that in the underlying rdkit molecule. Each bond is indexed as
+            (atom1, atom2), and atom1 and atom2 are the two atoms forming the bonds.
+
+        """
+        return self._get_bonds(self.products, zero_based)
+
     def get_reactants_bond_map_number(
         self, for_changed: bool = False
     ) -> List[List[int]]:
@@ -155,7 +195,9 @@ class Reaction:
                 the same map number.
 
         Returns:
-            Each inner list is the bond map number for a molecule.
+            Each inner list is the bond map number for a molecule. The bonds has the
+            same order as that in the underlying rdkit molecule (i.e. element 0 is bond
+            0 in the rdkit molecule).
         """
         return self._get_bond_map_number(for_changed, mode="reactants")
 
@@ -183,7 +225,9 @@ class Reaction:
                 the same map number.
 
         Returns:
-            Each inner list is the bond map number for a molecule.
+            Each inner list is the bond map number for a molecule. The bonds has the
+            same order as that in the underlying rdkit molecule (i.e. element 0 is bond
+            0 in the rdkit molecule).
         """
         return self._get_bond_map_number(for_changed, mode="products")
 
@@ -209,8 +253,8 @@ class Reaction:
             (unchanged_bonds, lost_bonds, added_bonds). Each is a list of bond indices,
                 each bond index is given as a tuple (atom1, atom2).
         """
-        reactants_bonds = self._get_bonds(self.reactants, zero_based)
-        products_bonds = self._get_bonds(self.products, zero_based)
+        reactants_bonds = self.get_reactants_bonds(zero_based)
+        products_bonds = self.get_products_bonds(zero_based)
         reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
         product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
 
@@ -236,6 +280,45 @@ class Reaction:
 
         return atom_map_number
 
+    @staticmethod
+    def _get_bonds(
+        molecules: List[Molecule], zero_based: bool = False
+    ) -> List[List[Tuple[int, int]]]:
+        """
+        Get all the bonds in the molecules. Each bond is index as (atom1, atom2),
+        where atom1 and atom2 are the atom map number for that atom.
+        Each inner list is the bonds for one molecule, and the bonds have the same
+        order as that in the underlying rdkit molecule.
+
+        Args:
+            zero_based: whether to convert the bond index to zero based.
+                If `True`, all bond indices (atom map number) are converted to zero based.
+        """
+        all_bonds = []
+        for m in molecules:
+            atom_map = m.get_atom_map_number()
+            all_bonds.append(
+                [tuple(sorted([atom_map[b[0]], atom_map[b[1]]])) for b in m.bonds]
+            )
+
+        has_bond = False
+        for bonds in all_bonds:
+            if bonds:
+                has_bond = True
+                break
+
+        if zero_based and has_bond:
+            minimum = int(
+                np.min(
+                    np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel()
+                )
+            )
+            all_bonds = [
+                [(b[0] - minimum, b[1] - minimum) for b in bonds] for bonds in all_bonds
+            ]
+
+        return all_bonds
+
     def _get_bond_map_number(
         self, for_changed=False, mode="reactants"
     ) -> List[List[int]]:
@@ -249,8 +332,8 @@ class Reaction:
             mode: [`reactants`|`products`]. Generate bond map for the reactant or
                 the product molecules.
         """
-        reactants_bonds = self._get_bonds(self.reactants)
-        products_bonds = self._get_bonds(self.products)
+        reactants_bonds = self.get_reactants_bonds()
+        products_bonds = self.get_products_bonds()
 
         reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
         product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
@@ -283,43 +366,6 @@ class Reaction:
             bond_map_number.append(number)
 
         return bond_map_number
-
-    @staticmethod
-    def _get_bonds(
-        molecules: List[Molecule], zero_based: bool = False
-    ) -> List[List[Tuple[int, int]]]:
-        """
-        Get all the bonds in the molecules. Each bond is index as (atom1, atom2),
-        where atom1 and atom2 are the atom map number for that atom.
-
-        Args:
-            zero_based: whether to convert the bond index to zero based.
-                If `True`, all bond indices (atom map number) are converted to zero based.
-        """
-        all_bonds = []
-        for m in molecules:
-            atom_map = m.get_atom_map_number()
-            all_bonds.append(
-                [tuple(sorted([atom_map[b[0]], atom_map[b[1]]])) for b in m.bonds]
-            )
-
-        has_bond = False
-        for bonds in all_bonds:
-            if bonds:
-                has_bond = True
-                break
-
-        if zero_based and has_bond:
-            minimum = int(
-                np.min(
-                    np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel()
-                )
-            )
-            all_bonds = [
-                [(b[0] - minimum, b[1] - minimum) for b in bonds] for bonds in all_bonds
-            ]
-
-        return all_bonds
 
     def check_composition(self):
         """
