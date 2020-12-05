@@ -312,13 +312,13 @@ class Reaction:
                 break
 
         if zero_based and has_bond:
-            minimum = int(
-                np.min(
-                    np.asarray(list(itertools.chain.from_iterable(all_bonds))).ravel()
-                )
-            )
+            # smallest atom index
+            atom_map_numbers = [m.get_atom_map_number() for m in molecules]
+            smallest = min(itertools.chain.from_iterable(atom_map_numbers))
+            # adjust bond indices
             all_bonds = [
-                [(b[0] - minimum, b[1] - minimum) for b in bonds] for bonds in all_bonds
+                [(b[0] - smallest, b[1] - smallest) for b in bonds]
+                for bonds in all_bonds
             ]
 
         return all_bonds
