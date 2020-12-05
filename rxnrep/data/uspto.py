@@ -1,5 +1,4 @@
 import functools
-import itertools
 import logging
 import multiprocessing
 from collections import Counter
@@ -19,6 +18,8 @@ from rxnrep.data.grapher import (
     combine_graphs,
     create_hetero_molecule_graph,
     create_reaction_graph,
+    get_atom_distance_to_reaction_center,
+    get_bond_distance_to_reaction_center,
 )
 from rxnrep.utils import to_path
 
@@ -34,6 +35,8 @@ class USPTODataset(BaseDataset):
         atom_featurizer: function to create atom features
         bond_featurizer: function to create bond features
         global_featurizer: function to create global features
+        max_hop_distance: maximum allowed hop distance from the reaction center for
+            atom and bond. Used to determine atom and bond label
         transform_features: whether to standardize the atom, bond, and global features.
             If `True`, each feature column will first subtract the mean and then divide
             by the standard deviation.
@@ -52,13 +55,14 @@ class USPTODataset(BaseDataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         transform_features: bool = True,
+        max_hop_distance: int = 3,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
     ):
 
         # read input files
-        reactions, labels, failed = self.read_file(filename, num_processes)
+        reactions, raw_labels, failed = self.read_file(filename, num_processes)
 
         super(USPTODataset, self).__init__(
             reactions,
@@ -72,7 +76,7 @@ class USPTODataset(BaseDataset):
 
         # set failed and labels
         self._failed = failed
-        self._raw_labels = labels
+        self._raw_labels = raw_labels
 
         # convert reactions to dgl graphs
         self.reaction_graphs = self.build_graph_and_featurize()
@@ -80,7 +84,9 @@ class USPTODataset(BaseDataset):
         if transform_features:
             self.scale_features()
 
-        self.labels = {}
+        self.max_hop_distance = max_hop_distance
+        self.labels = self.generate_labels()
+
         self.metadata = {}
 
     @staticmethod
@@ -201,6 +207,98 @@ class USPTODataset(BaseDataset):
 
         return reaction_graphs
 
+    def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
+        """
+        Labels for all reactions.
+
+        Each dict is the labels for one reaction, with keys:
+            `atom_hop_dist` and `bond_hop_dist`.
+        """
+
+        labels = []
+        for rxn in self.reactions:
+            atom_hop = get_atom_distance_to_reaction_center(
+                rxn, max_hop=self.max_hop_distance
+            )
+            bond_hop = get_bond_distance_to_reaction_center(
+                rxn, atom_hop_distances=atom_hop, max_hop=self.max_hop_distance
+            )
+            labels.append(
+                {
+                    "atom_hop_dist": torch.as_tensor(atom_hop, dtype=torch.int64),
+                    "bond_hop_dist": torch.as_tensor(bond_hop, dtype=torch.int64),
+                }
+            )
+        return labels
+
+    def get_class_weight(self) -> Dict[str, torch.Tensor]:
+        """
+        Create class weight to be used in cross entropy losses.
+
+        This is for labels generated in `generate_labels()`.
+        For each type of, it is computed as the mean over all reactions.
+        """
+
+        # atom hop class weight
+
+        # Unique labels should be `list(range(atom_hop_num_classes))`,  where
+        # `atom_hop_num_classes`could be either 1) `max_hop_distance + 2` or
+        # 2) `max_hop_distance + 3` depending on whether there are atoms that are
+        # both in lost bonds and added bonds. For 1), there does not exist such atoms,
+        # and for 2) there do exist such atoms.
+        # The labels are atoms only in lost bond (class 0), atoms in unchanged bond (
+        # class 1 to max_hop_distance), added bond (class max_hop_distance + 1),
+        # and atoms in both lost and added bonds (class max_hop_distance + 2).
+        all_atom_hop_labels = np.concatenate(
+            [lb["atom_hop_dist"] for lb in self.labels]
+        )
+
+        unique_labels = sorted(set(all_atom_hop_labels))
+        if unique_labels != list(
+            range(self.max_hop_distance + 2)
+        ) and unique_labels != list(range(self.max_hop_distance + 3)):
+            raise RuntimeError(
+                f"Unable to compute atom class weight; some classes do not have valid "
+                f"labels. num_classes: {self.max_hop_distance + 2} unique labels: "
+                f"{unique_labels}"
+            )
+
+        atom_hop_weight = class_weight.compute_class_weight(
+            "balanced",
+            classes=unique_labels,
+            y=all_atom_hop_labels,
+        )
+
+        # bond hop class weight
+        # Unique labels should be `list(range(bond_hop_num_classes))`, where
+        # `bond_hop_num_classes = max_hop_distance + 2`. Unlike atom hop dist,
+        # there are only lost (class 0), unchanged (class 1 to max_hop_distance),
+        # and added bonds (class max_hop_distance + 1).
+        all_bond_hop_labels = np.concatenate(
+            [lb["bond_hop_dist"] for lb in self.labels]
+        )
+
+        unique_labels = sorted(set(all_bond_hop_labels))
+        if unique_labels != list(range(self.max_hop_distance + 2)):
+            raise RuntimeError(
+                f"Unable to compute bond class weight; some classes do not have valid "
+                f"labels. num_classes: {self.max_hop_distance + 2} unique labels: "
+                f"{unique_labels}"
+            )
+
+        bond_hop_weight = class_weight.compute_class_weight(
+            "balanced",
+            classes=unique_labels,
+            y=all_bond_hop_labels,
+        )
+
+        weight = {
+            "atom_hop_dist": torch.as_tensor(atom_hop_weight, dtype=torch.float32),
+            "bond_hop_dist": torch.as_tensor(bond_hop_weight, dtype=torch.float32),
+        }
+
+        return weight
+
     def get_molecule_graphs(self) -> List[dgl.DGLGraph]:
         """
         Get all the molecule graphs in the dataset.
@@ -211,152 +309,13 @@ class USPTODataset(BaseDataset):
 
         return graphs
 
-    # TODO to use class_weight from sklearn
-    def get_atom_in_reaction_center_and_bond_type_class_weight(
-        self,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Create class weight to be used in cross entropy function for node classification
-        problems:
-
-        1. whether atom is in reaction center:
-            weight = mean(num_atoms_not_in_center / num_atoms_in_center)
-            where mean is taken over all reactions.
-
-            Here, if an atom is in center, it has positive class 1, we adjust its
-            weight accordingly. See `self._create_label_atom_in_reaction_center()` for
-            more.
-
-        2. bond is unchanged bond, lost bond, or added bond:
-            total_num_bonds = num_unchanged + num_lost + num_added
-            w_unchanged = (num_lost + num_added) / (2 * total_num_bonds)
-            w_lost = (num_unchanged + num_added) / (2 * total_num_bonds)
-            w_added = (num_unchanged + num_lost) / (2 * total_num_bonds)
-
-            And then w_unchanged, w_lost, and w_added are averaged over all reactions:
-            w_unchanged = mean(w_unchanged)
-            w_lost = mean(w_lost)
-            w_added = mean(w_added)
-
-            Here, unchanged, lost, and added bonds have class labels 0, 1, and 2
-            respectively. See `self._create_label_bond_type()` for more.
-
-        Returns:
-            weight_atom_in_reaction_center: a scaler tensor giving the weight for the
-                positive class.
-            weight_bond_type: a tensor of shape (3,), giving the weight for unchanged
-                bonds, lost bonds, and added bonds in sequence.
-        """
-
-        w_in_center = []
-        w_unchanged = []
-        w_lost = []
-        w_added = []
-        for rxn in self.reactions:
-            unchanged = rxn.unchanged_bonds
-            lost = rxn.lost_bonds
-            added = rxn.added_bonds
-
-            # bond weight
-            n_unchanged = len(unchanged)
-            n_lost = len(lost)
-            n_added = len(added)
-            n = n_unchanged + n_lost + n_added
-            w_unchanged.append((n_lost + n_added) / (2 * n))
-            w_lost.append((n_unchanged + n_added) / (2 * n))
-            w_added.append((n_unchanged + n_lost) / (2 * n))
-
-            # atom weight
-            num_atoms = sum([m.num_atoms for m in rxn.reactants])
-            changed_atoms = set(
-                [i for i in itertools.chain.from_iterable(lost + added)]
-            )
-            num_changed = len(changed_atoms)
-            if num_changed == 0:
-                w_in_center.append(1.0)
-            else:
-                w_in_center.append((num_atoms - num_changed) / num_changed)
-
-        weight_atom_in_reaction_center = torch.as_tensor(
-            [np.mean(w_in_center)], dtype=torch.float32
-        )
-
-        weight_bond_type = [np.mean(w_unchanged), np.mean(w_lost), np.mean(w_added)]
-        weight_bond_type = torch.as_tensor(
-            np.asarray(weight_bond_type), dtype=torch.float32
-        )
-
-        return weight_atom_in_reaction_center, weight_bond_type
-
-    @staticmethod
-    def _create_label_bond_type(reaction) -> torch.Tensor:
-        """
-        Label for bond type classification:
-        0: unchanged bond, 1: lost bond, 2: added bond
-
-        Args:
-            reaction: th3 reaction
-
-        Returns:
-            1D tensor of the class for each bond. The order is the same as the bond
-            nodes in the reaction graph.
-        """
-
-        num_unchanged = len(reaction.unchanged_bonds)
-        num_lost = len(reaction.lost_bonds)
-        num_added = len(reaction.added_bonds)
-
-        # Note, reaction graph bond nodes are ordered in the sequence of unchanged bonds,
-        # lost bonds, and added bonds in `create_reaction_graph()`
-        bond_type = [0] * num_unchanged + [1] * num_lost + [2] * num_added
-        bond_type = torch.as_tensor(bond_type, dtype=torch.int64)
-
-        return bond_type
-
-    @staticmethod
-    def _create_label_atom_in_reaction_center(reaction: Reaction) -> torch.Tensor:
-        """
-        Label for atom in reaction center classification:
-
-        Atoms associated with lost bonds in reactants or added bonds in products are in
-        the reaction center, given a class label 1.
-        Other atoms given a class label 0.
-
-        Args:
-            reaction: the reaction
-
-        Returns:
-            1D tensor of the class for each atom. The order is the same as the atom
-            nodes in the reaction graph.
-        """
-        num_atoms = sum([m.num_atoms for m in reaction.reactants])
-        changed_bonds = reaction.lost_bonds + reaction.added_bonds
-        changed_atoms = set([i for i in itertools.chain.from_iterable(changed_bonds)])
-
-        in_reaction_center = torch.zeros(num_atoms)
-        for i in changed_atoms:
-            in_reaction_center[i] = 1
-
-        return in_reaction_center
-
     def __getitem__(self, item: int):
         """
         Get data point with index.
         """
         reactants_g, products_g, reaction_g = self.reaction_graphs[item]
         reaction = self.reactions[item]
-
-        # get labels, create it if it does not exist
-        if item in self.labels:
-            labels = self.labels[item]
-        else:
-            labels = {
-                "bond_type": self._create_label_bond_type(reaction),
-                "atom_in_reaction_center": self._create_label_atom_in_reaction_center(
-                    reaction
-                ),
-            }
-            self.labels[item] = labels
+        label = self.labels[item]
 
         # get metadata
         if item in self.metadata:
@@ -372,9 +331,9 @@ class USPTODataset(BaseDataset):
             self.metadata[item] = meta
 
         if self.return_index:
-            return item, reactants_g, products_g, reaction_g, meta, labels
+            return item, reactants_g, products_g, reaction_g, meta, label
         else:
-            return reactants_g, products_g, reaction_g, meta, labels
+            return reactants_g, products_g, reaction_g, meta, label
 
     def __len__(self) -> int:
         """
@@ -419,10 +378,32 @@ class SchneiderDataset(USPTODataset):
     in the `labels`.
     """
 
-    def get_class_weight(self, num_classes: int = 50) -> torch.Tensor:
+    def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
         """
-        Create class weight to be used in cross entropy function for reaction
-        classification.
+        Labels for all reactions.
+
+        Each dict is the labels for one reaction, with keys:
+        `atom_hop_dist`, `bond_hop_dist` , and `reaction_class`.
+        """
+
+        # labels for atom hop and bond hop
+        labels = super(SchneiderDataset, self).generate_labels()
+
+        for rxn_class, rxn_label in zip(self._raw_labels, labels):
+            rxn_label["reaction_class"] = torch.as_tensor(
+                [int(rxn_class)], dtype=torch.int64
+            )
+        return labels
+
+    def get_class_weight(
+        self, num_reaction_classes: int = 50
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Create class weight to be used in cross entropy losses.
+
+        This is for labels generated in `generate_labels()`.
+        For each type of, it is computed as the mean over all reactions.
+
 
         The weight of each class is inversely proportional to the number of data points
         in the dataset, i.e.
@@ -430,58 +411,20 @@ class SchneiderDataset(USPTODataset):
         n_samples/(n_classes * np.bincount(y))
 
         Args:
-            num_classes: number of classes in the dataset. The class label are assumed
-            to be 0, 1, 2, ... num_classes-1.
-
-        Returns:
-            weight of each classes
+            num_reaction_classes: number of reaction classes in the dataset. The class
+            labels should be 0, 1, 2, ... num_reaction_classes-1.
         """
-        weight = class_weight.compute_class_weight(
-            "balanced", classes=list(range(num_classes)), y=self._raw_labels
+        # class weight for atom hop and bond hop
+        weight = super(SchneiderDataset, self).get_class_weight()
+
+        # class weight for reaction classes
+        w = class_weight.compute_class_weight(
+            "balanced", classes=list(range(num_reaction_classes)), y=self._raw_labels
         )
-        weight = torch.as_tensor(weight, dtype=torch.float32)
+        w = torch.as_tensor(w, dtype=torch.float32)
+        weight["reaction_class"] = w
 
         return weight
-
-    def __getitem__(self, item: int):
-        """
-        Get data point with index.
-        """
-        reactants_g, products_g, reaction_g = self.reaction_graphs[item]
-        reaction = self.reactions[item]
-
-        # get labels, create it if it does not exist
-        if item in self.labels:
-            labels = self.labels[item]
-        else:
-            labels = {
-                "bond_type": self._create_label_bond_type(reaction),
-                "atom_in_reaction_center": self._create_label_atom_in_reaction_center(
-                    reaction
-                ),
-                "reaction_class": torch.as_tensor(
-                    [int(self._raw_labels[item])], dtype=torch.int64
-                ),
-            }
-            self.labels[item] = labels
-
-        # get metadata
-        if item in self.metadata:
-            meta = self.metadata[item]
-        else:
-            meta = {
-                "reactant_num_molecules": len(reaction.reactants),
-                "product_num_molecules": len(reaction.products),
-                "num_unchanged_bonds": len(reaction.unchanged_bonds),
-                "num_lost_bonds": len(reaction.lost_bonds),
-                "num_added_bonds": len(reaction.added_bonds),
-            }
-            self.metadata[item] = meta
-
-        if self.return_index:
-            return item, reactants_g, products_g, reaction_g, meta, labels
-        else:
-            return reactants_g, products_g, reaction_g, meta, labels
 
 
 def process_one_reaction_from_input_file(
