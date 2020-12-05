@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 
 from rxnrep.model.decoder import (
-    AtomInReactionCenterDecoder,
-    BondTypeDecoder,
+    AtomHopDistDecoder,
+    BondHopDistDecoder,
     FCNNDecoder,
     ReactionClusterDecoder,
 )
@@ -34,22 +34,17 @@ class ReactionRepresentation(nn.Module):
         reaction_activation:
         reaction_residual:
         reaction_dropout:
-        bond_type_decoder_hidden_layer_sizes:
-        bond_type_decoder_activation:
-        atom_in_reaction_center_decoder_hidden_layer_sizes:
-        atom_in_reaction_center_decoder_activation:
+        bond_hop_dist_decoder_hidden_layer_sizes:
+        bond_hop_dist_decoder_activation:
+        bond_hop_dist_decoder_num_classes:
+        atom_hop_dist_decoder_hidden_layer_sizes:
+        atom_hop_dist_decoder_activation:
+        bond_hop_dist_decoder_num_classes:
         reaction_cluster_decoder_hidden_layer_sizes:
         reaction_cluster_decoder_activation:
         reaction_cluster_decoder_output_size:
         set2set_num_iterations:
         set2set_num_layers:
-        bond_type_decoder_num_classes: Number of class label to create for the bond
-            type decoder. Set this to 1 when there are two types (0: unchanged,
-            1: changed). In this case, this is a binary classification and the binary
-            classification loss (e.g. binary cross entropy) should be used.
-            Set to 3 to use three types  (0: unchanged bond, 1: lost bond, 2: added bond).
-            Again, should use the corresponding multiclass classification loss.
-            default to 3.
     """
 
     def __init__(
@@ -69,12 +64,14 @@ class ReactionRepresentation(nn.Module):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # bond type decoder
-        bond_type_decoder_hidden_layer_sizes,
-        bond_type_decoder_activation,
-        # atom in reaction center decoder
-        atom_in_reaction_center_decoder_hidden_layer_sizes,
-        atom_in_reaction_center_decoder_activation,
+        # bond decoder
+        bond_hop_dist_decoder_hidden_layer_sizes,
+        bond_hop_dist_decoder_activation,
+        bond_hop_dist_decoder_num_classes,
+        # atom decoder
+        atom_hop_dist_decoder_hidden_layer_sizes,
+        atom_hop_dist_decoder_activation,
+        atom_hop_dist_decoder_num_classes,
         # clustering decoder
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
@@ -82,8 +79,6 @@ class ReactionRepresentation(nn.Module):
         # readout reaction features
         set2set_num_iterations: int = 6,
         set2set_num_layers: int = 3,
-        #
-        bond_type_decoder_num_classes=3,
     ):
 
         super(ReactionRepresentation, self).__init__()
@@ -108,21 +103,22 @@ class ReactionRepresentation(nn.Module):
 
         # ========== node level decoder ==========
 
-        # bond type decoder
+        # bond hop dist decoder
         in_size = reaction_conv_layer_sizes[-1]
-        self.bond_type_decoder = BondTypeDecoder(
+        self.bond_hop_dist_decoder = BondHopDistDecoder(
             in_size=in_size,
-            num_classes=bond_type_decoder_num_classes,
-            hidden_layer_sizes=bond_type_decoder_hidden_layer_sizes,
-            activation=bond_type_decoder_activation,
+            num_classes=bond_hop_dist_decoder_num_classes,
+            hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
+            activation=bond_hop_dist_decoder_activation,
         )
 
-        # atom in reaction center decoder
+        # atom hop dist decoder
         in_size = reaction_conv_layer_sizes[-1]
-        self.atom_in_reaction_center_decoder = AtomInReactionCenterDecoder(
+        self.atom_hop_dist_decoder = AtomHopDistDecoder(
             in_size=in_size,
-            hidden_layer_sizes=atom_in_reaction_center_decoder_hidden_layer_sizes,
-            activation=atom_in_reaction_center_decoder_activation,
+            num_classes=atom_hop_dist_decoder_num_classes,
+            hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
+            activation=atom_hop_dist_decoder_activation,
         )
 
         # ========== reaction level decoder ==========
@@ -184,21 +180,19 @@ class ReactionRepresentation(nn.Module):
             predictions: {decoder_name: value} predictions of the decoders.
         """
 
-        # bond type decoder
-        bond_feats = feats["bond"]
-        bond_type = self.bond_type_decoder(bond_feats)
+        # bond hop dist decoder
+        bond_hop_dist = self.bond_hop_dist_decoder(feats["bond"])
 
-        # atom in reaction center decoder
-        atom_feats = feats["atom"]
-        atom_in_reaction_center = self.atom_in_reaction_center_decoder(atom_feats)
+        # atom hop dist decoder
+        atom_hop_dist = self.atom_hop_dist_decoder(feats["atom"])
 
         # reaction decoder
         reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
 
         # predictions
         predictions = {
-            "bond_type": bond_type,
-            "atom_in_reaction_center": atom_in_reaction_center,
+            "bond_hop_dist": bond_hop_dist,
+            "atom_hop_dist": atom_hop_dist,
             "reaction_cluster": reaction_cluster,
         }
 
