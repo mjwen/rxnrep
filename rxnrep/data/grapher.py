@@ -1,6 +1,7 @@
 """
 Build molecule graphs.
 """
+import copy
 import itertools
 from collections import defaultdict
 from typing import List, Optional
@@ -433,10 +434,22 @@ def get_atom_distance_to_reaction_center(
         # atoms not in reaction center
         else:
             # shortest distance of atom to reaction center
-            distances = [
-                center_to_others_distance[center][atom]
-                for center in atoms_in_reaction_center
-            ]
+            distances = []
+            for center in atoms_in_reaction_center:
+                try:
+                    d = center_to_others_distance[center][atom]
+                    distances.append(d)
+
+                # If there are more than one reaction centers in disjoint graphs,
+                # there could be no path from an atom to the center. In this case,
+                # center_to_others_distance[center] does not exists for `atom`.
+                except KeyError:
+                    pass
+
+            assert (
+                distances != []
+            ), "Cannot find path to reaction center, this should not happen"
+
             dist = min(distances)
             if dist > max_hop:
                 dist = max_hop
@@ -487,6 +500,8 @@ def get_bond_distance_to_reaction_center(
     """
     if atom_hop_distances is None:
         atom_hop_distances = get_atom_distance_to_reaction_center(reaction, max_hop)
+    else:
+        atom_hop_distances = copy.copy(atom_hop_distances)
 
     unchanged_bonds = reaction.unchanged_bonds
     lost_bonds = reaction.lost_bonds
@@ -498,9 +513,10 @@ def get_bond_distance_to_reaction_center(
     atoms_in_reaction_center = set(
         [i for i in itertools.chain.from_iterable(lost_bonds + added_bonds)]
     )
-    for i in range(len(atom_hop_distances)):
-        if i in atoms_in_reaction_center:
-            atom_hop_distances[i] = 0
+    atom_hop_distances = [
+        0 if atom in atoms_in_reaction_center else dist
+        for atom, dist in enumerate(atom_hop_distances)
+    ]
 
     reactants_bonds = reaction.get_reactants_bonds(zero_based=True)
     products_bonds = reaction.get_products_bonds(zero_based=True)
@@ -556,6 +572,6 @@ def get_bond_distance_to_reaction_center(
 
     assert (
         None not in hop_distances
-    ), "some bond has not hop distance, this should not happen"
+    ), "Some bond has not hop distance, this should not happen"
 
     return hop_distances

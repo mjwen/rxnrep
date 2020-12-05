@@ -481,7 +481,6 @@ def test_get_atom_bond_distance_to_reaction_center():
     [2, 3, 1, 2, 0, max_hop + 1]
     """
     smi_rxn = "[CH3:3][CH2+:1].[CH2:2]1[CH1:4]([CH2:6]1)[CH2:5]>>[CH3:3].[CH2:2]1[CH1:4]([CH2:6]1)[CH2:5][CH2+:1]"
-
     rxn = smiles_to_reaction(smi_rxn)
 
     max_hop = 1
@@ -501,3 +500,13 @@ def test_get_atom_bond_distance_to_reaction_center():
     assert atom_hop_dist == [max_hop + 2, 2, 0, 1, max_hop + 1, 2]
     bond_hop_dist = get_bond_distance_to_reaction_center(rxn, atom_hop_dist, max_hop)
     assert bond_hop_dist == [2, 3, 1, 2, 0, max_hop + 1]
+
+    # 2 reaction centers in two disjoint part of the reaction graph
+    smi_rxn = "[Cl:1][CH:13]([Cl:12])[Cl:14].[OH:9][CH3:15].[c:2]1([CH3:3])[cH:4][cH:5][c:6]([C:7]#[N:8])[cH:10][cH:11]1>>[CH4:15].[Cl:12][CH2:13][Cl:14].[ClH:1].[c:2]1([CH3:3])[cH:4][cH:5][c:6]([C:7](=[NH:8])[OH:9])[cH:10][cH:11]1"
+    rxn = smiles_to_reaction(smi_rxn)
+
+    max_hop = 3
+    atom_hop_dist = get_atom_distance_to_reaction_center(rxn, max_hop)
+    assert atom_hop_dist == [0, 3, 3, 3, 2, 1, 4, 1, 5, 2, 3, 1, 0, 1, 0]
+    bond_hop_dist = get_bond_distance_to_reaction_center(rxn, atom_hop_dist, max_hop)
+    assert bond_hop_dist == [3, 3, 3, 3, 2, 1, 2, 1, 3, 1, 1, 0, 0, 4]
