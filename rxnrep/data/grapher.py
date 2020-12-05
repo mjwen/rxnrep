@@ -397,15 +397,9 @@ def get_atom_distance_to_reaction_center(
     )
     atoms_in_reaction_center = atoms_in_lost_bonds.union(atoms_in_added_bonds)
     all_bonds = reaction.unchanged_bonds + reaction.lost_bonds + reaction.added_bonds
-    all_atoms = set([i for i in itertools.chain.from_iterable(all_bonds)])
-
-    num_atoms = sum([m.num_atoms for m in reaction.reactants])
-    assert all_atoms == set(range(num_atoms)), "atoms is incorrect"
-
-    # create a nx graph (representing the reaction) from edge list
-    nx_graph = nx.Graph(incoming_graph_data=all_bonds)
 
     # distance from center atoms to other atoms
+    nx_graph = nx.Graph(incoming_graph_data=all_bonds)
     center_to_others_distance = {}
     for center_atom in atoms_in_reaction_center:
         distances = nx.single_source_shortest_path_length(nx_graph, center_atom)
@@ -417,6 +411,7 @@ def get_atom_distance_to_reaction_center(
     # i.e. hop_distances[i] will be the hop distance for atom node i in the reaction
     # graph.
     hop_distances = []
+    num_atoms = sum([m.num_atoms for m in reaction.reactants])
     for atom in range(num_atoms):
 
         # atoms involved with both lost and added bonds
@@ -446,9 +441,12 @@ def get_atom_distance_to_reaction_center(
                 except KeyError:
                     pass
 
-            assert (
-                distances != []
-            ), "Cannot find path to reaction center, this should not happen"
+            assert distances != [], (
+                "Cannot find path to reaction center for some atom, this should not "
+                "happen. The reaction probably has atoms not connected to others in "
+                "both the reactants and the products. Please remove these atoms."
+                f"Bad reaction is: {reaction.id}"
+            )
 
             dist = min(distances)
             if dist > max_hop:
@@ -570,8 +568,9 @@ def get_bond_distance_to_reaction_center(
         idx = reactants_bond_index_to_map_number[bond]
         hop_distances[idx] = dist
 
-    assert (
-        None not in hop_distances
-    ), "Some bond has not hop distance, this should not happen"
+    assert None not in hop_distances, (
+        "Some bond has not hop distance, this should not happen. Bad reaction is: :"
+        f"{reaction.id}"
+    )
 
     return hop_distances
