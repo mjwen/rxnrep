@@ -268,8 +268,8 @@ def canonicalize_smiles_reaction(
     This ensures the reactants and products have the same composition, achieved in the
     below steps:
 
-    1. remove reactant molecules from reactants if none of their atoms are present in
-       the products
+    1. move molecules in reactants and products to reagents if they do not participate
+       the reaction
     2. adjust atom mapping between reactants and products and add atom mapping number
        for reactant atoms without a mapping number (although there is no corresponding
        atom in the products)
@@ -359,21 +359,23 @@ def canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds(
     Canonicalize a smiles reaction to make reactants and products have the same
     composition.
 
-    This is an alternative of `canonicalize_smiles_reaction()`.
+    This is an alternative of `canonicalize_smiles_reaction()`. The main difference is
+    that `canonicalize_smiles_reaction` edits the reactants, while this function edits
+    the products.
     In `canonicalize_smiles_reaction()`. bond connectivity of the reactant is edited to
     simulate the reaction to obtain the product. A problem with this method is that it
     edits many unnecessary bonds (e.g. bonds that change bond type). This function uses
     a different approach:
 
-    1. remove reactant molecules from reactants if none of their atoms are present in
-       the products
+    1. move molecules in reactants and products to reagents if they do not participate
+       the reaction
     2. adjust atom mapping between reactants and products and add atom mapping number
        for reactant atoms without a mapping number (although there is no corresponding
        atom in the products)
-    3. add atoms in the reactant but not in the product to the product, and add bonds
-       associated with these atoms to the product. Note, we only add bonds that both
-       the atoms are not in product. Bond with one atom in the product one atom not in
-       the prouduct is regared as a breaking bond and thus not added to the product.
+    3. add atoms that are in the reactant but not in the product to the product, and add
+       bonds associated with these atoms to the product. Note, we only add bonds that
+       both the atoms are not in product. Bond with one atom in the product one atom not
+       in the product is regarded as a breaking bond and thus not added to the product.
 
     Args:
         reaction: smiles representation of a reaction
@@ -472,9 +474,12 @@ def adjust_reagents(reaction: str) -> str:
     Move reagents in the reactants or products to the reagents collection.
 
     For a smiles reaction of the type `aaa>bbb>ccc`, aaa is the reactants, bbb is the
-    reagents, and ccc is the products. It could happen that some molecule in aaa (ccc)
-    does not have a single atom in ccc (aaa). Such molecules should actually be reagents.
-    This function moves such molecules from aaa (ccc) to bbb.
+    reagents, and ccc is the products.
+
+    The function moves two type of molecules from the reactants and products to the
+    reagents:
+    1) the same molecule existing in both the reactants and products.
+    2) molecules in aaa (ccc) does not have a single atom in ccc (aaa).
 
     Args:
         reaction: smiles representation of an atom mapped reaction
@@ -485,8 +490,23 @@ def adjust_reagents(reaction: str) -> str:
 
     reactants_smi, reagents_smi, products_smi = reaction.strip().split(">")
 
-    reactants = [Chem.MolFromSmiles(s) for s in reactants_smi.split(".")]
-    products = [Chem.MolFromSmiles(s) for s in products_smi.split(".")]
+    # move type 1) molecules to reagents
+    reactants_smi_separate = reactants_smi.split(".")
+    products_smi_separate = products_smi.split(".")
+    commons = set(reactants_smi_separate) & set(products_smi_separate)
+    reactants_smi_separate = [s for s in reactants_smi_separate if s not in commons]
+    products_smi_separate = [s for s in products_smi_separate if s not in commons]
+
+    # add common molecules to reagents
+    if reagents_smi == "":
+        reagents_smi = ".".join(commons)
+    else:
+        reagents_smi = ".".join([reagents_smi] + list(commons))
+
+    # move type 2) molecules to reagents
+    reactants = [Chem.MolFromSmiles(s) for s in reactants_smi_separate]
+    products = [Chem.MolFromSmiles(s) for s in products_smi_separate]
+
     if None in reactants or None in products:
         raise MoleculeCreationError(f"Cannot create molecules from: {reaction}")
 
