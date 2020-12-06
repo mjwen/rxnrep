@@ -25,9 +25,9 @@ def parse_args():
     # ========== dataset ==========
     prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
 
-    fname_tr = prefix + "schneider_n200_processed_train_label_manipulated.tsv"
-    fname_val = prefix + "schneider_n200_processed_val.tsv"
-    fname_test = prefix + "schneider_n200_processed_test.tsv"
+    fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
+    fname_val = prefix + fname_tr
+    fname_test = prefix + fname_tr
 
     parser.add_argument("--trainset_filename", type=str, default=fname_tr)
     parser.add_argument("--valset_filename", type=str, default=fname_val)
@@ -63,7 +63,7 @@ def parse_args():
         "--head_hidden_layer_sizes", type=int, nargs="+", default=[256, 128]
     )
     parser.add_argument("--head_activation", type=str, default="ReLU")
-    parser.add_argument("--num_classes", type=int, default=50)
+    parser.add_argument("--num_reaction_classes", type=int, default=50)
 
     # ========== training ==========
 
@@ -151,7 +151,6 @@ def load_dataset(args):
         num_processes=args.nprocs,
     )
 
-    # TODO should be done by only rank 0, maybe move to prepare_data() of model
     # save dataset state dict for retraining or prediction
     trainset.save_state_dict_file(args.dataset_state_dict_filename)
     print(
@@ -194,8 +193,11 @@ def load_dataset(args):
     args.dataset_state_dict = state_dict
 
     # Add info that will be used in the model to args for easy access
+    class_weight = trainset.get_class_weight(
+        num_reaction_classes=args.num_reaction_classes
+    )
+    args.reaction_class_weight = class_weight["reaction_class"]
     args.feature_size = trainset.feature_size
-    args.class_weights = trainset.get_class_weight(num_classes=args.num_classes)
 
     return train_loader, val_loader, test_loader
 
@@ -226,7 +228,7 @@ class LightningModel(pl.LightningModule):
             reaction_dropout=params.reaction_dropout,
             # classification head
             head_hidden_layer_sizes=params.head_hidden_layer_sizes,
-            num_classes=params.num_classes,
+            num_classes=params.num_reaction_classes,
             head_activation=params.head_activation,
         )
 
@@ -238,17 +240,17 @@ class LightningModel(pl.LightningModule):
                 {
                     "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                     "precision": pl.metrics.Precision(
-                        num_classes=params.num_classes,
+                        num_classes=params.num_reaction_classes,
                         average="macro",
                         compute_on_step=False,
                     ),
                     "recall": pl.metrics.Recall(
-                        num_classes=params.num_classes,
+                        num_classes=params.num_reaction_classes,
                         average="macro",
                         compute_on_step=False,
                     ),
                     "f1": pl.metrics.F1(
-                        num_classes=params.num_classes,
+                        num_classes=params.num_reaction_classes,
                         average="macro",
                         compute_on_step=False,
                     ),
@@ -327,7 +329,7 @@ class LightningModel(pl.LightningModule):
             logits,
             labels,
             reduction="mean",
-            weight=torch.as_tensor(self.hparams.class_weights, device=self.device),
+            weight=self.hparams.reaction_class_weight.to(self.device),
         )
 
         return logits, labels, loss

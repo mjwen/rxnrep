@@ -69,6 +69,7 @@ def parse_args():
         "--node_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
     )
     parser.add_argument("--node_decoder_activation", type=str, default="ReLU")
+    parser.add_argument("--max_hop_distance", type=int, default=3)
 
     # clustering decoder
     parser.add_argument(
@@ -156,6 +157,7 @@ def load_dataset(args):
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
+        max_hop_distance=args.max_hop_distance,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
     )
@@ -168,6 +170,7 @@ def load_dataset(args):
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
+        max_hop_distance=args.max_hop_distance,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -178,11 +181,11 @@ def load_dataset(args):
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
+        max_hop_distance=args.max_hop_distance,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
 
-    # TODO should be done by only rank 0, maybe move to prepare_data() of model
     # save dataset state dict for retraining or prediction
     trainset.save_state_dict_file(args.dataset_state_dict_filename)
     print(
@@ -225,12 +228,13 @@ def load_dataset(args):
     args.dataset_state_dict = state_dict
 
     # Add info that will be used in the model to args for easy access
+    class_weight = trainset.get_class_weight()
+    args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
+    args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
+    args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
+    args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
+
     args.feature_size = trainset.feature_size
-    args.bond_type_decoder_num_classes = 3
-    (
-        args.atom_in_reaction_center_class_weight,
-        args.bond_type_class_weight,
-    ) = trainset.get_atom_in_reaction_center_and_bond_type_class_weight()
 
     return train_loader, val_loader, test_loader
 
@@ -259,18 +263,18 @@ class LightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # bond type decoder
-            bond_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
-            bond_type_decoder_activation=params.node_decoder_activation,
-            # atom in reaction center decoder
-            atom_in_reaction_center_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
-            atom_in_reaction_center_decoder_activation=params.node_decoder_activation,
+            # bond hop distance decoder
+            bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
+            bond_hop_dist_decoder_activation=params.node_decoder_activation,
+            bond_hop_dist_decoder_num_classes=params.bond_hop_dist_num_classes,
+            # atom hop distance decoder
+            atom_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
+            atom_hop_dist_decoder_activation=params.node_decoder_activation,
+            atom_hop_dist_decoder_num_classes=params.atom_hop_dist_num_classes,
             # clustering decoder
             reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
             reaction_cluster_decoder_activation=params.cluster_decoder_activation,
             reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
-            # bond type decoder
-            bond_type_decoder_num_classes=params.bond_type_decoder_num_classes,
         )
 
         # reaction cluster functions
@@ -284,35 +288,43 @@ class LightningModel(pl.LightningModule):
         for mode in ["metric_train", "metric_val", "metric_test"]:
             self.metrics[mode] = nn.ModuleDict(
                 {
-                    # binary classification, so num_classes = 1
-                    "bond_type": nn.ModuleDict(
+                    "bond_hop_dist": nn.ModuleDict(
                         {
                             "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                             "precision": pl.metrics.Precision(
-                                num_classes=3, average="macro", compute_on_step=False
+                                num_classes=params.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
                             ),
                             "recall": pl.metrics.Recall(
-                                num_classes=3, average="macro", compute_on_step=False
+                                num_classes=params.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
                             ),
                             "f1": pl.metrics.F1(
-                                num_classes=3, average="macro", compute_on_step=False
+                                num_classes=params.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
                             ),
                         }
                     ),
-                    # binary classification, so num_classes = 1
-                    "atom_in_reaction_center": nn.ModuleDict(
+                    "atom_hop_dist": nn.ModuleDict(
                         {
-                            "accuracy": pl.metrics.Accuracy(
-                                threshold=0.5, compute_on_step=False
-                            ),
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                             "precision": pl.metrics.Precision(
-                                num_classes=1, threshold=0.5, compute_on_step=False
+                                num_classes=params.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
                             ),
                             "recall": pl.metrics.Recall(
-                                num_classes=1, threshold=0.5, compute_on_step=False
+                                num_classes=params.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
                             ),
                             "f1": pl.metrics.F1(
-                                num_classes=1, threshold=0.5, compute_on_step=False
+                                num_classes=params.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
                             ),
                         }
                     ),
@@ -426,25 +438,20 @@ class LightningModel(pl.LightningModule):
         preds = self.model.decode(feats, reaction_feats)
 
         # ========== compute losses ==========
-        # loss for bond type prediction
-        loss_bond_type = F.cross_entropy(
-            preds["bond_type"],
-            labels["bond_type"],
+        # loss for bond hop distance prediction
+        loss_atom_hop = F.cross_entropy(
+            preds["bond_hop_dist"],
+            labels["bond_hop_dist"],
             reduction="mean",
-            weight=torch.as_tensor(
-                self.hparams.bond_type_class_weight, device=self.device
-            ),
+            weight=self.hparams.bond_hop_dist_class_weight.to(self.device),
         )
 
-        # loss for atom in reaction center prediction
-        preds["atom_in_reaction_center"] = preds["atom_in_reaction_center"].flatten()
-        loss_atom_in_reaction_center = F.binary_cross_entropy_with_logits(
-            preds["atom_in_reaction_center"],
-            labels["atom_in_reaction_center"],
+        # loss for atom hop distance prediction
+        loss_bond_hop = F.cross_entropy(
+            preds["atom_hop_dist"],
+            labels["atom_hop_dist"],
             reduction="mean",
-            pos_weight=torch.as_tensor(
-                self.hparams.atom_in_reaction_center_class_weight[0], device=self.device
-            ),
+            weight=self.hparams.atom_hop_dist_class_weight.to(self.device),
         )
 
         # loss for clustering prediction
@@ -459,15 +466,14 @@ class LightningModel(pl.LightningModule):
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
-        # TODO maybe assign different weights
-        # total loss
-        loss = loss_bond_type + loss_atom_in_reaction_center + loss_reaction_cluster
+        # total loss (maybe assign different weights)
+        loss = loss_atom_hop + loss_bond_hop + loss_reaction_cluster
 
         # ========== log loss ==========
         self.log_dict(
             {
-                f"{mode}/loss/bond_type": loss_bond_type,
-                f"{mode}/loss/atom_in_reaction_center": loss_atom_in_reaction_center,
+                f"{mode}/loss/bond_hop_dist": loss_atom_hop,
+                f"{mode}/loss/atom_hop_dist": loss_bond_hop,
                 f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
             },
             on_step=False,
@@ -535,7 +541,7 @@ class LightningModel(pl.LightningModule):
         """
         mode = "metric_" + mode
 
-        keys = ["bond_type", "atom_in_reaction_center"]
+        keys = ["bond_hop_dist", "atom_hop_dist"]
         for key in keys:
             for mt in self.metrics[mode][key]:
                 metric_obj = self.metrics[mode][key][mt]
@@ -548,7 +554,7 @@ class LightningModel(pl.LightningModule):
         mode = "metric_" + mode
 
         sum_f1 = 0
-        keys = ["bond_type", "atom_in_reaction_center"]
+        keys = ["bond_hop_dist", "atom_hop_dist"]
         for key in keys:
             for name in self.metrics[mode][key]:
 
