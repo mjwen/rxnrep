@@ -14,11 +14,7 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.data.uspto import USPTODataset
-from rxnrep.scripts.train_electrolyte import LightningModel as ModelElectrolyteFull
-from rxnrep.scripts.train_electrolyte_no_added_bond import (
-    LightningModel as ModelElectrolyteTwoBondType,
-)
-from rxnrep.scripts.train_uspto import LightningModel as ModelUspto
+from rxnrep.scripts.commons import RxnRepLightningModel
 from rxnrep.utils import to_path, yaml_load
 
 
@@ -45,23 +41,18 @@ def get_prediction(
     ckpt_path = model_path.joinpath("checkpoint.ckpt")
     dataset_state_dict_path = model_path.joinpath("dataset_state_dict.yaml")
 
+    model = RxnRepLightningModel.load_from_checkpoint(
+        str(ckpt_path), map_location=torch.device("cpu")
+    )
+
     if model_name == "uspto":
-        model = ModelUspto.load_from_checkpoint(
-            str(ckpt_path), map_location=torch.device("cpu")
-        )
         data_loader = load_uspto_dataset(dataset_state_dict_path, dataset_filename)
 
     elif model_name == "electrolyte_full":
-        model = ModelElectrolyteFull.load_from_checkpoint(
-            str(ckpt_path), map_location=torch.device("cpu")
-        )
         data_loader = load_electrolyte_dataset(
             dataset_state_dict_path, dataset_filename, dataset_type="full"
         )
     elif model_name == "electrolyte_two_bond_types":
-        model = ModelElectrolyteTwoBondType.load_from_checkpoint(
-            str(ckpt_path), map_location=torch.device("cpu")
-        )
         data_loader = load_electrolyte_dataset(
             dataset_state_dict_path, dataset_filename, dataset_type="two_bond_types"
         )
