@@ -442,7 +442,7 @@ def get_atom_distance_to_reaction_center(
                     pass
 
             assert distances != [], (
-                "Cannot find path to reaction center for some atom, this should not "
+                f"Cannot find path to reaction center for atom {atom}, this should not "
                 "happen. The reaction probably has atoms not connected to others in "
                 "both the reactants and the products. Please remove these atoms."
                 f"Bad reaction is: {reaction.id}"

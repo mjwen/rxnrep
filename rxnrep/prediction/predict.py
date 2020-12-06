@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from rxnrep.data.electrolyte import ElectrolyteDataset, ElectrolyteDatasetTwoBondType
+from rxnrep.data.electrolyte import ElectrolyteDataset, ElectrolyteDatasetNoAddedBond
 from rxnrep.data.featurizer import (
     AtomFeaturizer,
     AtomFeaturizerMinimum,
@@ -15,7 +15,7 @@ from rxnrep.data.featurizer import (
 )
 from rxnrep.data.uspto import USPTODataset
 from rxnrep.scripts.train_electrolyte import LightningModel as ModelElectrolyteFull
-from rxnrep.scripts.train_electrolyte_two_bond_type import (
+from rxnrep.scripts.train_electrolyte_no_added_bond import (
     LightningModel as ModelElectrolyteTwoBondType,
 )
 from rxnrep.scripts.train_uspto import LightningModel as ModelUspto
@@ -170,7 +170,7 @@ def load_electrolyte_dataset(
     if dataset_type == "full":
         DT = ElectrolyteDataset
     elif dataset_type == "two_bond_types":
-        DT = ElectrolyteDatasetTwoBondType
+        DT = ElectrolyteDatasetNoAddedBond
     else:
         raise PredictionError(f"Unsupported dataset type {dataset_type}")
 

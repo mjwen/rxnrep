@@ -3,13 +3,14 @@ import logging
 import multiprocessing
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Callable, Dict, Optional, Union
 
 import numpy as np
 import torch
 from monty.serialization import loadfn
 from mrnet.core.mol_entry import MoleculeEntry
 from mrnet.core.reactions import Reaction as PMG_Reaction
+from sklearn.utils import class_weight
 
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
@@ -31,6 +32,8 @@ class ElectrolyteDataset(USPTODataset):
         transform_features: whether to standardize the atom, bond, and global features.
             If `True`, each feature column will first subtract the mean and then divide
             by the standard deviation.
+        max_hop_distance: maximum allowed hop distance from the reaction center for
+            atom and bond. Used to determine atom and bond label
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -46,6 +49,7 @@ class ElectrolyteDataset(USPTODataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         transform_features: bool = True,
+        max_hop_distance: int = 3,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
@@ -75,7 +79,9 @@ class ElectrolyteDataset(USPTODataset):
         if transform_features:
             self.scale_features()
 
-        self.labels = {}
+        self.max_hop_distance = max_hop_distance
+        self.labels = self.generate_labels()
+
         self.metadata = {}
 
     @staticmethod
@@ -119,103 +125,75 @@ class ElectrolyteDataset(USPTODataset):
         return succeed_reactions, failed
 
 
-class ElectrolyteDatasetTwoBondType(ElectrolyteDataset):
+class ElectrolyteDatasetNoAddedBond(ElectrolyteDataset):
     """
-    Similar to ElectrolyteDataset, the difference is that here we only have two bond
-    types: unchanged or changed.
+    Similar to ElectrolyteDataset, the difference is that here all the reactions are
+    one bond breaking reactions (A->B and A->B+C), and there is no bond creation.
 
-    This is supposed to be used for A->B and A->B+C reactions where there is only bond
-    breakage, not bond creation.
-
+    As a result, allowed number of classes for atom hop distance and bond hop distances
+    are both different from ElectrolyteDataset.
     """
 
-    def get_atom_in_reaction_center_and_bond_type_class_weight(
-        self,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_class_weight(self) -> Dict[str, torch.Tensor]:
         """
-        Create class weight to be used in cross entropy function for node classification
-        problems:
+        Create class weight to be used in cross entropy losses.
 
-        1. whether atom is in reaction center:
-            weight = mean(num_atoms_not_in_center / num_atoms_in_center)
-            where mean is taken over all reactions.
-
-            Here, if an atom is in center, it has positive class 1, we adjust its
-            weight accordingly. See `self._create_label_atom_in_reaction_center()` for
-            more.
-
-        2. bond is unchanged bond, changed bond (lost or added bond):
-            weight = mean(num_unchanged_bonds / num_changed_bonds)
-            where mean is taken over all reactions.
-
-            Here, unchanged and changed have class labels 0 and 1
-            respectively. See `self._create_label_bond_type()` for more.
-
-        Returns:
-            weight_atom_in_reaction_center: a scaler tensor giving the weight for the
-                positive class.
-            weight_bond_type: a scaler tensor giving the weight for the positive class.
+        This is for labels generated in `generate_labels()`.
+        For each type of, it is computed as the mean over all reactions.
         """
 
-        w_in_center = []
-        w_changed_bond = []
-        for rxn in self.reactions:
-            unchanged = rxn.unchanged_bonds
-            lost = rxn.lost_bonds
-            added = rxn.added_bonds
+        # atom hop class weight
 
-            # bond weight
-            n_unchanged = len(unchanged)
-            n_changed = len(lost + added)
-            if n_changed == 0:
-                w_changed_bond.append(1.0)
-            else:
-                w_changed_bond.append(n_unchanged / n_changed)
+        # Unique labels should be `list(range(atom_hop_num_classes))`,  where
+        # `atom_hop_num_classes` should be `max_hop_distance + 1`.
+        # The labels are: atoms in lost bond (class 0) and atoms in unchanged bond (
+        # class 1 to max_hop_distance).
+        all_atom_hop_labels = np.concatenate(
+            [lb["atom_hop_dist"] for lb in self.labels]
+        )
 
-            # atom weight
-            num_atoms = sum([m.num_atoms for m in rxn.reactants])
-            changed_atoms = set(
-                [i for i in itertools.chain.from_iterable(lost + added)]
+        unique_labels = sorted(set(all_atom_hop_labels))
+        if unique_labels != list(range(self.max_hop_distance + 1)):
+            raise RuntimeError(
+                f"Unable to compute atom class weight; some classes do not have valid "
+                f"labels. num_classes: {self.max_hop_distance + 1} unique labels: "
+                f"{unique_labels}"
             )
-            num_changed = len(changed_atoms)
-            if num_changed == 0:
-                w_in_center.append(1.0)
-            else:
-                w_in_center.append((num_atoms - num_changed) / num_changed)
 
-        weight_atom_in_reaction_center = torch.as_tensor(
-            [np.mean(w_in_center)], dtype=torch.float32
+        atom_hop_weight = class_weight.compute_class_weight(
+            "balanced",
+            classes=unique_labels,
+            y=all_atom_hop_labels,
         )
 
-        weight_bond_type = torch.as_tensor(
-            [np.mean(w_changed_bond)], dtype=torch.float32
+        # bond hop class weight
+        # Unique labels should be `list(range(bond_hop_num_classes))`, where
+        # `bond_hop_num_classes = max_hop_distance + 1`.
+        # The labels are: lost bond (class 0), unchanged (class 1 to max_hop_distance).
+        all_bond_hop_labels = np.concatenate(
+            [lb["bond_hop_dist"] for lb in self.labels]
         )
 
-        return weight_atom_in_reaction_center, weight_bond_type
+        unique_labels = sorted(set(all_bond_hop_labels))
+        if unique_labels != list(range(self.max_hop_distance + 1)):
+            raise RuntimeError(
+                f"Unable to compute bond class weight; some classes do not have valid "
+                f"labels. num_classes: {self.max_hop_distance + 1} unique labels: "
+                f"{unique_labels}"
+            )
 
-    @staticmethod
-    def _create_label_bond_type(reaction) -> torch.Tensor:
-        """
-        Label for bond type classification:
-        0: unchanged bond, 1: changed bond (lost or added bond)
+        bond_hop_weight = class_weight.compute_class_weight(
+            "balanced",
+            classes=unique_labels,
+            y=all_bond_hop_labels,
+        )
 
-        Args:
-            reaction: the reaction
+        weight = {
+            "atom_hop_dist": torch.as_tensor(atom_hop_weight, dtype=torch.float32),
+            "bond_hop_dist": torch.as_tensor(bond_hop_weight, dtype=torch.float32),
+        }
 
-        Returns:
-            1D tensor of the class for each bond. The order is the same as the bond
-            nodes in the reaction graph.
-        """
-        num_unchanged = len(reaction.unchanged_bonds)
-        num_lost = len(reaction.lost_bonds)
-        num_added = len(reaction.added_bonds)
-
-        # Note, reaction graph bond nodes are ordered in the sequence of unchanged bonds,
-        # lost bonds, and added bonds in `create_reaction_graph()`
-        bond_type = [0] * num_unchanged + [1] * (num_lost + num_added)
-        bond_type = torch.as_tensor(bond_type, dtype=torch.float32)
-
-        return bond_type
+        return weight
 
 
 def process_one_reaction_from_input_file(
