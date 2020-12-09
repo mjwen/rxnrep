@@ -1,3 +1,4 @@
+import copy
 import functools
 import logging
 import multiprocessing
@@ -15,6 +16,7 @@ from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
 from rxnrep.data.grapher import (
+    AtomTypeFeatureMasker,
     combine_graphs,
     create_hetero_molecule_graph,
     create_reaction_graph,
@@ -40,6 +42,8 @@ class USPTODataset(BaseDataset):
             by the standard deviation.
         max_hop_distance: maximum allowed hop distance from the reaction center for
             atom and bond. Used to determine atom and bond label
+        atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
+            reaction
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -56,6 +60,7 @@ class USPTODataset(BaseDataset):
         global_featurizer: Callable,
         transform_features: bool = True,
         max_hop_distance: int = 3,
+        atom_type_masker_ratio: float = 0.2,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
@@ -88,6 +93,14 @@ class USPTODataset(BaseDataset):
         self.labels = self.generate_labels()
 
         self.metadata = {}
+
+        self.atom_type_masker = AtomTypeFeatureMasker(
+            allowable_types=self._species,
+            feature_name=self.feature_name["atom"],
+            feature_mean=self._feature_scaler_mean["atom"],
+            feature_std=self._feature_scaler_std["atom"],
+            ratio=atom_type_masker_ratio,
+        )
 
     @staticmethod
     def read_file(filename, nprocs):
@@ -330,6 +343,30 @@ class USPTODataset(BaseDataset):
             }
             self.metadata[item] = meta
 
+        # Mask atom types features
+        # Should not modify the original reactants and products graph in-place,
+        # since they will be used in the next batch.
+        # Not a bad idea to deepcopy reactants_g and products_g and assign the new
+        # features to it. Memory should not be a big problem since this is done on the
+        # batch level and will not create copies for all graphs in the dataset
+        # If memory becomes an issue, we can get a copy of the features from the
+        # graphs, modify it and return the update features.
+        reactants_g = copy.deepcopy(reactants_g)
+        products_g = copy.deepcopy(products_g)
+        (
+            reactants_g,
+            products_g,
+            is_atom_masked,
+            masked_atom_labels,
+        ) = self.atom_type_masker.mask_features(reactants_g, products_g, reaction)
+
+        # add masked_atom_labels to label
+        label["masked_atom"] = torch.as_tensor(masked_atom_labels, dtype=torch.int64)
+
+        # add is_atom_masked to meta
+        meta = copy.copy(meta)  # copy so as not to modify self.metadata
+        meta["is_atom_masked"] = torch.as_tensor(is_atom_masked, dtype=torch.bool)
+
         if self.return_index:
             return item, reactants_g, products_g, reaction_g, meta, label
         else:
@@ -359,6 +396,12 @@ class USPTODataset(BaseDataset):
         # metadata used to split global and bond features
         keys = metadata[0].keys()
         batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+
+        # special treatment of `is_atom_masked` since it is a 1D tensor
+        # make it a 1D tensor
+        batched_metadata["is_atom_masked"] = torch.cat(
+            batched_metadata["is_atom_masked"]
+        )
 
         return (
             batched_indices,

@@ -595,7 +595,7 @@ class AtomTypeFeatureMasker:
     Args:
         allowable_types: all allowed atom types. The class labels for masked atoms are
             generated from this.
-        feature_names: name of the atom features e.g. `atom type`, `in ring`....
+        feature_name: name of the atom features e.g. `atom type`, `in ring`....
             This is used to find the indices of the atom features stored in the graphs.
         feature_mean: 1D tensor. Mean of the atom features. This is used together with
             `feature_std`, to determine the feature values for masked atoms.
@@ -606,7 +606,7 @@ class AtomTypeFeatureMasker:
     def __init__(
         self,
         allowable_types: List[str],
-        feature_names: List[str],
+        feature_name: List[str],
         feature_mean: Optional[Union[Sequence, torch.Tensor]] = None,
         feature_std: Optional[Union[Sequence, torch.Tensor]] = None,
         ratio: float = 0.2,
@@ -617,8 +617,8 @@ class AtomTypeFeatureMasker:
         self.class_labels_map = {s: i for i, s in enumerate(self.allowable_types)}
 
         # indices of atom type features
-        self.start_index = feature_names.index("atom type")
-        self.end_index = len(feature_names) - feature_names[::-1].index("atom type")
+        self.start_index = feature_name.index("atom type")
+        self.end_index = len(feature_name) - feature_name[::-1].index("atom type")
         atom_type_feats_sizes = self.end_index - self.start_index
 
         if feature_mean is not None and feature_std is not None:
