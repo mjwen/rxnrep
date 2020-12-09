@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument(
         "--has_added_bonds",
         type=int,
-        default=1,
+        default=0,
         help="whether the dataset has added bonds (besides lost and unchanged bonds)",
     )
 
@@ -240,6 +240,7 @@ def load_dataset(args):
     args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
     args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
+    args.masked_atom_type_num_classes = len(trainset.get_species())
 
     args.feature_size = trainset.feature_size
 

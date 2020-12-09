@@ -12,7 +12,7 @@ from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturi
 from rxnrep.data.uspto import USPTODataset
 from rxnrep.scripts.commons import RxnRepLightningModel
 from rxnrep.scripts.launch_environment import PyTorchLaunch
-from rxnrep.scripts.utils import TimeMeter, get_latest_checkpoint_wandb
+from rxnrep.scripts.utils import get_latest_checkpoint_wandb
 
 
 def parse_args():
