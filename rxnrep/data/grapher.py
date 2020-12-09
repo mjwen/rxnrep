@@ -4,7 +4,7 @@ Build molecule graphs.
 import copy
 import itertools
 from collections import defaultdict
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 
 import dgl
 import networkx as nx
@@ -585,9 +585,12 @@ class AtomTypeFeatureMasker:
     atom type based on its neighboring info so as to require the NN to learn and
     retain atom type info in the representational vector.
 
-    If feature mean and std are provided, the mask features are set to -mean/std,
-    equivalent to setting all one hot encoding digits to 0 when getting the features.
-    Otherwise, the mask values are set to zeros.
+    If feature mean and std are provided, the mask features are set to
+    `-mean[start_idx:end_idx]/std[start_idx:end_idx]`, where start_idx and end_idx are
+    the starting index and ending index of atom type features in the feature_mean and
+    std sequences. This is equivalent to setting all one hot encoding digits to 0 when
+    getting the features.
+    If feature mean or std is not provided, the mask values are set to zeros.
 
     Args:
         allowable_types: all allowed atom types. The class labels for masked atoms are
@@ -604,8 +607,8 @@ class AtomTypeFeatureMasker:
         self,
         allowable_types: List[str],
         feature_names: List[str],
-        feature_mean: Optional[torch.Tensor] = None,
-        feature_std: Optional[torch.Tensor] = None,
+        feature_mean: Optional[Union[Sequence, torch.Tensor]] = None,
+        feature_std: Optional[Union[Sequence, torch.Tensor]] = None,
         ratio: float = 0.2,
     ):
         self.allowable_types = sorted(allowable_types)
@@ -615,13 +618,16 @@ class AtomTypeFeatureMasker:
 
         # indices of atom type features
         self.start_index = feature_names.index("atom type")
-        self.end_index = len(feature_names) - feature_names[::-1].index("atom_type")
+        self.end_index = len(feature_names) - feature_names[::-1].index("atom type")
+        atom_type_feats_sizes = self.end_index - self.start_index
 
         if feature_mean is not None and feature_std is not None:
             # set mask values to be - mean/std. This is equivalent to set all values of
             # the one hot encoding to 0
-            mean = feature_mean[self.start_index : self.end_index]
-            std = feature_std[self.start_index : self.end_index]
+            mean = torch.as_tensor(feature_mean, dtype=torch.float32)
+            std = torch.as_tensor(feature_std, dtype=torch.float32)
+            mean = mean[self.start_index : self.end_index]
+            std = std[self.start_index : self.end_index]
             self.mask_values = -mean / std
         else:
             self.mask_values = torch.zeros(self.end_index - self.start_index)
@@ -681,11 +687,11 @@ class AtomTypeFeatureMasker:
                 masked_atom_labels.append(lb)
 
                 # update atom features
-                reactants_g["atom"].data["feat"][atom][
+                reactants_g.nodes["atom"].data["feat"][atom][
                     self.start_index : self.end_index
                 ] = self.mask_values
 
-                products_g["atom"].data["feat"][atom][
+                products_g.nodes["atom"].data["feat"][atom][
                     self.start_index : self.end_index
                 ] = self.mask_values
 
