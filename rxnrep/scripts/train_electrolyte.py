@@ -72,6 +72,7 @@ def parse_args():
     )
     parser.add_argument("--node_decoder_activation", type=str, default="ReLU")
     parser.add_argument("--max_hop_distance", type=int, default=3)
+    parser.add_argument("--atom_type_masker_ratio", type=float, default=0.2)
 
     # clustering decoder
     parser.add_argument(
@@ -165,6 +166,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
+        atom_type_masker_ratio=args.atom_type_masker_ratio,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
     )
@@ -178,6 +180,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
+        atom_type_masker_ratio=args.atom_type_masker_ratio,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -189,6 +192,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
+        atom_type_masker_ratio=args.atom_type_masker_ratio,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )

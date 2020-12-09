@@ -541,7 +541,7 @@ def test_atom_type_masker():
     feature_std = np.array([1.0, 2.0, 3.0, 4.0])
     masker = AtomTypeFeatureMasker(
         allowable_types=species,
-        feature_names=atom_featurizer.feature_name,
+        feature_name=atom_featurizer.feature_name,
         feature_mean=feature_mean,
         feature_std=feature_std,
     )
@@ -585,7 +585,7 @@ def test_atom_type_masker():
     #
     masker = AtomTypeFeatureMasker(
         allowable_types=species,
-        feature_names=atom_featurizer.feature_name,
+        feature_name=atom_featurizer.feature_name,
         feature_mean=None,
         feature_std=None,
     )
