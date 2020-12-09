@@ -361,7 +361,9 @@ class USPTODataset(BaseDataset):
         ) = self.atom_type_masker.mask_features(reactants_g, products_g, reaction)
 
         # add masked_atom_labels to label
-        label["masked_atom"] = torch.as_tensor(masked_atom_labels, dtype=torch.int64)
+        label["masked_atom_type"] = torch.as_tensor(
+            masked_atom_labels, dtype=torch.int64
+        )
 
         # add is_atom_masked to meta
         meta = copy.copy(meta)  # copy so as not to modify self.metadata

@@ -578,7 +578,7 @@ def get_reaction_features(
             }
 
             feats, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
-            preds = model.decode(feats, rxn_feats)
+            preds = model.decode(feats, rxn_feats, metadata)
 
             all_feats.append(preds["reaction_cluster"].detach())
 

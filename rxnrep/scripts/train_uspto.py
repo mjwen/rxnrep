@@ -224,6 +224,7 @@ def load_dataset(args):
     args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
     args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
+    args.masked_atom_type_num_classes = len(trainset.get_species())
 
     args.feature_size = trainset.feature_size
 
