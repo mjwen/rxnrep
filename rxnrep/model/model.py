@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from rxnrep.model.decoder import (
     AtomHopDistDecoder,
+    AtomTypeDecoder,
     BondHopDistDecoder,
     FCNNDecoder,
     ReactionClusterDecoder,
@@ -39,7 +40,10 @@ class ReactionRepresentation(nn.Module):
         bond_hop_dist_decoder_num_classes:
         atom_hop_dist_decoder_hidden_layer_sizes:
         atom_hop_dist_decoder_activation:
-        bond_hop_dist_decoder_num_classes:
+        atom_hop_dist_decoder_num_classes:
+        masked_atom_type_decoder_hidden_layer_sizes,
+        masked_atom_type_decoder_activation,
+        masked_atom_type_decoder_num_classes,
         reaction_cluster_decoder_hidden_layer_sizes:
         reaction_cluster_decoder_activation:
         reaction_cluster_decoder_output_size:
@@ -64,14 +68,18 @@ class ReactionRepresentation(nn.Module):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # bond decoder
+        # bond hop dist decoder
         bond_hop_dist_decoder_hidden_layer_sizes,
         bond_hop_dist_decoder_activation,
         bond_hop_dist_decoder_num_classes,
-        # atom decoder
+        # atom hop dist decoder
         atom_hop_dist_decoder_hidden_layer_sizes,
         atom_hop_dist_decoder_activation,
         atom_hop_dist_decoder_num_classes,
+        # masked atom type decoder
+        masked_atom_type_decoder_hidden_layer_sizes,
+        masked_atom_type_decoder_activation,
+        masked_atom_type_decoder_num_classes,
         # clustering decoder
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
@@ -121,6 +129,15 @@ class ReactionRepresentation(nn.Module):
             activation=atom_hop_dist_decoder_activation,
         )
 
+        # masked atom type decoder
+        in_size = reaction_conv_layer_sizes[-1]
+        self.masked_atom_type_decoder = AtomTypeDecoder(
+            in_size=in_size,
+            num_classes=masked_atom_type_decoder_num_classes,
+            hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
+            activation=masked_atom_type_decoder_activation,
+        )
+
         # ========== reaction level decoder ==========
 
         # readout reaction features, one 1D tensor for each reaction
@@ -146,7 +163,7 @@ class ReactionRepresentation(nn.Module):
         molecule_graphs: dgl.DGLGraph,
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
-        metadata: Dict[str, List[int]],
+        metadata: Dict[str, torch.Tensor],
     ) -> Tuple[Dict[str, Any], torch.Tensor]:
         """
         We let forward only returns features and the part to map the features to logits
@@ -167,7 +184,10 @@ class ReactionRepresentation(nn.Module):
         return feats, reaction_feats
 
     def decode(
-        self, feats: torch.Tensor, reaction_feats: torch.Tensor
+        self,
+        feats: torch.Tensor,
+        reaction_feats: torch.Tensor,
+        metadata: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         """
         Decode the molecule and reaction features to properties.
@@ -175,6 +195,7 @@ class ReactionRepresentation(nn.Module):
         Args:
             feats: first output of `forward()`
             reaction_feats: second output of `forward()`
+            metadata:
 
         Returns:
             predictions: {decoder_name: value} predictions of the decoders.
@@ -186,6 +207,12 @@ class ReactionRepresentation(nn.Module):
         # atom hop dist decoder
         atom_hop_dist = self.atom_hop_dist_decoder(feats["atom"])
 
+        # masked atom type decoder
+        atom_ft = feats["atom"]
+        masked_or_not = metadata["is_atom_masked"]
+        atom_ft_of_masked_atoms = atom_ft[masked_or_not]
+        masked_atom_type = self.masked_atom_type_decoder(atom_ft_of_masked_atoms)
+
         # reaction decoder
         reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
 
@@ -193,6 +220,7 @@ class ReactionRepresentation(nn.Module):
         predictions = {
             "bond_hop_dist": bond_hop_dist,
             "atom_hop_dist": atom_hop_dist,
+            "masked_atom_type": masked_atom_type,
             "reaction_cluster": reaction_cluster,
         }
 

@@ -56,12 +56,6 @@ class BaseDecoder(nn.Module):
         return self.fc_layers(feats)
 
 
-BondHopDistDecoder = BaseDecoder
-AtomHopDistDecoder = BaseDecoder
-ReactionClusterDecoder = BaseDecoder
-FCNNDecoder = BaseDecoder
-
-
 class LinearClassificationHead(nn.Module):
     """
     A linear layer, y=Wx+b, to project the learned features to class labels.
@@ -79,3 +73,10 @@ class LinearClassificationHead(nn.Module):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return self.layer(features)
+
+
+BondHopDistDecoder = BaseDecoder
+AtomHopDistDecoder = BaseDecoder
+ReactionClusterDecoder = BaseDecoder
+AtomTypeDecoder = BaseDecoder
+FCNNDecoder = BaseDecoder
