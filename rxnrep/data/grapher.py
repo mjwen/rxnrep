@@ -635,7 +635,7 @@ class AtomTypeFeatureMasker:
         self, reactants_g: dgl.DGLGraph, products_g: dgl.DGLGraph, reaction: Reaction
     ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, List[bool], List[int]]:
         """
-        Make the atom type features.
+        Mask the atom type features.
 
         Args:
             reactants_g: reactants graph
@@ -654,42 +654,32 @@ class AtomTypeFeatureMasker:
                 2 are masked), then `masked_atom_labels = [1, 5]` means the label for
                 atom 0 is 1 and for atom 2 is 5.
         """
-
         num_atoms = sum([m.num_atoms for m in reaction.reactants])
-        permuted_atoms = np.random.permutation(num_atoms)
+        permuted_atoms = np.random.permutation(num_atoms).tolist()
         masked_atoms = permuted_atoms[: int(num_atoms * self.ratio)]
 
         # mask at least 1 atom for small molecules
-        if len(masked_atoms) == 0:
+        if not masked_atoms:
             masked_atoms = [permuted_atoms[0]]
-
-        masked_atoms = sorted(masked_atoms)
+        else:
+            masked_atoms = sorted(masked_atoms)
 
         is_atom_masked = [
             True if i in masked_atoms else False for i in range(num_atoms)
         ]
 
-        map_number = np.concatenate(
-            reaction.get_reactants_atom_map_number(zero_based=True)
-        ).tolist()
-        species = np.concatenate([m.species for m in reaction.reactants]).tolist()
+        # set masked atom labels
+        masked_atom_labels = [
+            self.class_labels_map[reaction.species[i]] for i in masked_atoms
+        ]
 
-        masked_atom_labels = []
-        for atom in masked_atoms:
+        # set atom features to masked values
+        reactants_g.nodes["atom"].data["feat"][
+            masked_atoms, self.start_index : self.end_index
+        ] = self.mask_values
 
-            # set masked atom labels (note `masked_atoms` are the map number of atoms)
-            idx = map_number.index(atom)
-            s = species[idx]
-            lb = self.class_labels_map[s]
-            masked_atom_labels.append(lb)
-
-            # update atom features
-            reactants_g.nodes["atom"].data["feat"][atom][
-                self.start_index : self.end_index
-            ] = self.mask_values
-
-            products_g.nodes["atom"].data["feat"][atom][
-                self.start_index : self.end_index
-            ] = self.mask_values
+        products_g.nodes["atom"].data["feat"][
+            masked_atoms, self.start_index : self.end_index
+        ] = self.mask_values
 
         return reactants_g, products_g, is_atom_masked, masked_atom_labels

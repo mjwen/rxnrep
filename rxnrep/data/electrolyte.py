@@ -87,6 +87,7 @@ class ElectrolyteDataset(USPTODataset):
         self.labels = self.generate_labels()
 
         self.metadata = {}
+        self.atom_features = {}
 
         self.atom_type_masker = AtomTypeFeatureMasker(
             allowable_types=self._species,

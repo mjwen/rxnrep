@@ -93,6 +93,7 @@ class USPTODataset(BaseDataset):
         self.labels = self.generate_labels()
 
         self.metadata = {}
+        self.atom_features = {}
 
         self.atom_type_masker = AtomTypeFeatureMasker(
             allowable_types=self._species,
@@ -333,6 +334,7 @@ class USPTODataset(BaseDataset):
         # get metadata
         if item in self.metadata:
             meta = self.metadata[item]
+            atom_feats = self.atom_features[item]
         else:
             meta = {
                 "reactant_num_molecules": len(reaction.reactants),
@@ -342,17 +344,23 @@ class USPTODataset(BaseDataset):
                 "num_added_bonds": len(reaction.added_bonds),
             }
             self.metadata[item] = meta
+            # move the storage of atom features from the graph to self.atom_features
+            atom_feats = {
+                "reactants": reactants_g.nodes["atom"].data.pop("feat"),
+                "products": products_g.nodes["atom"].data.pop("feat"),
+            }
+            self.atom_features[item] = atom_feats
 
+        #
         # Mask atom types features
-        # Should not modify the original reactants and products graph in-place,
-        # since they will be used in the next batch.
-        # Not a bad idea to deepcopy reactants_g and products_g and assign the new
-        # features to it. Memory should not be a big problem since this is done on the
-        # batch level and will not create copies for all graphs in the dataset
-        # If memory becomes an issue, we can get a copy of the features from the
-        # graphs, modify it and return the update features.
-        reactants_g = copy.deepcopy(reactants_g)
-        products_g = copy.deepcopy(products_g)
+        #
+
+        # Assign atom features bach to graph. Should make a deepcopy to keep
+        # self.atom_features intact.
+        atom_feats = copy.deepcopy(atom_feats)
+        reactants_g.nodes["atom"].data["feat"] = atom_feats["reactants"]
+        products_g.nodes["atom"].data["feat"] = atom_feats["products"]
+
         (
             reactants_g,
             products_g,
@@ -366,7 +374,6 @@ class USPTODataset(BaseDataset):
         )
 
         # add is_atom_masked to meta
-        meta = copy.copy(meta)  # copy so as not to modify self.metadata
         meta["is_atom_masked"] = torch.as_tensor(is_atom_masked, dtype=torch.bool)
 
         if self.return_index:
