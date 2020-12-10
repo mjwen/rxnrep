@@ -491,15 +491,12 @@ def adjust_reagents(reaction: str) -> str:
     """
 
     def get_bonds(m):
-        """Get sorted bonds, specified with atom map number.
-        Do not include atoms that is not mapped (i.e. with a atom map number 0).
-        """
+        """Get sorted bonds, specified with atom map number."""
         bonds = []
         for b in m.GetBonds():
             a1 = b.GetBeginAtom().GetAtomMapNum()
             a2 = b.GetEndAtom().GetAtomMapNum()
-            if a1 != 0 and a2 != 0:
-                bonds.append(tuple(sorted([a1, a2])))
+            bonds.append(tuple(sorted([a1, a2])))
         return bonds
 
     reactants_smi, reagents_smi, products_smi = reaction.strip().split(">")
@@ -522,18 +519,18 @@ def adjust_reagents(reaction: str) -> str:
     # This is equivalent to determining graph isomorphism and will thus ignore
     # information like bond type.
     #
-    # Also, we do not consider atoms without atom map number in the reactant since such
-    # atoms will be added to the products later in function
-    # `add_nonexist_atoms_and_bonds_to_product`.
-    #
+    # Note, some atoms in the reactants may not have atom map number. This is fine for
+    # the comparison below, since it is `None` in `reactants_mapping`  and 0 in
+    # `reactants_bonds`. Also, it is fine that multiple atoms in the reactant having
+    # the same map number `None` or `0`, since the atom map number for the products is
+    # unique.
     reactants_bonds = [set(get_bonds(m)) for m in reactants]
     products_bonds = [set(get_bonds(m)) for m in products]
     reactant_should_be_reagent = set()
     product_should_be_reagent = set()
     for i in range(len(reactants)):
-        rct_mp = {x for x in reactants_mapping[i] if x is not None}
+        rct_mp = set(reactants_mapping[i])
         for j in range(len(products)):
-            # no `None` will be in prdt_mp due to the check above
             prdt_mp = set(products_mapping[j])
             if rct_mp == prdt_mp and reactants_bonds[i] == products_bonds[j]:
                 reactant_should_be_reagent.add(i)
