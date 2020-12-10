@@ -1,5 +1,6 @@
 import copy
 import multiprocessing
+from itertools import chain
 from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
@@ -478,7 +479,8 @@ def adjust_reagents(reaction: str) -> str:
 
     The function moves two type of molecules from the reactants and products to the
     reagents:
-    1) the same molecule existing in both the reactants and products.
+    1) the same molecule existing in both the reactants and products (i.e. molecules
+    not associated with bond change).
     2) molecules in aaa (ccc) does not have a single atom in ccc (aaa).
 
     Args:
@@ -488,53 +490,88 @@ def adjust_reagents(reaction: str) -> str:
          smiles reaction with the place of reagents adjusted
     """
 
+    def get_bonds(m):
+        """Get sorted bonds, specified with atom map number.
+        Do not include atoms that is not mapped (i.e. with a atom map number 0).
+        """
+        bonds = []
+        for b in m.GetBonds():
+            a1 = b.GetBeginAtom().GetAtomMapNum()
+            a2 = b.GetEndAtom().GetAtomMapNum()
+            if a1 != 0 and a2 != 0:
+                bonds.append(tuple(sorted([a1, a2])))
+        return bonds
+
     reactants_smi, reagents_smi, products_smi = reaction.strip().split(">")
 
-    # move type 1) molecules to reagents
-    reactants_smi_separate = reactants_smi.split(".")
-    products_smi_separate = products_smi.split(".")
-    commons = set(reactants_smi_separate) & set(products_smi_separate)
-    reactants_smi_separate = [s for s in reactants_smi_separate if s not in commons]
-    products_smi_separate = [s for s in products_smi_separate if s not in commons]
-
-    # add common molecules to reagents
-    if reagents_smi == "":
-        reagents_smi = ".".join(commons)
-    else:
-        reagents_smi = ".".join([reagents_smi] + list(commons))
-
-    # move type 2) molecules to reagents
-    reactants = [Chem.MolFromSmiles(s) for s in reactants_smi_separate]
-    products = [Chem.MolFromSmiles(s) for s in products_smi_separate]
-
+    reactants = [Chem.MolFromSmiles(s) for s in reactants_smi.split(".")]
+    products = [Chem.MolFromSmiles(s) for s in products_smi.split(".")]
     if None in reactants or None in products:
         raise MoleculeCreationError(f"Cannot create molecules from: {reaction}")
 
-    # get atom mapping
-    mapping_rcts = [set(get_mol_atom_mapping(m)) for m in reactants]
-    mapping_prdts = [set(get_mol_atom_mapping(m)) for m in products]
-    mapping_rcts_all = set()
-    mapping_prdts_all = set()
-    for x in mapping_rcts:
-        mapping_rcts_all.update(x)
-    for x in mapping_prdts:
-        mapping_prdts_all.update(x)
-    if None in mapping_prdts_all:
+    reactants_mapping = [get_mol_atom_mapping(m) for m in reactants]
+    products_mapping = [get_mol_atom_mapping(m) for m in products]
+    products_mapping_all = list(chain.from_iterable(products_mapping))
+    if None in products_mapping_all:
         raise AtomMapNumberError("Products has atom without map number.")
 
+    #
+    # move type 1) molecules to reagents
+    # The strategy is to move molecules with the same set of atoms (atom map numbers) and
+    # the same set of bonds (indexed by atom map numbers) to the reagents.
+    # This is equivalent to determining graph isomorphism and will thus ignore
+    # information like bond type.
+    #
+    # Also, we do not consider atoms without atom map number in the reactant since such
+    # atoms will be added to the products later in function
+    # `add_nonexist_atoms_and_bonds_to_product`.
+    #
+    reactants_bonds = [set(get_bonds(m)) for m in reactants]
+    products_bonds = [set(get_bonds(m)) for m in products]
+    reactant_should_be_reagent = set()
+    product_should_be_reagent = set()
+    for i in range(len(reactants)):
+        rct_mp = {x for x in reactants_mapping[i] if x is not None}
+        for j in range(len(products)):
+            # no `None` will be in prdt_mp due to the check above
+            prdt_mp = set(products_mapping[j])
+            if rct_mp == prdt_mp and reactants_bonds[i] == products_bonds[j]:
+                reactant_should_be_reagent.add(i)
+                product_should_be_reagent.add(j)
+
+    new_reactants = [
+        m for i, m in enumerate(reactants) if i not in reactant_should_be_reagent
+    ]
+    new_products = [
+        m for i, m in enumerate(products) if i not in product_should_be_reagent
+    ]
+    new_reagents = [
+        m for i, m in enumerate(reactants) if i in reactant_should_be_reagent
+    ]
+
+    #
+    # move type 2) molecules to reagents
+    #
+    reactants = new_reactants
+    products = new_products
+    reactants_mapping = [set(get_mol_atom_mapping(m)) for m in reactants]
+    products_mapping = [set(get_mol_atom_mapping(m)) for m in products]
+    reactants_mapping_all = set(chain.from_iterable(reactants_mapping))
+    products_mapping_all = set(chain.from_iterable(products_mapping))
+
     new_reactants = []
-    new_reagents = []
     new_products = []
+
     # move reactant to reagent if none of its atoms is in the product
-    for i, mapping in enumerate(mapping_rcts):
-        if len(mapping & mapping_prdts_all) == 0:
+    for i, mapping in enumerate(reactants_mapping):
+        if len(mapping & products_mapping_all) == 0:
             new_reagents.append(reactants[i])
         else:
             new_reactants.append(reactants[i])
 
     # move product to reagent if none of its atoms is in the reactant
-    for i, mapping in enumerate(mapping_prdts):
-        if len(mapping & mapping_rcts_all) == 0:
+    for i, mapping in enumerate(products_mapping):
+        if len(mapping & reactants_mapping_all) == 0:
             new_reagents.append(products[i])
         else:
             new_products.append(products[i])

@@ -141,9 +141,10 @@ def test_canonicalize_smiles_reaction_by_adding_nonexist_atoms_and_bonds():
     canonical_rxn_smi, error = out
     reactant, reagent, product = canonical_rxn_smi.split(">")
 
-    ref_reactant = "[CH3:1][CH2+:2].[CH2:3][CH2:4][CH3:5]"
-    ref_product = "[CH3:1][CH2+:2].[CH2:3].[CH3:4][CH3:5]"
-    ref_reagent = "[K+].[Na+]"
+    # [CH3:1][CH2+:2] will be moved to reagent
+    ref_reactant = "[CH2:1][CH2:2][CH3:3]"
+    ref_product = "[CH2:1].[CH3:2][CH3:3]"
+    ref_reagent = "[CH2+]C.[K+].[Na+]"
 
     assert error is None
     assert set(reactant.split(".")) == set(ref_reactant.split("."))
