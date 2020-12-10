@@ -1,6 +1,7 @@
 import itertools
 import logging
 from collections import defaultdict
+from itertools import chain
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -43,6 +44,8 @@ class Reaction:
         self._unchanged_bonds = None
         self._lost_bonds = None
         self._added_bonds = None
+
+        self._species = None
 
         if sanity_check:
             self.check_composition()
@@ -112,6 +115,20 @@ class Reaction:
             ) = self.get_unchanged_lost_and_added_bonds(zero_based=True)
 
         return self._added_bonds
+
+    @property
+    def species(self) -> List[str]:
+        """
+        Get the species of the atoms, ordered according to the atom map number.
+        """
+        if self._species is None:
+            map_number = list(
+                chain.from_iterable(self.get_reactants_atom_map_number(zero_based=True))
+            )
+            specs = list(chain.from_iterable([m.species for m in self.reactants]))
+            specs_ordered = [specs[map_number.index(i)] for i in range(len(map_number))]
+            self._species = specs_ordered
+        return self._species
 
     def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
         """
