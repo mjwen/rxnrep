@@ -355,11 +355,12 @@ class USPTODataset(BaseDataset):
         # Mask atom types features
         #
 
-        # Assign atom features bach to graph. Should make a deepcopy to keep
+        # Assign atom features bach to graph. Should clone the tensors to keep
         # self.atom_features intact.
-        atom_feats = copy.deepcopy(atom_feats)
-        reactants_g.nodes["atom"].data["feat"] = atom_feats["reactants"]
-        products_g.nodes["atom"].data["feat"] = atom_feats["products"]
+        reactants_g.nodes["atom"].data["feat"] = (
+            atom_feats["reactants"].clone().detach()
+        )
+        products_g.nodes["atom"].data["feat"] = atom_feats["products"].clone().detach()
 
         (
             reactants_g,
