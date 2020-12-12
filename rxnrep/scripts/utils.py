@@ -2,6 +2,7 @@ import logging
 import os
 import random
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict
@@ -295,3 +296,19 @@ def get_latest_checkpoint_wandb(save_dir: Path, project: str):
     ckpt_path = str(ckpt_path)
 
     return ckpt_path
+
+
+def get_repo_git_commit(repo_path: Path) -> str:
+    """
+    Get the latest git commit info of a github repository.
+
+    Args:
+        repo_path: path to the repo
+
+    Returns:
+        latest commit info
+    """
+    output = subprocess.check_output(["git", "log"], cwd=Path(repo_path))
+    output = output.decode("utf-8").split("\n")[:6]
+    latest_commit = "\n".join(output)
+    return latest_commit

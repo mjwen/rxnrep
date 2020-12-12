@@ -16,7 +16,7 @@ from rxnrep.data.featurizer import (
 )
 from rxnrep.scripts.commons import RxnRepLightningModel
 from rxnrep.scripts.launch_environment import PyTorchLaunch
-from rxnrep.scripts.utils import get_latest_checkpoint_wandb
+from rxnrep.scripts.utils import get_latest_checkpoint_wandb, get_repo_git_commit
 
 
 def parse_args():
@@ -322,4 +322,8 @@ def main():
 
 
 if __name__ == "__main__":
+    repo_path = "/Users/mjwen/Applications/rxnrep"
+    latest_commit = get_repo_git_commit(repo_path)
+    print("Git commit:\n", latest_commit)
+
     main()

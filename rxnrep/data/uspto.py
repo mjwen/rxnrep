@@ -407,7 +407,7 @@ class USPTODataset(BaseDataset):
         keys = metadata[0].keys()
         batched_metadata = {k: [d[k] for d in metadata] for k in keys}
 
-        # special treatment of `is_atom_masked` since it is a 1D tensor
+        # special treatment of `is_atom_masked` since it is a list of 1D tensor
         # make it a 1D tensor
         batched_metadata["is_atom_masked"] = torch.cat(
             batched_metadata["is_atom_masked"]
