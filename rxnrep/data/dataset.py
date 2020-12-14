@@ -1,12 +1,19 @@
+import functools
 import logging
+import multiprocessing
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import dgl
 import torch
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
+from rxnrep.data.grapher import (
+    combine_graphs,
+    create_hetero_molecule_graph,
+    create_reaction_graph,
+)
 from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
 from rxnrep.utils import convert_tensor_to_list, to_path, yaml_dump, yaml_load
 
@@ -37,11 +44,10 @@ class BaseDataset:
         self.nprocs = num_processes
         self.return_index = return_index
 
+        # will recover from state dict if it is not None
         self._species = None
         self._feature_scaler_mean = None
         self._feature_scaler_std = None
-
-        self._failed = None
 
         # recovery state info
         if init_state_dict is not None:
@@ -51,6 +57,13 @@ class BaseDataset:
             # given as a file
             else:
                 self.load_state_dict_file(init_state_dict)
+
+        # convert reactions to dgl graphs (should do this after recovering state dict,
+        # since the species, feature mean and stdev might be recovered there)
+        self.dgl_graphs = self.build_graph_and_featurize()
+
+        # failed reactions
+        self._failed = None
 
     @property
     def feature_size(self) -> Dict[str, int]:
@@ -77,6 +90,78 @@ class BaseDataset:
         }
 
         return name
+
+    def build_graph_and_featurize(
+        self,
+    ) -> List[Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]]:
+        """
+        Build DGL graphs for molecules in the reactions and then featurize the molecules.
+
+        Each reaction is represented by three graphs, one for reactants, one for
+        products, and the other for the union of the reactants and products.
+
+        Returns:
+            Each tuple represents on reaction, containing dgl graphs of the reactants,
+            products, and their union.
+        """
+
+        logger.info("Starting building graphs and featurizing...")
+
+        # self._species will not be None, if state_dict is provide. This will be the
+        # case for retraining and test. If it is None, this is in the training mode,
+        # and we get the species from the dataset.
+        if self._species is None:
+            self._species = self.get_species()
+
+        atom_featurizer = functools.partial(
+            self.atom_featurizer, allowable_atom_type=self._species
+        )
+
+        # build graph and featurize
+        if self.nprocs == 1:
+            dgl_graphs = [
+                build_hetero_graph_and_featurize_one_reaction(
+                    rxn,
+                    atom_featurizer=atom_featurizer,
+                    bond_featurizer=self.bond_featurizer,
+                    global_featurizer=self.global_featurizer,
+                    self_loop=True,
+                )
+                for rxn in self.reactions
+            ]
+        else:
+            func = functools.partial(
+                build_hetero_graph_and_featurize_one_reaction,
+                atom_featurizer=atom_featurizer,
+                bond_featurizer=self.bond_featurizer,
+                global_featurizer=self.global_featurizer,
+                self_loop=True,
+            )
+            with multiprocessing.Pool(self.nprocs) as p:
+                dgl_graphs = p.map(func, self.reactions)
+
+            # multiprocessing makes a copy of atom_featurizer and bond_featurizer and
+            # then pass them to the subprocess. As a result, feature_name and
+            # feature_size in the featurizer will not be updated.
+            # Here we simply call it on the first reaction to initialize it
+            build_hetero_graph_and_featurize_one_reaction(
+                self.reactions[0],
+                atom_featurizer=atom_featurizer,
+                bond_featurizer=self.bond_featurizer,
+                global_featurizer=self.global_featurizer,
+                self_loop=True,
+            )
+
+        # log feature name and size
+        for k in self.feature_name:
+            ft_name = self.feature_name[k]
+            ft_size = self.feature_size[k]
+            logger.info(f"{k} feature name: {ft_name}")
+            logger.info(f"{k} feature size: {ft_size}")
+
+        logger.info("Finish building graphs and featurizing...")
+
+        return dgl_graphs
 
     def get_failed(self) -> List[bool]:
         """
@@ -106,7 +191,11 @@ class BaseDataset:
         """
         Get all the molecule graphs in the dataset.
         """
-        raise NotImplementedError
+        graphs = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            graphs.extend([reactants_g, products_g])
+
+        return graphs
 
     def get_species(self) -> List[str]:
         """
@@ -294,3 +383,84 @@ class Subset(BaseDataset):
 
     def __len__(self):
         return len(self.indices)
+
+
+def build_hetero_graph_and_featurize_one_reaction(
+    reaction: Reaction,
+    atom_featurizer: Callable,
+    bond_featurizer: Callable,
+    global_featurizer: Callable,
+    self_loop=False,
+) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
+    """
+    Build heterogeneous dgl graph for the reactants and products in a reaction and
+    featurize them.
+
+    Args:
+        reaction:
+        atom_featurizer:
+        bond_featurizer:
+        global_featurizer:
+        self_loop:
+
+    Returns:
+        reactants_g: dgl graph for the reactants. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        products_g: dgl graph for the products. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        reaction_g: dgl graph for the reaction. bond nodes is the union of reactants
+            bond nodes and products bond nodes.
+    """
+
+    def featurize_one_mol(m: Molecule):
+
+        rdkit_mol = m.rdkit_mol
+        # create graph
+        g = create_hetero_molecule_graph(rdkit_mol, self_loop)
+
+        # featurize molecules
+        atom_feats = atom_featurizer(rdkit_mol)
+        bond_feats = bond_featurizer(rdkit_mol)
+        global_feats = global_featurizer(
+            rdkit_mol, charge=m.charge, environment=m.environment
+        )
+
+        # add feats to graph
+        g.nodes["atom"].data.update({"feat": atom_feats})
+        g.nodes["bond"].data.update({"feat": bond_feats})
+        g.nodes["global"].data.update({"feat": global_feats})
+
+        return g
+
+    try:
+        reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
+        product_graphs = [featurize_one_mol(m) for m in reaction.products]
+
+        # combine small graphs to form one big graph for reactants and products
+        atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
+        reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
+
+        atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
+        products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
+
+        # combine reaction graph from the combined reactant graph and product graph
+        num_unchanged = len(reaction.unchanged_bonds)
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
+
+        reaction_g = create_reaction_graph(
+            reactants_g,
+            products_g,
+            num_unchanged,
+            num_lost,
+            num_added,
+            self_loop,
+        )
+
+    except Exception as e:
+        logger.error(f"Error build graph and featurize for reaction: {reaction.id}")
+        raise Exception(e)
+
+    return reactants_g, products_g, reaction_g

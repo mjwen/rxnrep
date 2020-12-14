@@ -77,9 +77,6 @@ class ElectrolyteDataset(USPTODataset):
         # set failed and labels
         self._failed = failed
 
-        # convert reactions to dgl graphs
-        self.reaction_graphs = self.build_graph_and_featurize()
-
         if transform_features:
             self.scale_features()
 

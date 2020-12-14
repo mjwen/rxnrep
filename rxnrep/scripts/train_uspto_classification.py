@@ -30,8 +30,8 @@ def parse_args():
     prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
 
     fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
-    fname_val = prefix + fname_tr
-    fname_test = prefix + fname_tr
+    fname_val = fname_tr
+    fname_test = fname_tr
 
     parser.add_argument("--trainset_filename", type=str, default=fname_tr)
     parser.add_argument("--valset_filename", type=str, default=fname_val)
