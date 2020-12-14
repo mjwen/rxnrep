@@ -3,7 +3,7 @@ import logging
 from collections import defaultdict
 from itertools import chain
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from rdkit import Chem
@@ -25,6 +25,8 @@ class Reaction:
         sanity_check: check the correctness of the reactions, e.g. mass conservation,
             charge conservation...
         id: an identifier of the reaction
+        properties: a dictionary of additional properties associated with the reaction,
+            e.g. reaction energy
     """
 
     def __init__(
@@ -34,12 +36,14 @@ class Reaction:
         reagents: Optional[List[Molecule]] = None,
         sanity_check: bool = True,
         id: Optional[Union[int, str]] = None,
+        properties: Optional[Dict[str, Any]] = None,
     ):
 
         self._reactants = reactants
         self._products = products
         self._reagents = reagents
         self._id = id
+        self._properties = properties
 
         self._unchanged_bonds = None
         self._lost_bonds = None
@@ -129,6 +133,21 @@ class Reaction:
             specs_ordered = [specs[map_number.index(i)] for i in range(len(map_number))]
             self._species = specs_ordered
         return self._species
+
+    def get_property(self, name: str) -> Any:
+        """
+        Return the additional properties of the reaction.
+
+        Args:
+            name: property name
+        """
+        if self._properties is None:
+            raise ReactionError("Reaction does not have property {name}")
+        else:
+            try:
+                return self._properties[name]
+            except KeyError:
+                raise ReactionError("Reaction does not have property {name}")
 
     def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
         """

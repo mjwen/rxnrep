@@ -274,7 +274,18 @@ def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction, index: int) -> Rea
     product_ids = "+".join([str(i) for i in pmg_reaction.product_ids])
     reaction_id = f"{reactant_ids}->{product_ids}_index-{index}"
 
-    reaction = Reaction(reactants, products, id=reaction_id, sanity_check=False)
+    # additional property
+    free_energy = sum([m.get_property("free_energy") for m in products]) - sum(
+        [m.get_property("free_energy") for m in reactants]
+    )
+
+    reaction = Reaction(
+        reactants,
+        products,
+        id=reaction_id,
+        sanity_check=False,
+        properties={"free_energy": free_energy},
+    )
 
     return reaction
 
@@ -313,7 +324,11 @@ def pymatgen_mol_entry_to_molecule(
     # charge of the pymatgen Molecule. Currently, there is not a good method to
     # handle metals. We set the charge of Molecule to what is in pymatgen Molecule
     # explicitly.
-    mol = Molecule(rdkit_mol, id=mol_entry.entry_id)
+    mol = Molecule(
+        rdkit_mol,
+        id=mol_entry.entry_id,
+        properties={"free_energy": mol_entry.get_free_energy()},
+    )
     mol.charge = mol_entry.molecule.charge
 
     return mol

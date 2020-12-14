@@ -4,7 +4,7 @@ import copy
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from rdkit import Chem
@@ -21,12 +21,20 @@ class Molecule:
     Args:
         mol: rdkit molecule.
         id: an identification of the molecule.
+        properties: a dictionary of additional properties associated with the reaction,
+            e.g. energy
     """
 
-    def __init__(self, mol: Chem.Mol, id: Optional[Union[int, str]] = None):
+    def __init__(
+        self,
+        mol: Chem.Mol,
+        id: Optional[Union[int, str]] = None,
+        properties: Optional[Dict[str, Any]] = None,
+    ):
 
         self._mol = mol
         self._id = id
+        self._properties = properties
 
         self._charge = None
         self._environment = None
@@ -221,6 +229,21 @@ class Molecule:
         Set the computation environment of the molecule, e.g. solvent model.
         """
         self._environment = value
+
+    def get_property(self, name: str) -> Any:
+        """
+        Return the additional properties of the Reaction.
+
+        Args:
+            name: property name
+        """
+        if self._properties is None:
+            raise MoleculeError("Molecule does not have property {name}")
+        else:
+            try:
+                return self._properties[name]
+            except KeyError:
+                raise MoleculeError("Molecule does not have property {name}")
 
     def get_atom_map_number(self) -> List[Union[int, None]]:
         """
