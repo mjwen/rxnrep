@@ -75,6 +75,33 @@ class LinearClassificationHead(nn.Module):
         return self.layer(features)
 
 
+class ReactionEnergyDecoder(BaseDecoder):
+    """
+    A decoder to map the reaction features to the thermodynamic free energy of the
+    reaction.
+
+    Args:
+        in_size: input size of the features
+        hidden_layer_sizes: size of the hidden layers to transform the features.
+            Note, there will be an additional layer applied after this,
+            which transforms the features to `num_classes` dimensions.
+        activation: activation function applied after the hidden layer
+    """
+
+    def __init__(
+        self,
+        in_size: int,
+        hidden_layer_sizes: List[int],
+        activation: str = "ReLU",
+    ):
+        super(ReactionEnergyDecoder, self).__init__(
+            in_size=in_size,
+            num_classes=1,
+            hidden_layer_sizes=hidden_layer_sizes,
+            activation=activation,
+        )
+
+
 BondHopDistDecoder = BaseDecoder
 AtomHopDistDecoder = BaseDecoder
 ReactionClusterDecoder = BaseDecoder

@@ -3,7 +3,7 @@ import logging
 import multiprocessing
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -133,6 +133,46 @@ class ElectrolyteDataset(USPTODataset):
         )
 
         return succeed_reactions, failed
+
+    def get_reaction_free_energies(self, normalize: bool = True):
+        """
+        Get free energies for the reactions.
+
+        Args:
+            normalize: whether to normalize the free energies.
+        """
+
+        energies = [rxn.get_property["free_energy"] for rxn in self.reactions]
+
+        energies = torch.as_tensor(energies, torch.float32)
+
+        if normalize:
+            mean = torch.mean(energies)
+            std = torch.std(energies)
+            energies = (energies - mean) / std
+
+            logger.info(f"Free energy mean: {mean}")
+            logger.info(f"Free energy std: {std}")
+
+        return energies
+
+    def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
+        """
+        Labels for all reactions.
+
+        Each dict is the labels for one reaction, with keys:
+            `atom_hop_dist`, `bond_hop_dist`, and `free_energy`.
+        """
+
+        # `atom_hop_dist` and `bond_hop_dist` labels
+        labels = super(ElectrolyteDataset, self).generate_labels()
+
+        # `free_energy` label
+        free_energies = self.get_reaction_free_energies(normalize=True)
+        for energy, rxn_label in zip(free_energies, labels):
+            rxn_label["free_energy"] = energy
+
+        return labels
 
 
 class ElectrolyteDatasetNoAddedBond(ElectrolyteDataset):
