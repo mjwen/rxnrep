@@ -142,9 +142,8 @@ class ElectrolyteDataset(USPTODataset):
             normalize: whether to normalize the free energies.
         """
 
-        energies = [rxn.get_property["free_energy"] for rxn in self.reactions]
-
-        energies = torch.as_tensor(energies, torch.float32)
+        energies = [rxn.get_property("free_energy") for rxn in self.reactions]
+        energies = torch.as_tensor(energies, dtype=torch.float32)
 
         if normalize:
             mean = torch.mean(energies)
@@ -168,9 +167,11 @@ class ElectrolyteDataset(USPTODataset):
         labels = super(ElectrolyteDataset, self).generate_labels()
 
         # `free_energy` label
+        # (it is a scaler, but here we make it a 1D tensor of 1element to use the
+        # collate_fn, where all energies in a batch is cat to a 1D tensor)
         free_energies = self.get_reaction_free_energies(normalize=True)
         for energy, rxn_label in zip(free_energies, labels):
-            rxn_label["free_energy"] = energy
+            rxn_label["free_energy"] = torch.as_tensor([energy], dtype=torch.float32)
 
         return labels
 

@@ -57,73 +57,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.centroids = {mode: None for mode in ["train", "val", "test"]}
 
         # metrics
-        # (should be modules so that metric tensors can be placed in the correct device)
-        self.metrics = nn.ModuleDict()
-        for mode in ["metric_train", "metric_val", "metric_test"]:
-            self.metrics[mode] = nn.ModuleDict(
-                {
-                    "bond_hop_dist": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=params.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=params.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=params.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "atom_hop_dist": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=params.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=params.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=params.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "masked_atom_type": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=params.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=params.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=params.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                }
-            )
+        self.metrics = self._init_metrics()
 
         self.timer = TimeMeter()
 
@@ -339,6 +273,79 @@ class RxnRepLightningModel(pl.LightningModule):
         indices = torch.cat([x["indices"] for x in outputs])
         feats = torch.cat([x["reaction_cluster_feats"] for x in outputs])
         self.reaction_cluster_fn[mode].set_local_data_and_index(feats, indices)
+
+    def _init_metrics(self):
+        # metrics should be modules so that metric tensors can be placed in the correct
+        # device
+
+        metrics = nn.ModuleDict()
+        for mode in ["metric_train", "metric_val", "metric_test"]:
+            metrics[mode] = nn.ModuleDict(
+                {
+                    "bond_hop_dist": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    ),
+                    "atom_hop_dist": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    ),
+                    "masked_atom_type": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.masked_atom_type_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.masked_atom_type_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.masked_atom_type_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    ),
+                }
+            )
+
+        return metrics
 
     def _update_metrics(self, preds, labels, mode):
         """
