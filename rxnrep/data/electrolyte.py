@@ -160,18 +160,20 @@ class ElectrolyteDataset(USPTODataset):
         Labels for all reactions.
 
         Each dict is the labels for one reaction, with keys:
-            `atom_hop_dist`, `bond_hop_dist`, and `free_energy`.
+            `atom_hop_dist`, `bond_hop_dist`, and `reaction_energy`.
         """
 
         # `atom_hop_dist` and `bond_hop_dist` labels
         labels = super(ElectrolyteDataset, self).generate_labels()
 
-        # `free_energy` label
+        # `reaction_energy` label
         # (it is a scaler, but here we make it a 1D tensor of 1element to use the
         # collate_fn, where all energies in a batch is cat to a 1D tensor)
         free_energies = self.get_reaction_free_energies(normalize=True)
         for energy, rxn_label in zip(free_energies, labels):
-            rxn_label["free_energy"] = torch.as_tensor([energy], dtype=torch.float32)
+            rxn_label["reaction_energy"] = torch.as_tensor(
+                [energy], dtype=torch.float32
+            )
 
         return labels
 
