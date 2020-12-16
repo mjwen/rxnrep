@@ -401,7 +401,7 @@ def main():
         monitor="metric_val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
     )
     early_stop_callback = EarlyStopping(
-        monitor="metric_val/f1", min_delta=0.0, patience=50, mode="min", verbose=True
+        monitor="metric_val/f1", min_delta=0.0, patience=50, mode="max", verbose=True
     )
 
     # logger

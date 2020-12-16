@@ -6,6 +6,8 @@ import torch
 from rdkit import Chem
 
 from rxnrep.core.reaction import smiles_to_reaction
+from rxnrep.data.dataset import build_hetero_graph_and_featurize_one_reaction
+from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.grapher import (
     AtomTypeFeatureMasker,
     combine_graphs,
@@ -516,9 +518,6 @@ def test_get_atom_bond_distance_to_reaction_center():
 
 
 def test_atom_type_masker():
-    from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-    from rxnrep.data.uspto import build_hetero_graph_and_featurize_one_reaction
-
     smi_rxn = "[Cl:1][CH:13]([Cl:12])[Cl:14].[OH:9][CH3:15].[c:2]1([CH3:3])[cH:4][cH:5][c:6]([C:7]#[N:8])[cH:10][cH:11]1>>[CH4:15].[Cl:12][CH2:13][Cl:14].[ClH:1].[c:2]1([CH3:3])[cH:4][cH:5][c:6]([C:7](=[NH:8])[OH:9])[cH:10][cH:11]1"
     rxn = smiles_to_reaction(smi_rxn)
 
