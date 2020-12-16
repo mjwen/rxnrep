@@ -14,12 +14,15 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.data.uspto import USPTODataset
-from rxnrep.scripts.commons import RxnRepLightningModel
+from rxnrep.scripts.commons import RxnRepLightningModel, RxnRepLightningModel2
 from rxnrep.utils import to_path, yaml_load
 
 
 def get_prediction(
-    model_path: Path, dataset_filename: Path, model_name: str
+    model_path: Path,
+    dataset_filename: Path,
+    model_name: str,
+    has_reaction_energy_decoder: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Make predictions using a pretrained model.
@@ -31,6 +34,8 @@ def get_prediction(
             state dict of the dataset used in training the model.
         dataset_filename: path to the dataset file to get the predictions for.
         model_name: name of the model (dataset plus model)
+        has_reaction_energy_decoder: whether to use a model that has reaction energy
+            decoder
 
     Returns:
         Predictions for all data points. Each dict in the list holds the prediction
@@ -41,9 +46,14 @@ def get_prediction(
     ckpt_path = model_path.joinpath("checkpoint.ckpt")
     dataset_state_dict_path = model_path.joinpath("dataset_state_dict.yaml")
 
-    model = RxnRepLightningModel.load_from_checkpoint(
-        str(ckpt_path), map_location=torch.device("cpu")
-    )
+    if has_reaction_energy_decoder:
+        model = RxnRepLightningModel2.load_from_checkpoint(
+            str(ckpt_path), map_location=torch.device("cpu")
+        )
+    else:
+        model = RxnRepLightningModel.load_from_checkpoint(
+            str(ckpt_path), map_location=torch.device("cpu")
+        )
 
     if model_name == "uspto":
         data_loader = load_uspto_dataset(dataset_state_dict_path, dataset_filename)
