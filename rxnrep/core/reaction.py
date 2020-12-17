@@ -492,16 +492,17 @@ class Reaction:
                 f"Reactants and products have different map numbers."
             )
 
-    def draw(self, filename: Path = None):
+    def draw(self, filename: Path = None, **kwargs):
         """
         draw the reaction.
 
         Args:
              filename: Save to `filename` if it is not None. Example: reaction.png
+             kwargs: additional kw arguments for `ReactionToImage`.
         """
         rxn = AllChem.ReactionFromSmarts(str(self), useSmiles=True)
         if filename is not None:
-            image = Chem.Draw.ReactionToImage(rxn)
+            image = Chem.Draw.ReactionToImage(rxn, **kwargs)
             image.save(str(filename))
         return rxn
 

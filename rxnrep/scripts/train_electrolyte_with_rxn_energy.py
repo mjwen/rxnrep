@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument("--molecule_batch_norm", type=int, default=1)
     parser.add_argument("--molecule_activation", type=str, default="ReLU")
     parser.add_argument("--molecule_residual", type=int, default=1)
-    parser.add_argument("--molecule-dropout", type=float, default="0.0")
+    parser.add_argument("--molecule_dropout", type=float, default="0.0")
     parser.add_argument(
         "--reaction_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
     )
