@@ -167,6 +167,36 @@ class ReactionEncoder(nn.Module):
 
         return feats
 
+    def get_diff_feats(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+        norm_atom=None,
+        norm_bond=None,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Get the difference features before applying reaction conv layers.
+
+        With this, we can check the idea that atoms/bonds far away from the reaction
+        center have small (in magnitude) difference features.
+
+        This is the same as the forward function, without the reaction conv layers.
+        """
+
+        # embedding
+        feats = self.embedding(feats)
+
+        # molecule graph conv layer
+        for layer in self.molecule_conv_layers:
+            feats = layer(molecule_graphs, feats, norm_atom, norm_bond)
+
+        # create difference reaction features from molecule features
+        diff_feats = create_reaction_features(feats, metadata)
+
+        return diff_feats
+
 
 def create_reaction_features(
     molecule_feats: Dict[str, torch.Tensor], metadata: Dict[str, List[int]]

@@ -61,7 +61,22 @@ class RxnRepLightningModel(pl.LightningModule):
 
         self.timer = TimeMeter()
 
-    def forward(self, batch):
+    def forward(self, batch, returns: str = "rxn_feats"):
+        """
+        Args:
+            batch:
+            returns: the type of features (embeddings) to return. Optionals are
+            `rxn_feats`, 'diff_feats_before_rxn_conv', and 'diff_feats_after_rxn_conv'.
+
+        Returns:
+            If returns = `rxn_feats`, return a 2D tensor of reaction features, each row
+                for a reaction;
+            If returns = `diff_feats_before_rxn_conv` or `diff_feats_after_rxn_conv` or
+                return a dictionary of atom, bond, and global features; and a dictionary
+                of metadata (e.g. num atoms in reaction center). As the name suggests,
+                the returned features can be `before` or `after` applying the reaction
+                conv layers.
+        """
         nodes = ["atom", "bond", "global"]
 
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
@@ -72,9 +87,22 @@ class RxnRepLightningModel(pl.LightningModule):
 
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
-        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-
-        return reaction_feats
+        if returns == "rxn_feats":
+            _, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            return reaction_feats
+        elif returns == "diff_feats_after_rxn_conv":
+            diff_feats, _ = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            return diff_feats, metadata
+        elif returns == "diff_feats_before_rxn_conv":
+            diff_feats = self.model.get_diff_feats(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
+            return diff_feats, metadata
+        else:
+            raise ValueError(
+                "Expect `returns` to be one of `rxn_feats`, `diff_feats_before_rxn_conv` "
+                f"and `diff_feats_after_rxn_conv`; got `{returns}`."
+            )
 
     def on_train_epoch_start(self):
         if self.reaction_cluster_fn["train"] is None:

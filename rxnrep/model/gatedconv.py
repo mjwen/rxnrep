@@ -6,7 +6,7 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-# from bondnet.layer.hgatconv import NodeAttentionLayer
+
 from rxnrep.model.utils import FCNN
 
 logger = logging.getLogger(__name__)

@@ -165,7 +165,7 @@ class ReactionRepresentation(nn.Module):
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, torch.Tensor],
-    ) -> Tuple[Dict[str, Any], torch.Tensor]:
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
         """
         We let forward only returns features and the part to map the features to logits
         in another function: `decode`.
@@ -183,6 +183,17 @@ class ReactionRepresentation(nn.Module):
         reaction_feats = self.set2set(reaction_graphs, feats)
 
         return feats, reaction_feats
+
+    def get_diff_feats(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        return self.encoder.get_diff_feats(
+            molecule_graphs, reaction_graphs, feats, metadata
+        )
 
     def decode(
         self,
