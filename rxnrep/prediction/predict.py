@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -23,6 +24,7 @@ def get_prediction(
     dataset_filename: Path,
     model_name: str,
     has_reaction_energy_decoder: bool = False,
+    prediction_type: str = "reaction_feature",
 ) -> List[Dict[str, Any]]:
     """
     Make predictions using a pretrained model.
@@ -33,9 +35,12 @@ def get_prediction(
             file of the lightning model, and 2) dataset_state_dict.yaml, which is the
             state dict of the dataset used in training the model.
         dataset_filename: path to the dataset file to get the predictions for.
-        model_name: name of the model (dataset plus model)
+        model_name: name of the model (dataset plus model). Options are `uspto`,
+        `electrolyte_full`, and `electrolyte_two_bond_types`.
         has_reaction_energy_decoder: whether to use a model that has reaction energy
             decoder
+        prediction_type: the type of prediction to return. Options are `reaction_feature`,
+            `diff_feature_before_rxn_conv`, and `diff_feature_after_rxn_conv`.
 
     Returns:
         Predictions for all data points. Each dict in the list holds the prediction
@@ -72,28 +77,49 @@ def get_prediction(
             f"Expect model to be one of {supported}, but got {model_name}."
         )
 
-    dataset = data_loader.dataset
+    # get evaluation results from the model
+    results = evaluate(model, data_loader, prediction_type)
 
-    # get embeddings from the model
-    embeddings = evaluate(model, data_loader)
+    # reactions
+    reactions = data_loader.dataset.reactions
 
-    # convert to a list of dict, one for each data point
+    # split results (the size is different for different reactions)
+    if prediction_type in [
+        "diff_feature_before_rxn_conv",
+        "diff_feature_after_rxn_conv",
+    ]:
+        num_atoms = [len(rxn.species) for rxn in reactions]
+        num_bonds = [
+            len(rxn.unchanged_bonds) + len(rxn.lost_bonds) + len(rxn.added_bonds)
+            for rxn in reactions
+        ]
+        results["atom"] = torch.split(results["atom"], num_atoms)
+        results["bond"] = torch.split(results["bond"], num_bonds)
+
+    # convert to a list of dict, one for each reaction
     predictions = []
     idx = 0
-    for do_fail in dataset.get_failed():
+    for do_fail in data_loader.dataset.get_failed():
+
+        # failed when converting reactions in raw input
         if do_fail:
-            # failed when converting reactions in raw input
             predictions.append(None)
+
+        # succeeded reactions
         else:
-            # succeeded reactions
-            d = {k: embeddings[k][idx] for k in embeddings}
+            # predictions
+            d = {k: results[k][idx].numpy() for k in results}
+
+            # add reaction to it
+            d["reaction"] = data_loader.dataset.reactions[idx]
+
             predictions.append(d)
             idx += 1
 
     return predictions
 
 
-def evaluate(model, data_loader) -> Dict[str, np.ndarray]:
+def evaluate(model, data_loader, prediction_type: str) -> Dict[str, torch.Tensor]:
     """
     Get the model predictions. This is whatever returned by the forward() method of the
     lightning model.
@@ -101,24 +127,36 @@ def evaluate(model, data_loader) -> Dict[str, np.ndarray]:
     Args:
         model: lightning model
         data_loader: torch dataloader
+        prediction_type: the type of prediction to return. Options are `reaction_feature`,
+            `diff_feature_before_rxn_conv`, and `diff_feature_after_rxn_conv.
 
     Returns:
-        Predictions of the model: {prediction_name, prediction_values}. For models
-        considered here, prediction values are reaction  embedding, a 2D array of
-        shape (N, D), where `N` is the number of data points and `D` is the embedding
-        dimension.
+        Predictions of the model: {prediction_name, prediction_values}.
+        For models considered here, prediction values are reaction feature, difference
+        feature (depending on prediction_type). It is a 2D tensor (N, D),
+        where `N` is the number of data points and `D` is the embedding dimension.
     """
 
     model.eval()
 
-    embeddings = []
+    results = defaultdict(list)
 
     with torch.no_grad():
         for batch in data_loader:
-            preds = model(batch)
-            embeddings.append(preds.cpu().numpy())
+            preds = model(batch, returns=prediction_type)
 
-        results = {"embeddings": np.concatenate(embeddings)}
+            # preds a dictionary with keys: `atom`, `bond`, and `global`,
+            # when prediction_type is `diff_feature_...`
+            if isinstance(preds, dict):
+                for k, v in preds.items():
+                    results[k].append(v.detach())
+
+            # preds is a tensor when prediction_type = reaction_feature;
+            elif isinstance(preds, torch.Tensor):
+                results["value"].append(preds.detach())
+
+    # make each value a 2D array
+    results = {k: torch.cat(v) for k, v in results.items()}
 
     return results
 

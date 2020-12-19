@@ -405,8 +405,7 @@ def get_bond_distance_to_reaction_center(
 
     A broken bond has hop distance 0;
     A bond right next to the reaction center has a hop distance of `1`;
-    A bond connected to the reaction center via 1 other bond has a hop distance of
-    `2`;
+    A bond connected to the reaction center via 1 other bond has a hop distance of `2`;
     ...
     A bond connected to the reaction center via max_hop-1 other bonds has a hop
     distance of `max_hop`;
