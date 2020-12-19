@@ -328,8 +328,15 @@ class ReactionRepresentation2(ReactionRepresentation):
             set2set_num_layers,
         )
 
+        # have reaction conv layer
+        if reaction_conv_layer_sizes:
+            conv_last_layer_size = reaction_conv_layer_sizes[-1]
+        # does not have reaction conv layer
+        else:
+            conv_last_layer_size = molecule_conv_layer_sizes[-1]
+
         # reaction energy decoder
-        in_size = reaction_conv_layer_sizes[-1] * 5
+        in_size = conv_last_layer_size * 5
         self.reaction_energy_decoder = ReactionEnergyDecoder(
             in_size=in_size,
             hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
@@ -453,8 +460,15 @@ class LinearClassification(nn.Module):
             reaction_dropout=reaction_dropout,
         )
 
+        # have reaction conv layer
+        if reaction_conv_layer_sizes:
+            conv_last_layer_size = reaction_conv_layer_sizes[-1]
+        # does not have reaction conv layer
+        else:
+            conv_last_layer_size = molecule_conv_layer_sizes[-1]
+
         # readout reaction features, one 1D tensor for each reaction
-        in_sizes = [reaction_conv_layer_sizes[-1]] * 2
+        in_sizes = [conv_last_layer_size] * 2
         self.set2set = Set2SetThenCat(
             num_iters=set2set_num_iterations,
             num_layers=set2set_num_layers,
@@ -464,7 +478,7 @@ class LinearClassification(nn.Module):
         )
 
         # linear classification head
-        in_size = reaction_conv_layer_sizes[-1] * 5
+        in_size = conv_last_layer_size * 5
         self.classification_head = FCNNDecoder(
             in_size, num_classes, head_hidden_layer_sizes, head_activation
         )
