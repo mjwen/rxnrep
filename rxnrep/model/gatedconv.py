@@ -6,7 +6,6 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-
 from rxnrep.model.utils import FCNN
 
 logger = logging.getLogger(__name__)

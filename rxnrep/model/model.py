@@ -110,30 +110,34 @@ class ReactionRepresentation(nn.Module):
             reaction_dropout=reaction_dropout,
         )
 
+        # have reaction conv layer
+        if reaction_conv_layer_sizes:
+            conv_last_layer_size = reaction_conv_layer_sizes[-1]
+        # does not have reaction conv layer
+        else:
+            conv_last_layer_size = molecule_conv_layer_sizes[-1]
+
         # ========== node level decoder ==========
 
         # bond hop dist decoder
-        in_size = reaction_conv_layer_sizes[-1]
         self.bond_hop_dist_decoder = BondHopDistDecoder(
-            in_size=in_size,
+            in_size=conv_last_layer_size,
             num_classes=bond_hop_dist_decoder_num_classes,
             hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
             activation=bond_hop_dist_decoder_activation,
         )
 
         # atom hop dist decoder
-        in_size = reaction_conv_layer_sizes[-1]
         self.atom_hop_dist_decoder = AtomHopDistDecoder(
-            in_size=in_size,
+            in_size=conv_last_layer_size,
             num_classes=atom_hop_dist_decoder_num_classes,
             hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
             activation=atom_hop_dist_decoder_activation,
         )
 
         # masked atom type decoder
-        in_size = reaction_conv_layer_sizes[-1]
         self.masked_atom_type_decoder = AtomTypeDecoder(
-            in_size=in_size,
+            in_size=conv_last_layer_size,
             num_classes=masked_atom_type_decoder_num_classes,
             hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
             activation=masked_atom_type_decoder_activation,
@@ -142,7 +146,7 @@ class ReactionRepresentation(nn.Module):
         # ========== reaction level decoder ==========
 
         # readout reaction features, one 1D tensor for each reaction
-        in_sizes = [reaction_conv_layer_sizes[-1]] * 2
+        in_sizes = [conv_last_layer_size] * 2
         self.set2set = Set2SetThenCat(
             num_iters=set2set_num_iterations,
             num_layers=set2set_num_layers,
@@ -151,7 +155,7 @@ class ReactionRepresentation(nn.Module):
             ntypes_direct_cat=["global"],
         )
 
-        in_size = reaction_conv_layer_sizes[-1] * 5
+        in_size = conv_last_layer_size * 5
         self.reaction_cluster_decoder = ReactionClusterDecoder(
             in_size=in_size,
             num_classes=reaction_cluster_decoder_output_size,
