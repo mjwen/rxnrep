@@ -20,6 +20,7 @@ from rxnrep.scripts.utils import (
     TimeMeter,
     get_latest_checkpoint_wandb,
     get_repo_git_commit,
+    save_files_to_wandb,
 )
 
 
@@ -447,6 +448,16 @@ def main():
     # ========== fit and test ==========
     trainer.fit(model, train_loader, val_loader)
     trainer.test(test_dataloaders=test_loader)
+
+    # ========== save files to wandb ==========
+    # Do not do this before trainer, since this might result in the initialization of
+    # multiple wandb object when training in distribution mode
+    if (
+        args.gpus is None
+        or args.gpus == 1
+        or (args.gpus > 1 and cluster.local_rank() == 0)
+    ):
+        save_files_to_wandb(wandb_logger, __file__, ["sweep.py", "submit.sh"])
 
     print("\nFinish training at:", datetime.now())
 

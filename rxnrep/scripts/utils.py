@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import dgl
 import numpy as np
@@ -312,3 +312,22 @@ def get_repo_git_commit(repo_path: Path) -> str:
     output = output.decode("utf-8").split("\n")[:6]
     latest_commit = "\n".join(output)
     return latest_commit
+
+
+def save_files_to_wandb(wandb_logger, script: Path, other_files: List[str] = None):
+    """
+    Save files to wandb.
+
+    Args:
+        wandb_logger: lightning wandb logger
+        script: the python script running the training to save
+        other_files: name of other files in the same directory of the script. If the
+            file does not exist, it is not saved to wandb and silently ignored.
+    """
+    wandb = wandb_logger.experiment
+
+    wandb.save(script, policy="now")
+    parent = Path(script).resolve().parent
+    for f in other_files:
+        if parent.joinpath(f).exists():
+            wandb.save(str(parent.joinpath(f)), policy="now")
