@@ -93,7 +93,7 @@ def parse_args():
         "--num_centroids",
         type=int,
         nargs="+",
-        default=[20, 20],
+        default=[10],
         help="number of centroids for each clustering prototype",
     )
 
@@ -314,6 +314,8 @@ def main():
         progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
+        # all data for sanity check (ensure N data for cluster larger than N centroids)
+        num_sanity_val_steps=-1,
         # profiler="simple",
         # deterministic=True,
     )
@@ -336,6 +338,7 @@ def main():
 
 
 if __name__ == "__main__":
+
     repo_path = "/Users/mjwen/Applications/rxnrep"
     latest_commit = get_repo_git_commit(repo_path)
     print("Git commit:\n", latest_commit)

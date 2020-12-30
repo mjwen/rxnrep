@@ -242,7 +242,10 @@ def distributed_initialize_centroids(
             # broadcast centroids from rank 0
             if dist.get_rank() == 0:
                 random_idx = torch.randperm(len(local_data))[:K]
-                assert len(random_idx) >= K, "please reduce the number of centroids"
+                assert len(random_idx) >= K, (
+                    f"Number of data points ({len(local_data)}) smaller than number of "
+                    f"centroids ({K}). You may want to add more data."
+                )
                 centroids = local_data[random_idx]
             dist.broadcast(centroids, 0)
 

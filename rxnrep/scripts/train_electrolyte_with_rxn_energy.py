@@ -93,7 +93,7 @@ def parse_args():
         "--num_centroids",
         type=int,
         nargs="+",
-        default=[20, 20],
+        default=[10],
         help="number of centroids for each clustering prototype",
     )
 
@@ -314,6 +314,14 @@ def main():
     # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
     cluster = PyTorchLaunch()
 
+    #
+    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
+    # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
+    # work, size of val (test) set should be larger than
+    # `--num_centroids*num_processes`; otherwise clustering will raise an error,
+    # but ddp_cpu cannot respond to it. As a result, it will stuck there.
+    #
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         num_nodes=args.num_nodes,
@@ -326,6 +334,8 @@ def main():
         progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
+        # all data for sanity check (ensure N data for cluster larger than N centroids)
+        num_sanity_val_steps=-1,
         # profiler="simple",
         # deterministic=True,
     )
@@ -348,6 +358,7 @@ def main():
 
 
 if __name__ == "__main__":
+
     repo_path = "/Users/mjwen/Applications/rxnrep"
     latest_commit = get_repo_git_commit(repo_path)
     print("Git commit:\n", latest_commit)
