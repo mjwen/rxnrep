@@ -4,6 +4,7 @@ Readout (pooling) layers.
 from typing import Dict, List, Optional, Tuple
 
 import dgl
+import numpy as np
 import torch
 from dgl import function as fn
 from torch import nn
@@ -254,7 +255,7 @@ class Set2SetThenCat(nn.Module):
                 (D could be different for different node features).
 
         Returns:
-            A tensor representation of the each grpah, of shape
+            A tensor representation of the each graph, of shape
             (N, 2D_1+2D_2+ ... D_{m-1}, D_m),
             where N is the batch size (number of graphs), and D_1, D_2 ... are the
             feature sizes of the nodes to perform the set2set aggregation. The `2`
@@ -270,6 +271,77 @@ class Set2SetThenCat(nn.Module):
             for nt in self.ntypes_direct_cat:
                 rst.append(feats[nt])
 
-        res = torch.cat(rst, dim=-1)  # dim=-1 to deal with batched graph
+        res = torch.cat(rst, dim=-1)
 
         return res
+
+
+class HopDistancePooling(nn.Module):
+    """
+    Pooling atom/bond features based on their distance from reaction center.
+
+    The pooled feature is a weighted sum of the features of all atoms/bonds in the
+    reaction. The weight is based on a weight function.
+
+    For example, if the cosine function is used, atoms/bonds in the reaction center will
+    have a weight of 1.0 and the weight decays to 0 for atoms/bonds of `max_hop`
+    distance from the reaction center.
+
+    """
+
+    def __init__(self, max_hop: int, weight_fn: str = "cos"):
+        super(HopDistancePooling, self).__init__()
+
+        self.max_hop = max_hop
+        self.weight_fn = weight_fn
+
+    def forward(
+        self,
+        graph: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        hop_distance: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """
+        Args:
+            graph: reaction graph
+            feats: node features with node type (atom/bond/global) as key and the
+                corresponding features as value. Each tensor is of shape (N, D)
+                where N is the number of nodes of the corresponding node type, and D is
+                the feature size (D could be different for different node features).
+            hop_distance: Atom/bond hop distance of from reaction center. Each tensor
+                is of shape (N,), where N is the number of nodes of the corresponding
+                node type.
+        Returns:
+            2D tensor of shape (N, D1+D2+D3), where N is the number of reactions in
+                the batch, and D1, D2, and D3 are atom, bond, and global feature sizes,
+                respectively.
+        """
+        atom_readout = self.readout(graph, feats["atom"], hop_distance["atom"], "atom")
+        bond_readout = self.readout(graph, feats["bond"], hop_distance["bond"], "bond")
+        global_readout = feats["global"]
+
+        res = torch.cat((atom_readout, bond_readout, global_readout), dim=-1)
+
+        return res
+
+    def readout(self, graph, feats: torch.Tensor, hop_dist: torch.Tensor, ntype: str):
+
+        # Set atom/bond in the reaction center to have hop distance 0
+        # We need this because in `grapher.get_atom_distance_to_reaction_center()`
+        # atoms in added bond has hop distance of `max_hop+1`, and atom is in both
+        # broken bond and added bond have hop distance `max_hop+2`.
+        # and `grapher.get_bond_distance_to_reaction_center()`
+        # Similarly, added bonds has a hop distance of `max_hop+1`.
+        hop_dist[hop_dist > self.max_hop] = 0
+
+        # convert hop dist to angle such that host dist 0 have angle 0, and hop
+        # distance self.max_hop has angle pi/2
+
+        pi_over_2 = torch.tensor(np.pi / 2.0, dtype=feats.dtype)
+        angle = pi_over_2 * hop_dist / self.max_hop
+
+        weight = torch.cos(angle)
+        graph.nodes[ntype].data["r"] = feats * weight.view(-1, 1)
+        weighted_sum = dgl.sum_nodes(graph, "r", ntype=ntype)
+
+        return weighted_sum

@@ -252,6 +252,9 @@ class USPTODataset(BaseDataset):
                 "num_unchanged_bonds": len(reaction.unchanged_bonds),
                 "num_lost_bonds": len(reaction.lost_bonds),
                 "num_added_bonds": len(reaction.added_bonds),
+                # add atom/bond hop dist to meta, which is used in hop dist pool
+                "atom_hop_dist": label["atom_hop_dist"],
+                "bond_hop_dist": label["bond_hop_dist"],
             }
             self.metadata[item] = meta
             # move the storage of atom features from the graph to self.atom_features
@@ -317,11 +320,11 @@ class USPTODataset(BaseDataset):
         keys = metadata[0].keys()
         batched_metadata = {k: [d[k] for d in metadata] for k in keys}
 
-        # special treatment of `is_atom_masked` since it is a list of 1D tensor
-        # make it a 1D tensor
-        batched_metadata["is_atom_masked"] = torch.cat(
-            batched_metadata["is_atom_masked"]
-        )
+        # convert some metadata to tensor
+        for k, v in batched_metadata.items():
+            if k in ["atom_hop_dist", "bond_hop_dist", "is_atom_masked"]:
+                # each element of v is a 1D tensor
+                batched_metadata[k] = torch.cat(v)
 
         return (
             batched_indices,

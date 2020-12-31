@@ -14,7 +14,11 @@ from rxnrep.data.featurizer import (
     BondFeaturizerMinimum,
     GlobalFeaturizer,
 )
-from rxnrep.scripts.commons import RxnRepLightningModel2
+
+# set2set pool
+# from rxnrep.scripts.commons import RxnRepLightningModel2
+# hop dist pool
+from rxnrep.scripts.commons_hop_dist_pool import RxnRepLightningModel2
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     get_latest_checkpoint_wandb,
