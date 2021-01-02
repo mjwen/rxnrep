@@ -337,7 +337,7 @@ class HopDistancePooling(nn.Module):
         # convert hop dist to angle such that host dist 0 have angle 0, and hop
         # distance self.max_hop has angle pi/2
 
-        pi_over_2 = torch.tensor(np.pi / 2.0, dtype=feats.dtype)
+        pi_over_2 = float(np.pi / 2.0)
         angle = pi_over_2 * hop_dist / self.max_hop
 
         weight = torch.cos(angle)

@@ -14,7 +14,11 @@ from rxnrep.data.featurizer import (
     BondFeaturizerMinimum,
     GlobalFeaturizer,
 )
-from rxnrep.scripts.commons import RxnRepLightningModel
+
+# set2set pool
+# from rxnrep.scripts.commons import RxnRepLightningModel
+# hop dist pool
+from rxnrep.scripts.commons_hop_dist_pool import RxnRepLightningModel
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     get_latest_checkpoint_wandb,
@@ -301,6 +305,14 @@ def main():
     # cluster environment to use torch.distributed.launch, e.g.
     # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
     cluster = PyTorchLaunch()
+
+    #
+    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
+    # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
+    # work, size of val (test) set should be larger than
+    # `--num_centroids*num_processes`; otherwise clustering will raise an error,
+    # but ddp_cpu cannot respond to it. As a result, it will stuck there.
+    #
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,

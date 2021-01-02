@@ -8,8 +8,8 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from pytorch_lightning.utilities import move_data_to_device
 from scipy.sparse import csr_matrix
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
@@ -447,7 +447,7 @@ def kmeans(
     else:
         # find data point closest to the initial cluster center
         initial_state = cluster_centers
-        dis = pairwise_distance_function(X, initial_state)
+        dis = pairwise_distance_function(X, initial_state, device=device)
         choice_points = torch.argmin(dis, dim=0)
         initial_state = X[choice_points]
         initial_state = initial_state.to(device)
@@ -457,7 +457,7 @@ def kmeans(
         tqdm_meter = tqdm(desc="[running k-means]")
     while True:
 
-        dis = pairwise_distance_function(X, initial_state)
+        dis = pairwise_distance_function(X, initial_state, device=device)
 
         choice_cluster = torch.argmin(dis, dim=1)
 
@@ -569,20 +569,18 @@ def get_reaction_features(
     all_indices = []
     all_feats = []
     with torch.no_grad():
-        for it, (indices, mol_graphs, rxn_graphs, labels, metadata) in enumerate(
-            data_loader
-        ):
-            all_indices.append(indices.to(device))
+        for batch in data_loader:
+            batch = move_data_to_device(batch)
+            indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
             mol_graphs = mol_graphs.to(device)
             rxn_graphs = rxn_graphs.to(device)
-            feats = {
-                nt: mol_graphs.nodes[nt].data.pop("feat").to(device) for nt in nodes
-            }
+            feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
             feats, rxn_feats = model(mol_graphs, rxn_graphs, feats, metadata)
             preds = model.decode(feats, rxn_feats, metadata)
 
+            all_indices.append(indices.to(device))
             all_feats.append(preds["reaction_cluster"].detach())
 
     indices = torch.cat(all_indices)
