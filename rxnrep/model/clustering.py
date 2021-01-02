@@ -570,7 +570,7 @@ def get_reaction_features(
     all_feats = []
     with torch.no_grad():
         for batch in data_loader:
-            batch = move_data_to_device(batch)
+            batch = move_data_to_device(batch, device)
             indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
             mol_graphs = mol_graphs.to(device)
