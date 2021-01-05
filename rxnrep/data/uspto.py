@@ -38,7 +38,7 @@ class USPTODataset(BaseDataset):
         max_hop_distance: maximum allowed hop distance from the reaction center for
             atom and bond. Used to determine atom and bond label
         atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
-            reaction
+            reaction. If `None`, no atoms is masked and atom type masker is not used.
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -55,7 +55,7 @@ class USPTODataset(BaseDataset):
         global_featurizer: Callable,
         transform_features: bool = True,
         max_hop_distance: int = 3,
-        atom_type_masker_ratio: float = 0.2,
+        atom_type_masker_ratio: Union[float, None] = None,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
@@ -87,13 +87,16 @@ class USPTODataset(BaseDataset):
         self.metadata = {}
         self.atom_features = {}
 
-        self.atom_type_masker = AtomTypeFeatureMasker(
-            allowable_types=self._species,
-            feature_name=self.feature_name["atom"],
-            feature_mean=self._feature_scaler_mean["atom"],
-            feature_std=self._feature_scaler_std["atom"],
-            ratio=atom_type_masker_ratio,
-        )
+        if atom_type_masker_ratio is None:
+            self.atom_type_masker = None
+        else:
+            self.atom_type_masker = AtomTypeFeatureMasker(
+                allowable_types=self._species,
+                feature_name=self.feature_name["atom"],
+                feature_mean=self._feature_scaler_mean["atom"],
+                feature_std=self._feature_scaler_std["atom"],
+                ratio=atom_type_masker_ratio,
+            )
 
     @staticmethod
     def read_file(filename, nprocs):
@@ -267,28 +270,36 @@ class USPTODataset(BaseDataset):
         #
         # Mask atom types features
         #
+        if self.atom_type_masker is None:
+            # assign feats back (no need to clone since there is no modifications)
+            reactants_g.nodes["atom"].data["feat"] = atom_feats["reactants"]
+            products_g.nodes["atom"].data["feat"] = atom_feats["products"]
 
-        # Assign atom features bach to graph. Should clone the tensors to keep
-        # self.atom_features intact.
-        reactants_g.nodes["atom"].data["feat"] = (
-            atom_feats["reactants"].clone().detach()
-        )
-        products_g.nodes["atom"].data["feat"] = atom_feats["products"].clone().detach()
+        else:
 
-        (
-            reactants_g,
-            products_g,
-            is_atom_masked,
-            masked_atom_labels,
-        ) = self.atom_type_masker.mask_features(reactants_g, products_g, reaction)
+            # Assign atom features bach to graph. Should clone the tensors to keep
+            # self.atom_features intact.
+            reactants_g.nodes["atom"].data["feat"] = (
+                atom_feats["reactants"].clone().detach()
+            )
+            products_g.nodes["atom"].data["feat"] = (
+                atom_feats["products"].clone().detach()
+            )
 
-        # add masked_atom_labels to label
-        label["masked_atom_type"] = torch.as_tensor(
-            masked_atom_labels, dtype=torch.int64
-        )
+            (
+                reactants_g,
+                products_g,
+                is_atom_masked,
+                masked_atom_labels,
+            ) = self.atom_type_masker.mask_features(reactants_g, products_g, reaction)
 
-        # add is_atom_masked to meta
-        meta["is_atom_masked"] = torch.as_tensor(is_atom_masked, dtype=torch.bool)
+            # add masked_atom_labels to label
+            label["masked_atom_type"] = torch.as_tensor(
+                masked_atom_labels, dtype=torch.int64
+            )
+
+            # add is_atom_masked to meta
+            meta["is_atom_masked"] = torch.as_tensor(is_atom_masked, dtype=torch.bool)
 
         if self.return_index:
             return item, reactants_g, products_g, reaction_g, meta, label

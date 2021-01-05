@@ -36,7 +36,7 @@ class ElectrolyteDataset(USPTODataset):
         max_hop_distance: maximum allowed hop distance from the reaction center for
             atom and bond. Used to determine atom and bond label
         atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
-            reaction
+            reaction. If `None`, not applied.
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -53,7 +53,7 @@ class ElectrolyteDataset(USPTODataset):
         global_featurizer: Callable,
         transform_features: bool = True,
         max_hop_distance: int = 3,
-        atom_type_masker_ratio: float = 0.2,
+        atom_type_masker_ratio: Union[float, None] = None,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
@@ -86,13 +86,16 @@ class ElectrolyteDataset(USPTODataset):
         self.metadata = {}
         self.atom_features = {}
 
-        self.atom_type_masker = AtomTypeFeatureMasker(
-            allowable_types=self._species,
-            feature_name=self.feature_name["atom"],
-            feature_mean=self._feature_scaler_mean["atom"],
-            feature_std=self._feature_scaler_std["atom"],
-            ratio=atom_type_masker_ratio,
-        )
+        if atom_type_masker_ratio is None:
+            self.atom_type_masker = None
+        else:
+            self.atom_type_masker = AtomTypeFeatureMasker(
+                allowable_types=self._species,
+                feature_name=self.feature_name["atom"],
+                feature_mean=self._feature_scaler_mean["atom"],
+                feature_std=self._feature_scaler_std["atom"],
+                ratio=atom_type_masker_ratio,
+            )
 
     @staticmethod
     def read_file(filename, nprocs):

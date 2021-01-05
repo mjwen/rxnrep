@@ -24,6 +24,7 @@ def get_prediction(
     model_name: str,
     has_reaction_energy_decoder: bool = False,
     prediction_type: str = "reaction_feature",
+    model=None,
 ) -> List[Dict[str, Any]]:
     """
     Make predictions using a pretrained model.
@@ -40,6 +41,8 @@ def get_prediction(
             decoder
         prediction_type: the type of prediction to return. Options are `reaction_feature`,
             `diff_feature_before_rxn_conv`, and `diff_feature_after_rxn_conv`.
+        model: If not `None`, the given model is used; otherwise, load model from the
+            given model path.
 
     Returns:
         Predictions for all data points. Each dict in the list holds the prediction
@@ -50,14 +53,15 @@ def get_prediction(
     ckpt_path = model_path.joinpath("checkpoint.ckpt")
     dataset_state_dict_path = model_path.joinpath("dataset_state_dict.yaml")
 
-    if has_reaction_energy_decoder:
-        model = RxnRepLightningModel2.load_from_checkpoint(
-            str(ckpt_path), map_location=torch.device("cpu")
-        )
-    else:
-        model = RxnRepLightningModel.load_from_checkpoint(
-            str(ckpt_path), map_location=torch.device("cpu")
-        )
+    if model is None:
+        if has_reaction_energy_decoder:
+            model = RxnRepLightningModel2.load_from_checkpoint(
+                str(ckpt_path), map_location=torch.device("cpu")
+            )
+        else:
+            model = RxnRepLightningModel.load_from_checkpoint(
+                str(ckpt_path), map_location=torch.device("cpu")
+            )
 
     if model_name == "uspto":
         data_loader = load_uspto_dataset(dataset_state_dict_path, dataset_filename)
