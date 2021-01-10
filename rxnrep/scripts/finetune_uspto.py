@@ -1,5 +1,17 @@
+"""
+This script finetunes the representations of reactions obtained by `train_uspto.py` for
+the schneider dataset to predict the labels of the reaction classes.
+
+There are two modes of using this script (currently only support 1):
+
+1. keep the representations fixed and build a 2-layer NN as a project head, and only
+learn the projection head.
+
+2. allow the finetune of the parameters of the pretrain model, still build a 2-layer NN as
+the projection head, but only finetune a limited number of epochs.
+"""
+
 import argparse
-import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -14,7 +26,10 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.uspto import SchneiderDataset
-from rxnrep.model.model import LinearClassification
+from rxnrep.model.decoder import FCNNDecoder
+
+# from rxnrep.model.model import LinearClassification
+from rxnrep.scripts.commons import RxnRepLightningModel as PretrainedModel
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -41,6 +56,10 @@ def parse_args():
         "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
     )
 
+    ###
+
+    parser.add_argument("--ckpt_path", type=str, default="checkpoint.ckpt")
+    ###
     # ========== model ==========
     # embedding
     parser.add_argument("--embedding_size", type=int, default=24)
@@ -107,22 +126,13 @@ def parse_args():
 def load_dataset(args):
 
     # check dataset state dict if restore model
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
+    if not Path(args.dataset_state_dict_filename).exists():
+        raise Exception(
+            f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+            "not found."
+        )
     else:
-        state_dict_filename = None
+        state_dict_filename = args.dataset_state_dict_filename
 
     trainset = SchneiderDataset(
         filename=args.trainset_filename,
@@ -207,6 +217,22 @@ def load_dataset(args):
     return train_loader, val_loader, test_loader
 
 
+def load_model(ckpt_path: Path):
+    """
+    Load the pretrained model.
+
+    Args:
+        ckpt_path: path to the checkpoint
+        device: device to move the model to
+    """
+    ckpt_path = Path(ckpt_path).expanduser().resolve()
+    if not ckpt_path.exists():
+        raise Exception(f"Cannot load pretrained mode; {ckpt_path} does not exists.")
+    model = PretrainedModel.load_from_checkpoint(str(ckpt_path))
+
+    return model
+
+
 class LightningModel(pl.LightningModule):
     def __init__(self, params):
         super().__init__()
@@ -215,26 +241,44 @@ class LightningModel(pl.LightningModule):
         self.save_hyperparameters(params)
         params = self.hparams
 
-        self.model = LinearClassification(
-            in_feats=params.feature_size,
-            embedding_size=params.embedding_size,
-            # encoder
-            molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
-            molecule_num_fc_layers=params.molecule_num_fc_layers,
-            molecule_batch_norm=params.molecule_batch_norm,
-            molecule_activation=params.molecule_activation,
-            molecule_residual=params.molecule_residual,
-            molecule_dropout=params.molecule_dropout,
-            reaction_conv_layer_sizes=params.reaction_conv_layer_sizes,
-            reaction_num_fc_layers=params.reaction_num_fc_layers,
-            reaction_batch_norm=params.reaction_batch_norm,
-            reaction_activation=params.reaction_activation,
-            reaction_residual=params.reaction_residual,
-            reaction_dropout=params.reaction_dropout,
-            # classification head
-            head_hidden_layer_sizes=params.head_hidden_layer_sizes,
-            num_classes=params.num_reaction_classes,
-            head_activation=params.head_activation,
+        # self.model = LinearClassification(
+        #     in_feats=params.feature_size,
+        #     embedding_size=params.embedding_size,
+        #     # encoder
+        #     molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
+        #     molecule_num_fc_layers=params.molecule_num_fc_layers,
+        #     molecule_batch_norm=params.molecule_batch_norm,
+        #     molecule_activation=params.molecule_activation,
+        #     molecule_residual=params.molecule_residual,
+        #     molecule_dropout=params.molecule_dropout,
+        #     reaction_conv_layer_sizes=params.reaction_conv_layer_sizes,
+        #     reaction_num_fc_layers=params.reaction_num_fc_layers,
+        #     reaction_batch_norm=params.reaction_batch_norm,
+        #     reaction_activation=params.reaction_activation,
+        #     reaction_residual=params.reaction_residual,
+        #     reaction_dropout=params.reaction_dropout,
+        #     # classification head
+        #     head_hidden_layer_sizes=params.head_hidden_layer_sizes,
+        #     num_classes=params.num_reaction_classes,
+        #     head_activation=params.head_activation,
+        # )
+
+        self.backbone = load_model(params.ckpt_path)
+
+        # linear classification head
+
+        # have reaction conv layer
+        if params.reaction_conv_layer_sizes:
+            conv_last_layer_size = params.reaction_conv_layer_sizes[-1]
+        # does not have reaction conv layer
+        else:
+            conv_last_layer_size = params.molecule_conv_layer_sizes[-1]
+        in_size = conv_last_layer_size * 5
+        self.classification_head = FCNNDecoder(
+            in_size,
+            params.num_reaction_classes,
+            params.head_hidden_layer_sizes,
+            params.head_activation,
         )
 
         # metrics
@@ -275,9 +319,15 @@ class LightningModel(pl.LightningModule):
 
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
-        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+        feats, reaction_feats = self.backbone.model(
+            mol_graphs, rxn_graphs, feats, metadata
+        )
 
         return reaction_feats
+
+    def on_train_epoch_start(self):
+        # fix params of pretrained model
+        self.backbone.eval()
 
     def training_step(self, batch, batch_idx):
         logits, labels, loss = self.shared_step(batch)
@@ -327,8 +377,14 @@ class LightningModel(pl.LightningModule):
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
         labels = labels["reaction_class"]
 
-        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-        logits = self.model.decode(feats, reaction_feats)
+        # no params optimizing for backbone model
+        with torch.no_grad():
+            feats, reaction_feats = self.backbone.model(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
+
+        # projection head
+        logits = self.classification_head(reaction_feats)
 
         loss = F.cross_entropy(
             logits,

@@ -286,6 +286,14 @@ def main():
     # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
     cluster = PyTorchLaunch()
 
+    #
+    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
+    # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
+    # work, size of val (test) set should be larger than
+    # `--num_centroids*num_processes`; otherwise clustering will raise an error,
+    # but ddp_cpu cannot respond to it. As a result, it will stuck there.
+    #
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         num_nodes=args.num_nodes,
