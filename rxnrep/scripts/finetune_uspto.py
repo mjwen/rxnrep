@@ -57,8 +57,13 @@ def parse_args():
     )
 
     ###
+    # ========== pretrained model ==========
 
-    parser.add_argument("--ckpt_path", type=str, default="checkpoint.ckpt")
+    parser.add_argument(
+        "--pretrained_dataset_state_dict_filename", type=str, default=None
+    )
+    parser.add_argument("--pretrained_ckpt_path", type=str, default="checkpoint.ckpt")
+
     ###
     # ========== model ==========
     # embedding
@@ -126,13 +131,17 @@ def parse_args():
 def load_dataset(args):
 
     # check dataset state dict if restore model
-    if not Path(args.dataset_state_dict_filename).exists():
+    if (
+        args.pretrained_dataset_state_dict_filename is None
+        or not Path(args.pretrained_dataset_state_dict_filename).exists()
+    ):
         raise Exception(
-            f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+            f"args.pretrained_dataset_state_dict_filename: "
+            f"`{args.pretrained_dataset_state_dict_filename}` "
             "not found."
         )
     else:
-        state_dict_filename = args.dataset_state_dict_filename
+        state_dict_filename = args.pretrained_dataset_state_dict_filename
 
     trainset = SchneiderDataset(
         filename=args.trainset_filename,
@@ -263,7 +272,7 @@ class LightningModel(pl.LightningModule):
         #     head_activation=params.head_activation,
         # )
 
-        self.backbone = load_model(params.ckpt_path)
+        self.backbone = load_model(params.pretrained_ckpt_path)
 
         # linear classification head
 

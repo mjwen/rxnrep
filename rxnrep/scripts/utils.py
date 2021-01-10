@@ -284,15 +284,24 @@ def get_latest_checkpoint_tensorboard(save_dir="./lightning_logs"):
     return ckpt_path
 
 
-def get_latest_checkpoint_wandb(save_dir: Path, project: str):
+def get_latest_checkpoint_wandb(save_dir: Path, project: str) -> str:
     """
-    Get the latest checkpoint path of wandb logger.
+    Get the latest checkpoint path when using wandb logger.
+
+    Args:
+        save_dir: name of the directory to save wandb log, e.g. /some/path/wandb/
+        project: project name of the wandb run
     """
-    latest_run = Path(save_dir).joinpath("wandb", "latest-run").resolve()
-    version = str(latest_run).split("-")[-1]
-    ckpt_path = (
-        Path(save_dir).joinpath(project, version, "checkpoints", "last.ckpt").resolve()
-    )
+    save_dir = Path(save_dir).expanduser().resolve()
+
+    # get identifier of latest_run
+    latest_run = save_dir.joinpath("wandb", "latest-run").resolve()
+    identifier = str(latest_run).split("-")[-1]
+
+    # get checkpoint of latest run
+    ckpt_path = save_dir.joinpath(
+        project, identifier, "checkpoints", "last.ckpt"
+    ).resolve()
     ckpt_path = str(ckpt_path)
 
     return ckpt_path
