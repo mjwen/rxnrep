@@ -27,10 +27,8 @@ from torch.utils.data.dataloader import DataLoader
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.model.decoder import FCNNDecoder
-
-# from rxnrep.model.model import LinearClassification
-from rxnrep.scripts.commons import RxnRepLightningModel as PretrainedModel
 from rxnrep.scripts.launch_environment import PyTorchLaunch
+from rxnrep.scripts.train_uspto import RxnRepLightningModel as PretrainedModel
 from rxnrep.scripts.utils import (
     TimeMeter,
     get_latest_checkpoint_wandb,

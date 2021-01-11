@@ -1,8 +1,8 @@
 #
 # Compared to basic model:
 # - uses hop distance pool instead of set2set to aggregate reaction features.
+# - add energy decoder
 # - remove atom type decoder
-#
 # encoder:
 # - hop dist pooling
 #
@@ -10,6 +10,7 @@
 # - atom hop dist
 # - bond hop dist
 # - reaction clustering
+# - energy decoder
 #
 from typing import Dict, List, Tuple
 
@@ -69,6 +70,9 @@ class ReactionRepresentation(nn.Module):
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
         reaction_cluster_decoder_output_size,
+        # reaction energy decoder
+        reaction_energy_decoder_hidden_layer_sizes,
+        reaction_energy_decoder_activation,
     ):
 
         super(ReactionRepresentation, self).__init__()
@@ -135,6 +139,14 @@ class ReactionRepresentation(nn.Module):
             num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
             activation=reaction_cluster_decoder_activation,
+        )
+
+        # reaction energy decoder
+        in_size = conv_last_layer_size * 3
+        self.reaction_energy_decoder = ReactionEnergyDecoder(
+            in_size=in_size,
+            hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
+            activation=reaction_energy_decoder_activation,
         )
 
     def forward(
@@ -209,6 +221,7 @@ class ReactionRepresentation(nn.Module):
 
         # reaction decoder
         reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
+        reaction_energy = self.reaction_energy_decoder(reaction_feats)
 
         # predictions
         predictions = {
@@ -216,6 +229,7 @@ class ReactionRepresentation(nn.Module):
             "atom_hop_dist": atom_hop_dist,
             # "masked_atom_type": masked_atom_type,
             "reaction_cluster": reaction_cluster,
+            "reaction_energy": reaction_energy,
         }
 
         return predictions

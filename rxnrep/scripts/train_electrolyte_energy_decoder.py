@@ -19,7 +19,7 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
-from rxnrep.model.model import ReactionRepresentation
+from rxnrep.model.model_energy_decoder import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -69,6 +69,9 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
             reaction_cluster_decoder_activation=params.cluster_decoder_activation,
             reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
+            # reaction energy decoder
+            reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
+            reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
         )
 
         # reaction cluster functions
@@ -251,12 +254,19 @@ class RxnRepLightningModel(pl.LightningModule):
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
+        # loss for reaction energy
+        preds["reaction_energy"] = preds["reaction_energy"].flatten()
+        loss_reaction_energy = F.mse_loss(
+            preds["reaction_energy"], labels["reaction_energy"]
+        )
+
         # total loss (maybe assign different weights)
         loss = (
             loss_atom_hop
             + loss_bond_hop
             + loss_masked_atom_type
             + loss_reaction_cluster
+            + loss_reaction_energy
         )
 
         # ========== log the loss ==========
@@ -266,6 +276,7 @@ class RxnRepLightningModel(pl.LightningModule):
                 f"{mode}/loss/atom_hop_dist": loss_bond_hop,
                 f"{mode}/loss/masked_atom_type": loss_masked_atom_type,
                 f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
+                f"{mode}/loss/reaction_energy": loss_reaction_energy,
             },
             on_step=False,
             on_epoch=True,
@@ -394,6 +405,9 @@ class RxnRepLightningModel(pl.LightningModule):
                             ),
                         }
                     ),
+                    "reaction_energy": nn.ModuleDict(
+                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
+                    ),
                 }
             )
 
@@ -404,7 +418,7 @@ class RxnRepLightningModel(pl.LightningModule):
         preds,
         labels,
         mode,
-        keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type"),
+        keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type", "reaction_energy"),
     ):
         """
         update metric states at each step
@@ -417,7 +431,9 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj(preds[key], labels[key])
 
     def _compute_metrics(
-        self, mode, keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type"),
+        self,
+        mode,
+        keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type", "reaction_energy"),
     ):
         """
         compute metric and log it at each epoch
@@ -445,6 +461,10 @@ class RxnRepLightningModel(pl.LightningModule):
 
                 if name == "f1":
                     sum_f1 += value
+                # NOTE, we abuse the sum_f1 to add the mae of reaction energy
+                # prediction as well
+                elif name == "mae":
+                    sum_f1 -= value
 
         return sum_f1
 
@@ -528,6 +548,18 @@ def parse_args():
         type=float,
         default=1.0,
         help="temperature in the loss for cluster decoder",
+    )
+
+    # reaction energy decoder
+
+    parser.add_argument(
+        "--reaction_energy_decoder_hidden_layer_sizes",
+        type=int,
+        nargs="+",
+        default=[64],
+    )
+    parser.add_argument(
+        "--reaction_energy_decoder_activation", type=str, default="ReLU"
     )
 
     # ========== training ==========

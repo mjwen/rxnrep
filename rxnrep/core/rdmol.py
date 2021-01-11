@@ -1,6 +1,6 @@
 import warnings
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from openbabel import openbabel as ob
@@ -180,7 +180,7 @@ def create_rdkit_mol_from_mol_graph(
 
 def adjust_formal_charge(
     species: List[str], bonds: List[Tuple[int, int]], metals: Dict[str, int]
-):
+) -> List[Union[int, None]]:
     """
     Adjust formal charge of metal atoms.
 
@@ -190,7 +190,7 @@ def adjust_formal_charge(
         metals: initial formal charge of models
 
     Returns:
-        list: formal charge of atoms. None for non metal atoms.
+        Formal charge of atoms. None for non metal atoms.
     """
     # initialize formal charge first so that atom does not form any bond has its formal
     # charge set

@@ -1,7 +1,7 @@
 #
 # Compared to basic model:
-# - uses hop distance pool instead of set2set to aggregate reaction features.
-# - remove atom type decoder
+# - hop distance pool instead of set2set to aggregate reaction features.
+# - add energy decoder for bond energy
 #
 # encoder:
 # - hop dist pooling
@@ -9,7 +9,9 @@
 # decoders:
 # - atom hop dist
 # - bond hop dist
+# - masked atom hop
 # - reaction clustering
+# - energy decoder
 #
 from typing import Dict, List, Tuple
 
@@ -62,13 +64,16 @@ class ReactionRepresentation(nn.Module):
         atom_hop_dist_decoder_activation,
         atom_hop_dist_decoder_num_classes,
         # masked atom type decoder
-        # masked_atom_type_decoder_hidden_layer_sizes,
-        # masked_atom_type_decoder_activation,
-        # masked_atom_type_decoder_num_classes,
+        masked_atom_type_decoder_hidden_layer_sizes,
+        masked_atom_type_decoder_activation,
+        masked_atom_type_decoder_num_classes,
         # clustering decoder
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
         reaction_cluster_decoder_output_size,
+        # reaction energy decoder
+        reaction_energy_decoder_hidden_layer_sizes,
+        reaction_energy_decoder_activation,
     ):
 
         super(ReactionRepresentation, self).__init__()
@@ -116,13 +121,13 @@ class ReactionRepresentation(nn.Module):
             activation=atom_hop_dist_decoder_activation,
         )
 
-        # # masked atom type decoder
-        # self.masked_atom_type_decoder = AtomTypeDecoder(
-        #     in_size=conv_last_layer_size,
-        #     num_classes=masked_atom_type_decoder_num_classes,
-        #     hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
-        #     activation=masked_atom_type_decoder_activation,
-        # )
+        # masked atom type decoder
+        self.masked_atom_type_decoder = AtomTypeDecoder(
+            in_size=conv_last_layer_size,
+            num_classes=masked_atom_type_decoder_num_classes,
+            hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
+            activation=masked_atom_type_decoder_activation,
+        )
 
         # ========== reaction level decoder ==========
 
@@ -135,6 +140,14 @@ class ReactionRepresentation(nn.Module):
             num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
             activation=reaction_cluster_decoder_activation,
+        )
+
+        # reaction energy decoder
+        in_size = conv_last_layer_size * 3
+        self.reaction_energy_decoder = ReactionEnergyDecoder(
+            in_size=in_size,
+            hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
+            activation=reaction_energy_decoder_activation,
         )
 
     def forward(
@@ -201,21 +214,23 @@ class ReactionRepresentation(nn.Module):
         # atom hop dist decoder
         atom_hop_dist = self.atom_hop_dist_decoder(feats["atom"])
 
-        # # masked atom type decoder
-        # atom_ft = feats["atom"]
-        # masked_or_not = metadata["is_atom_masked"]
-        # atom_ft_of_masked_atoms = atom_ft[masked_or_not]
-        # masked_atom_type = self.masked_atom_type_decoder(atom_ft_of_masked_atoms)
+        # masked atom type decoder
+        atom_ft = feats["atom"]
+        masked_or_not = metadata["is_atom_masked"]
+        atom_ft_of_masked_atoms = atom_ft[masked_or_not]
+        masked_atom_type = self.masked_atom_type_decoder(atom_ft_of_masked_atoms)
 
         # reaction decoder
         reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
+        reaction_energy = self.reaction_energy_decoder(reaction_feats)
 
         # predictions
         predictions = {
             "bond_hop_dist": bond_hop_dist,
             "atom_hop_dist": atom_hop_dist,
-            # "masked_atom_type": masked_atom_type,
+            "masked_atom_type": masked_atom_type,
             "reaction_cluster": reaction_cluster,
+            "reaction_energy": reaction_energy,
         }
 
         return predictions

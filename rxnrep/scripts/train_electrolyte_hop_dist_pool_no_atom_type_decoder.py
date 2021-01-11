@@ -19,7 +19,7 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
-from rxnrep.model.model import ReactionRepresentation
+from rxnrep.model.model_hop_dist_pool_no_atom_type_decoder import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -53,6 +53,8 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
+            # reaction pool
+            max_hop_distance=params.max_hop_distance,
             # bond hop distance decoder
             bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             bond_hop_dist_decoder_activation=params.node_decoder_activation,
@@ -61,10 +63,10 @@ class RxnRepLightningModel(pl.LightningModule):
             atom_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             atom_hop_dist_decoder_activation=params.node_decoder_activation,
             atom_hop_dist_decoder_num_classes=params.atom_hop_dist_num_classes,
-            # masked atom type decoder
-            masked_atom_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
-            masked_atom_type_decoder_activation=params.node_decoder_activation,
-            masked_atom_type_decoder_num_classes=params.masked_atom_type_num_classes,
+            # # masked atom type decoder
+            # masked_atom_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
+            # masked_atom_type_decoder_activation=params.node_decoder_activation,
+            # masked_atom_type_decoder_num_classes=params.masked_atom_type_num_classes,
             # clustering decoder
             reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
             reaction_cluster_decoder_activation=params.cluster_decoder_activation,
@@ -234,10 +236,10 @@ class RxnRepLightningModel(pl.LightningModule):
             weight=self.hparams.atom_hop_dist_class_weight.to(self.device),
         )
 
-        # masked atom type decoder
-        loss_masked_atom_type = F.cross_entropy(
-            preds["masked_atom_type"], labels["masked_atom_type"], reduction="mean"
-        )
+        # # masked atom type decoder
+        # loss_masked_atom_type = F.cross_entropy(
+        #     preds["masked_atom_type"], labels["masked_atom_type"], reduction="mean"
+        # )
 
         # loss for clustering prediction
         cluster_assignments = self.assignments[mode]
@@ -255,7 +257,7 @@ class RxnRepLightningModel(pl.LightningModule):
         loss = (
             loss_atom_hop
             + loss_bond_hop
-            + loss_masked_atom_type
+            # + loss_masked_atom_type
             + loss_reaction_cluster
         )
 
@@ -264,7 +266,7 @@ class RxnRepLightningModel(pl.LightningModule):
             {
                 f"{mode}/loss/bond_hop_dist": loss_atom_hop,
                 f"{mode}/loss/atom_hop_dist": loss_bond_hop,
-                f"{mode}/loss/masked_atom_type": loss_masked_atom_type,
+                # f"{mode}/loss/masked_atom_type": loss_masked_atom_type,
                 f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
             },
             on_step=False,
@@ -374,26 +376,26 @@ class RxnRepLightningModel(pl.LightningModule):
                             ),
                         }
                     ),
-                    "masked_atom_type": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
+                    # "masked_atom_type": nn.ModuleDict(
+                    #     {
+                    #         "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                    #         "precision": pl.metrics.Precision(
+                    #             num_classes=self.hparams.masked_atom_type_num_classes,
+                    #             average="macro",
+                    #             compute_on_step=False,
+                    #         ),
+                    #         "recall": pl.metrics.Recall(
+                    #             num_classes=self.hparams.masked_atom_type_num_classes,
+                    #             average="macro",
+                    #             compute_on_step=False,
+                    #         ),
+                    #         "f1": pl.metrics.F1(
+                    #             num_classes=self.hparams.masked_atom_type_num_classes,
+                    #             average="macro",
+                    #             compute_on_step=False,
+                    #         ),
+                    #     }
+                    # ),
                 }
             )
 
@@ -404,7 +406,7 @@ class RxnRepLightningModel(pl.LightningModule):
         preds,
         labels,
         mode,
-        keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type"),
+        keys=("bond_hop_dist", "atom_hop_dist"),
     ):
         """
         update metric states at each step
@@ -417,7 +419,9 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj(preds[key], labels[key])
 
     def _compute_metrics(
-        self, mode, keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type"),
+        self,
+        mode,
+        keys=("bond_hop_dist", "atom_hop_dist"),
     ):
         """
         compute metric and log it at each epoch
@@ -502,7 +506,7 @@ def parse_args():
     )
     parser.add_argument("--node_decoder_activation", type=str, default="ReLU")
     parser.add_argument("--max_hop_distance", type=int, default=3)
-    parser.add_argument("--atom_type_masker_ratio", type=float, default=0.2)
+    # parser.add_argument("--atom_type_masker_ratio", type=float, default=0.2)
 
     # clustering decoder
     parser.add_argument(
@@ -596,7 +600,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
-        atom_type_masker_ratio=args.atom_type_masker_ratio,
+        # atom_type_masker_ratio=args.atom_type_masker_ratio,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
     )
@@ -610,7 +614,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
-        atom_type_masker_ratio=args.atom_type_masker_ratio,
+        # atom_type_masker_ratio=args.atom_type_masker_ratio,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -622,7 +626,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
-        atom_type_masker_ratio=args.atom_type_masker_ratio,
+        # atom_type_masker_ratio=args.atom_type_masker_ratio,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -674,7 +678,7 @@ def load_dataset(args):
     args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
     args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
-    args.masked_atom_type_num_classes = len(trainset.get_species())
+    # args.masked_atom_type_num_classes = len(trainset.get_species())
 
     args.feature_size = trainset.feature_size
 

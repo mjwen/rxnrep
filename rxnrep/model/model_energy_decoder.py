@@ -1,15 +1,17 @@
 #
 # Compared to basic model:
-# - uses hop distance pool instead of set2set to aggregate reaction features.
-# - remove atom type decoder
+# - add energy decoder to recover bond energy.
+#
 #
 # encoder:
-# - hop dist pooling
+# - set2set pooling
 #
 # decoders:
 # - atom hop dist
 # - bond hop dist
+# - masked atom hop
 # - reaction clustering
+# - bond energy
 #
 from typing import Dict, List, Tuple
 
@@ -26,7 +28,7 @@ from rxnrep.model.decoder import (
     ReactionEnergyDecoder,
 )
 from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.readout import HopDistancePooling
+from rxnrep.model.readout import Set2SetThenCat
 
 
 class ReactionRepresentation(nn.Module):
@@ -51,8 +53,6 @@ class ReactionRepresentation(nn.Module):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # hop distance pooling
-        max_hop_distance,
         # bond hop dist decoder
         bond_hop_dist_decoder_hidden_layer_sizes,
         bond_hop_dist_decoder_activation,
@@ -62,13 +62,19 @@ class ReactionRepresentation(nn.Module):
         atom_hop_dist_decoder_activation,
         atom_hop_dist_decoder_num_classes,
         # masked atom type decoder
-        # masked_atom_type_decoder_hidden_layer_sizes,
-        # masked_atom_type_decoder_activation,
-        # masked_atom_type_decoder_num_classes,
+        masked_atom_type_decoder_hidden_layer_sizes,
+        masked_atom_type_decoder_activation,
+        masked_atom_type_decoder_num_classes,
         # clustering decoder
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
         reaction_cluster_decoder_output_size,
+        # reaction energy decoder
+        reaction_energy_decoder_hidden_layer_sizes,
+        reaction_energy_decoder_activation,
+        # readout reaction features
+        set2set_num_iterations: int = 6,
+        set2set_num_layers: int = 3,
     ):
 
         super(ReactionRepresentation, self).__init__()
@@ -116,25 +122,40 @@ class ReactionRepresentation(nn.Module):
             activation=atom_hop_dist_decoder_activation,
         )
 
-        # # masked atom type decoder
-        # self.masked_atom_type_decoder = AtomTypeDecoder(
-        #     in_size=conv_last_layer_size,
-        #     num_classes=masked_atom_type_decoder_num_classes,
-        #     hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
-        #     activation=masked_atom_type_decoder_activation,
-        # )
+        # masked atom type decoder
+        self.masked_atom_type_decoder = AtomTypeDecoder(
+            in_size=conv_last_layer_size,
+            num_classes=masked_atom_type_decoder_num_classes,
+            hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
+            activation=masked_atom_type_decoder_activation,
+        )
 
         # ========== reaction level decoder ==========
 
         # readout reaction features, one 1D tensor for each reaction
-        self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
+        in_sizes = [conv_last_layer_size] * 2
+        self.set2set = Set2SetThenCat(
+            num_iters=set2set_num_iterations,
+            num_layers=set2set_num_layers,
+            ntypes=["atom", "bond"],
+            in_feats=in_sizes,
+            ntypes_direct_cat=["global"],
+        )
 
-        in_size = conv_last_layer_size * 3
+        in_size = conv_last_layer_size * 5
         self.reaction_cluster_decoder = ReactionClusterDecoder(
             in_size=in_size,
             num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
             activation=reaction_cluster_decoder_activation,
+        )
+
+        # reaction energy decoder
+
+        self.reaction_energy_decoder = ReactionEnergyDecoder(
+            in_size=in_size,
+            hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
+            activation=reaction_energy_decoder_activation,
         )
 
     def forward(
@@ -158,11 +179,7 @@ class ReactionRepresentation(nn.Module):
         feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
 
         # readout reaction features, a 1D tensor for each reaction
-        hop_dist = {
-            "atom": metadata["atom_hop_dist"],
-            "bond": metadata["bond_hop_dist"],
-        }
-        reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
+        reaction_feats = self.set2set(reaction_graphs, feats)
 
         return feats, reaction_feats
 
@@ -201,21 +218,23 @@ class ReactionRepresentation(nn.Module):
         # atom hop dist decoder
         atom_hop_dist = self.atom_hop_dist_decoder(feats["atom"])
 
-        # # masked atom type decoder
-        # atom_ft = feats["atom"]
-        # masked_or_not = metadata["is_atom_masked"]
-        # atom_ft_of_masked_atoms = atom_ft[masked_or_not]
-        # masked_atom_type = self.masked_atom_type_decoder(atom_ft_of_masked_atoms)
+        # masked atom type decoder
+        atom_ft = feats["atom"]
+        masked_or_not = metadata["is_atom_masked"]
+        atom_ft_of_masked_atoms = atom_ft[masked_or_not]
+        masked_atom_type = self.masked_atom_type_decoder(atom_ft_of_masked_atoms)
 
         # reaction decoder
         reaction_cluster = self.reaction_cluster_decoder(reaction_feats)
+        reaction_energy = self.reaction_energy_decoder(reaction_feats)
 
         # predictions
         predictions = {
             "bond_hop_dist": bond_hop_dist,
             "atom_hop_dist": atom_hop_dist,
-            # "masked_atom_type": masked_atom_type,
+            "masked_atom_type": masked_atom_type,
             "reaction_cluster": reaction_cluster,
+            "reaction_energy": reaction_energy,
         }
 
         return predictions
