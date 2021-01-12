@@ -40,17 +40,24 @@ class Molecule:
         self._environment = None
 
     @classmethod
-    def from_smiles(cls, s: str, sanitize: bool = True):
+    def from_smiles(cls, s: str, remove_H: bool = True):
         """
         Create a molecule from a smiles string.
 
         Args:
             s: smiles string, e.g. [CH3+]
-            sanitize: whether to sanitize the molecule
+            remove_H: whether to remove the H (i.e. move graph H to explicit/implicit
+                H). For molecules having atom map number of H, this will remove the atom
+                map number as well. In such case, `remove_H = False` will not remove H.
+                In either case, other sanitizations are applied to the molecule.
         """
-        m = Chem.MolFromSmiles(s, sanitize=sanitize)
+        m = Chem.MolFromSmiles(s, sanitize=remove_H)
         if m is None:
             raise MoleculeError(f"Cannot create molecule for: {s}")
+
+        if not remove_H:
+            Chem.SanitizeMol(m)
+
         return cls(m, s)
 
     @classmethod
@@ -65,8 +72,10 @@ class Molecule:
         m = Chem.MolFromSmarts(s)
         if m is None:
             raise MoleculeError(f"Cannot create molecule for: {s}")
+
         if sanitize:
             Chem.SanitizeMol(m)
+
         return cls(m, s)
 
     @classmethod
@@ -448,6 +457,14 @@ class Molecule:
         #  write to /tmp or using tempfile, and then display it using Ipython.display
         #  Also, check whether it is jupyter kernel
 
+    def sanitize(self):
+        """
+        Sanitize the molecule.
+        """
+        Chem.SanitizeMol(self._mol)
+
+        return self
+
     def add_H(self, explicit_only: bool = False) -> Molecule:
         """
         Add hydrogens to the molecule.
@@ -459,6 +476,7 @@ class Molecule:
             The molecule with hydrogens added.
         """
         self._mol = Chem.AddHs(self._mol, explicitOnly=explicit_only)
+        self.sanitize()
 
         return self
 
@@ -472,7 +490,8 @@ class Molecule:
         Returns:
             The molecule with hydrogens removed.
         """
-        self._mol = Chem.RemoveHs(self._mol, implicitOnly=not implicit_only)
+        self._mol = Chem.RemoveHs(self._mol, implicitOnly=implicit_only)
+        self.sanitize()
 
         return self
 

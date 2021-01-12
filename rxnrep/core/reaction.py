@@ -521,8 +521,10 @@ class Reaction:
 
 def smiles_to_reaction(
     smiles: str,
+    *,
     id: Optional[Union[int, str]] = None,
     ignore_reagents: bool = False,
+    remove_H: bool = True,
     sanity_check: bool = True,
 ):
     """
@@ -534,18 +536,19 @@ def smiles_to_reaction(
             '[C:1](=[O:2])-[OD1].[N!H0:3]>>[C:1](=[O:2])[N:3]'
         id: identifier of the reaction.
         ignore_reagents: whether to ignore reagents, regardless of its existence
+        remove_H: whether to remove H atoms.
         sanity_check: whether to check the correctness of the reaction
     """
 
     reactants, reagents, products = smiles.split(">")
 
-    rcts = [Molecule.from_smiles(s) for s in reactants.split(".")]
-    prdts = [Molecule.from_smiles(s) for s in products.split(".")]
+    rcts = [Molecule.from_smiles(s, remove_H=remove_H) for s in reactants.split(".")]
+    prdts = [Molecule.from_smiles(s, remove_H=remove_H) for s in products.split(".")]
 
     if ignore_reagents or reagents == "":
         rgts = None
     else:
-        rgts = [Molecule.from_smiles(s) for s in reagents.split(".")]
+        rgts = [Molecule.from_smiles(s, remove_H=remove_H) for s in reagents.split(".")]
 
     reaction = Reaction(rcts, prdts, rgts, sanity_check=sanity_check, id=id)
 
