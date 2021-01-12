@@ -2,8 +2,7 @@ import itertools
 import logging
 import multiprocessing
 from collections import Counter
-from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Dict, List, Union
 
 import numpy as np
 import torch
@@ -15,7 +14,6 @@ from sklearn.utils import class_weight
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 from rxnrep.core.reaction import Reaction, ReactionError
-from rxnrep.data.grapher import AtomTypeFeatureMasker
 from rxnrep.data.uspto import USPTODataset
 
 logger = logging.getLogger(__name__)
@@ -56,12 +54,13 @@ class ElectrolyteDataset(USPTODataset):
             if rxn is None:
                 failed.append(True)
             else:
-                succeed_reactions.append(rxn)
                 failed.append(False)
+                succeed_reactions.append(rxn)
 
+        counter = Counter(failed)
         logger.info(
-            f"Finish converting to reactions. Number succeed {len(succeed_reactions)}, "
-            f"number failed {Counter(failed)[True]}."
+            f"Finish converting to reactions. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
         )
 
         labels = None
@@ -101,7 +100,7 @@ class ElectrolyteDataset(USPTODataset):
         labels = super(ElectrolyteDataset, self).generate_labels()
 
         # `reaction_energy` label
-        # (it is a scaler, but here we make it a 1D tensor of 1element to use the
+        # (it is a scalar, but here we make it a 1D tensor of 1element to use the
         # collate_fn, where all energies in a batch is cat to a 1D tensor)
         free_energies = self.get_reaction_free_energies(normalize=True)
         for energy, rxn_label in zip(free_energies, labels):

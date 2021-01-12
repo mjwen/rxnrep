@@ -1,8 +1,8 @@
 import logging
 import multiprocessing
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import dgl
 import numpy as np
@@ -109,7 +109,7 @@ class USPTODataset(BaseDataset):
             self.atom_type_masker_use_masker_value = atom_type_masker_use_masker_value
 
     @staticmethod
-    def read_file(filename, nprocs):
+    def read_file(filename: Path, nprocs: int):
 
         # read file
         logger.info("Start reading dataset file...")
@@ -124,32 +124,33 @@ class USPTODataset(BaseDataset):
         # convert to reactions and labels
         logger.info("Start converting to reactions...")
 
+        ids = [f"{smi}_index-{i}" for i, smi in enumerate(smiles_reactions)]
         if nprocs == 1:
-            rxn_lb = [
-                process_one_reaction_from_input_file(smi, lb, smi + f"_index-{i}")
-                for i, (smi, lb) in enumerate(zip(smiles_reactions, labels))
+            reactions = [
+                process_one_reaction_from_input_file(smi, i)
+                for smi, i in zip(smiles_reactions, ids)
             ]
         else:
-            ids = [smi + f"_index-{i}" for i, smi in enumerate(smiles_reactions)]
-            args = zip(smiles_reactions, labels, ids)
+            args = zip(smiles_reactions, ids)
             with multiprocessing.Pool(nprocs) as p:
-                rxn_lb = p.starmap(process_one_reaction_from_input_file, args)
-        reactions, labels = map(list, zip(*rxn_lb))
+                reactions = p.starmap(process_one_reaction_from_input_file, args)
 
         failed = []
         succeed_reactions = []
-        succeed_labels = []
-        for rxn, lb in zip(reactions, labels):
-            if rxn is None or lb is None:
+        succeed_labels = defaultdict(list)
+
+        for i, rxn in enumerate(reactions):
+            if rxn is None:
                 failed.append(True)
             else:
-                succeed_reactions.append(rxn)
-                succeed_labels.append(lb)
                 failed.append(False)
+                succeed_reactions.append(rxn)
+                succeed_labels["label"].append(labels[i])
 
+        counter = Counter(failed)
         logger.info(
-            f"Finish converting to reactions. Number succeed {len(succeed_reactions)}, "
-            f"number failed {Counter(failed)[True]}."
+            f"Finish converting to reactions. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
         )
 
         return succeed_reactions, succeed_labels, failed
@@ -382,7 +383,8 @@ class SchneiderDataset(USPTODataset):
         # labels for atom hop and bond hop
         labels = super(SchneiderDataset, self).generate_labels()
 
-        for rxn_class, rxn_label in zip(self._raw_labels, labels):
+        # add reaction class to the label dict
+        for rxn_class, rxn_label in zip(self._raw_labels["label"], labels):
             rxn_label["reaction_class"] = torch.as_tensor(
                 [int(rxn_class)], dtype=torch.int64
             )
@@ -420,7 +422,7 @@ class SchneiderDataset(USPTODataset):
             w = class_weight.compute_class_weight(
                 "balanced",
                 classes=list(range(num_reaction_classes)),
-                y=self._raw_labels,
+                y=self._raw_labels["label"],
             )
             w = torch.as_tensor(w, dtype=torch.float32)
 
@@ -430,17 +432,23 @@ class SchneiderDataset(USPTODataset):
 
 
 def process_one_reaction_from_input_file(
-    smiles_reaction: str, label: str, id: str
-) -> Tuple[Union[Reaction, None], Any]:
-    # create reaction
+    smiles_reaction: str, id: str
+) -> Union[Reaction, None]:
+    """
+    Helper function to create reactions using multiprocessing.
+
+    Note, remove H from smiles.
+    """
+
     try:
         reaction = smiles_to_reaction(
             smiles_reaction,
             id=id,
             ignore_reagents=True,
+            remove_H=True,
             sanity_check=False,
         )
     except (MoleculeError, ReactionError):
-        return None, None
+        return None
 
-    return reaction, label
+    return reaction
