@@ -632,7 +632,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
-        # atom_type_masker_ratio=args.atom_type_masker_ratio,
+        atom_type_masker_ratio=None,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
     )
@@ -646,7 +646,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
-        # atom_type_masker_ratio=args.atom_type_masker_ratio,
+        atom_type_masker_ratio=None,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -658,7 +658,7 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
-        # atom_type_masker_ratio=args.atom_type_masker_ratio,
+        atom_type_masker_ratio=None,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
