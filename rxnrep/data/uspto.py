@@ -373,7 +373,7 @@ class SchneiderDataset(USPTODataset):
         return labels
 
     def get_class_weight(
-        self, num_reaction_classes: int = 50
+        self, num_reaction_classes: int = 50, class_weight_as_1: bool = False
     ) -> Dict[str, torch.Tensor]:
         """
         Create class weight to be used in cross entropy losses.
@@ -390,15 +390,24 @@ class SchneiderDataset(USPTODataset):
         Args:
             num_reaction_classes: number of reaction classes in the dataset. The class
             labels should be 0, 1, 2, ... num_reaction_classes-1.
+            class_weight_as_1: If `True`, the weight for all classes is set to 1.0;
+                otherwise, it is inversely proportional to the number of data points in
+                the dataset
         """
         # class weight for atom hop and bond hop
         weight = super(SchneiderDataset, self).get_class_weight()
 
-        # class weight for reaction classes
-        w = class_weight.compute_class_weight(
-            "balanced", classes=list(range(num_reaction_classes)), y=self._raw_labels
-        )
-        w = torch.as_tensor(w, dtype=torch.float32)
+        if class_weight_as_1:
+            w = torch.ones(num_reaction_classes)
+        else:
+            # class weight for reaction classes
+            w = class_weight.compute_class_weight(
+                "balanced",
+                classes=list(range(num_reaction_classes)),
+                y=self._raw_labels,
+            )
+            w = torch.as_tensor(w, dtype=torch.float32)
+
         weight["reaction_class"] = w
 
         return weight
