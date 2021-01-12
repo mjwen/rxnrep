@@ -14,7 +14,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.uspto import SchneiderDataset
-from rxnrep.model.model import LinearClassification
+from rxnrep.model.model_clfn import LinearClassification
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -199,7 +199,7 @@ def load_dataset(args):
 
     # Add info that will be used in the model to args for easy access
     class_weight = trainset.get_class_weight(
-        num_reaction_classes=args.num_reaction_classes
+        num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
     )
     args.reaction_class_weight = class_weight["reaction_class"]
     args.feature_size = trainset.feature_size

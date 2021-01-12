@@ -2,13 +2,13 @@
 This script finetunes the representations of reactions obtained by `train_uspto.py` for
 the schneider dataset to predict the labels of the reaction classes.
 
-There are two modes of using this script (currently only support 1):
+There are two modes of using this script (set `pretrained_fix_all_params`):
 
 1. keep the representations fixed and build a 2-layer NN as a project head, and only
 learn the projection head.
 
-2. allow the finetune of the parameters of the pretrain model, still build a 2-layer NN as
-the projection head, but only finetune a limited number of epochs.
+2. allow the finetune of the parameters (encoder) of the pretrain model, still build a
+2-layer NN as the projection head, but only finetune a limited number of epochs.
 """
 
 import argparse
@@ -58,9 +58,20 @@ def parse_args():
     # ========== pretrained model ==========
 
     parser.add_argument(
-        "--pretrained_dataset_state_dict_filename", type=str, default=None
+        "--pretrained_dataset_state_dict_filename",
+        type=str,
+        default=None,
+        # default="dataset_state_dict.yaml",
     )
     parser.add_argument("--pretrained_ckpt_path", type=str, default="checkpoint.ckpt")
+    parser.add_argument(
+        "--pretrained_fix_all_params",
+        type=bool,
+        default=True,
+        help="whether to keep all parameters in the pretrained model fixed. If `False`, "
+        "let the params in the encoder optimizable. Either way, parameters in the "
+        "decoders are fixed (since they are not used).",
+    )
 
     ###
     # ========== model ==========
@@ -216,7 +227,7 @@ def load_dataset(args):
 
     # Add info that will be used in the model to args for easy access
     class_weight = trainset.get_class_weight(
-        num_reaction_classes=args.num_reaction_classes
+        num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
     )
     args.reaction_class_weight = class_weight["reaction_class"]
     args.feature_size = trainset.feature_size
@@ -224,7 +235,7 @@ def load_dataset(args):
     return train_loader, val_loader, test_loader
 
 
-def load_model(ckpt_path: Path):
+def load_pretrained_model(ckpt_path: Path):
     """
     Load the pretrained model.
 
@@ -270,16 +281,22 @@ class LightningModel(pl.LightningModule):
         #     head_activation=params.head_activation,
         # )
 
-        self.backbone = load_model(params.pretrained_ckpt_path)
+        # load pretrained model
+        self.backbone = load_pretrained_model(params.pretrained_ckpt_path)
+
+        # fix parameters in the decoder of pretrained model
+        for name, p in self.backbone.named_parameters():
+            if "decoder" in name:
+                p.requires_grad = False
 
         # linear classification head
-
         # have reaction conv layer
         if params.reaction_conv_layer_sizes:
             conv_last_layer_size = params.reaction_conv_layer_sizes[-1]
         # does not have reaction conv layer
         else:
             conv_last_layer_size = params.molecule_conv_layer_sizes[-1]
+
         in_size = conv_last_layer_size * 5
         self.classification_head = FCNNDecoder(
             in_size,
@@ -334,7 +351,9 @@ class LightningModel(pl.LightningModule):
 
     def on_train_epoch_start(self):
         # fix params of pretrained model
-        self.backbone.eval()
+        # not, params in decoder already fixed in __init__()
+        if self.hparams.pretrained_fix_all_params:
+            self.backbone.eval()
 
     def training_step(self, batch, batch_idx):
         logits, labels, loss = self.shared_step(batch)
@@ -384,13 +403,9 @@ class LightningModel(pl.LightningModule):
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
         labels = labels["reaction_class"]
 
-        # no params optimizing for backbone model
-        with torch.no_grad():
-            feats, reaction_feats = self.backbone.model(
-                mol_graphs, rxn_graphs, feats, metadata
-            )
-
-        # projection head
+        feats, reaction_feats = self.backbone.model(
+            mol_graphs, rxn_graphs, feats, metadata
+        )
         logits = self.classification_head(reaction_feats)
 
         loss = F.cross_entropy(
