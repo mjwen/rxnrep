@@ -38,7 +38,7 @@ class USPTODataset(BaseDataset):
         max_hop_distance: maximum allowed hop distance from the reaction center for
             atom and bond. Used to determine atom and bond label
         atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
-            reaction. If `None`, no atoms is masked and atom type masker is not used.
+            reaction. If `None`, not applied.
         atom_type_masker_use_masker_value: whether to use the calculate masker value. If
             `True`, use it, if `False` do not mask the atom features.
             Ignored if `atom_type_masker_ratio` is None.
@@ -176,6 +176,7 @@ class USPTODataset(BaseDataset):
                     "bond_hop_dist": torch.as_tensor(bond_hop, dtype=torch.int64),
                 }
             )
+
         return labels
 
     def get_class_weight(self) -> Dict[str, torch.Tensor]:

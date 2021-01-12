@@ -56,7 +56,7 @@ class TestReaction:
 
     def test_species(self):
         smi = "[CH3:3][NH2:1].[PH4:2][O:4]>>[CH3:3].[NH1:1][PH3:2][O:4]"
-        rxn = smiles_to_reaction(smi, smi, sanity_check=False)
+        rxn = smiles_to_reaction(smi, id=smi, sanity_check=False)
         assert rxn.species == ["N", "P", "C", "O"]
 
     def test_get_bonds(self):

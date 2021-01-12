@@ -24,88 +24,7 @@ logger = logging.getLogger(__name__)
 class ElectrolyteDataset(USPTODataset):
     """
     Electrolyte dataset for unsupervised reaction representation.
-
-    Args:
-        filename: tsv file of smiles reactions and labels
-        atom_featurizer: function to create atom features
-        bond_featurizer: function to create bond features
-        global_featurizer: function to create global features
-        transform_features: whether to standardize the atom, bond, and global features.
-            If `True`, each feature column will first subtract the mean and then divide
-            by the standard deviation.
-        max_hop_distance: maximum allowed hop distance from the reaction center for
-            atom and bond. Used to determine atom and bond label
-        atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
-            reaction. If `None`, not applied.
-        atom_type_masker_use_masker_value: whether to use the calculate masker value. If
-            `True`, use it, if `False` do not mask the atom features.
-            Ignored if `atom_type_masker_ratio` is None.
-            Note the difference between this and `atom_type_masker_ratio`; if
-            `atom_type_masker_ratio` is `None`, the masker is not used in the sense
-            that the masker is not even created. But `atom_type_masker_use_mask_value`
-            be of `False` means that the masker are created, but we simply skip the
-            change of the atom type features of the masked atoms.
-        init_state_dict: initial state dict (or a yaml file of the state dict) containing
-            the state of the dataset used for training: including all the atom types in
-            the molecules, mean and stdev of the features (if transform_features is
-            `True`). If `None`, these properties are computed from the current dataset.
-        num_processes: number of processes used to load and process the dataset.
-        return_index: whether to return the index of the sample in the dataset
     """
-
-    def __init__(
-        self,
-        filename: Union[str, Path],
-        atom_featurizer: Callable,
-        bond_featurizer: Callable,
-        global_featurizer: Callable,
-        transform_features: bool = True,
-        max_hop_distance: int = 3,
-        atom_type_masker_ratio: Union[float, None] = None,
-        atom_type_masker_use_masker_value: bool = True,
-        init_state_dict: Optional[Union[Dict, Path]] = None,
-        num_processes: int = 1,
-        return_index: bool = True,
-    ):
-
-        # read input files
-        reactions, failed = self.read_file(filename, num_processes)
-
-        # NOTE, should be USPTODataset NOT ElectrolyteDataset. In such, the __init__ of
-        # USPTODataset is not called, but instead that of BaseDataset is called.
-        super(USPTODataset, self).__init__(
-            reactions,
-            atom_featurizer,
-            bond_featurizer,
-            global_featurizer,
-            init_state_dict,
-            num_processes,
-            return_index,
-        )
-
-        # set failed and labels
-        self._failed = failed
-
-        if transform_features:
-            self.scale_features()
-
-        self.max_hop_distance = max_hop_distance
-        self.labels = self.generate_labels()
-
-        self.metadata = {}
-        self.atom_features = {}
-
-        if atom_type_masker_ratio is None:
-            self.atom_type_masker = None
-        else:
-            self.atom_type_masker = AtomTypeFeatureMasker(
-                allowable_types=self._species,
-                feature_name=self.feature_name["atom"],
-                feature_mean=self._feature_scaler_mean["atom"],
-                feature_std=self._feature_scaler_std["atom"],
-                ratio=atom_type_masker_ratio,
-            )
-            self.atom_type_masker_use_masker_value = atom_type_masker_use_masker_value
 
     @staticmethod
     def read_file(filename, nprocs):
@@ -145,7 +64,9 @@ class ElectrolyteDataset(USPTODataset):
             f"number failed {Counter(failed)[True]}."
         )
 
-        return succeed_reactions, failed
+        labels = None
+
+        return succeed_reactions, labels, failed
 
     def get_reaction_free_energies(self, normalize: bool = True):
         """
