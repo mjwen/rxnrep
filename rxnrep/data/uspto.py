@@ -39,6 +39,14 @@ class USPTODataset(BaseDataset):
             atom and bond. Used to determine atom and bond label
         atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
             reaction. If `None`, no atoms is masked and atom type masker is not used.
+        atom_type_masker_use_masker_value: whether to use the calculate masker value. If
+            `True`, use it, if `False` do not mask the atom features.
+            Ignored if `atom_type_masker_ratio` is None.
+            Note the difference between this and `atom_type_masker_ratio`; if
+            `atom_type_masker_ratio` is `None`, the masker is not used in the sense
+            that the masker is not even created. But `atom_type_masker_use_mask_value`
+            be of `False` means that the masker are created, but we simply skip the
+            change of the atom type features of the masked atoms.
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -56,6 +64,7 @@ class USPTODataset(BaseDataset):
         transform_features: bool = True,
         max_hop_distance: int = 3,
         atom_type_masker_ratio: Union[float, None] = None,
+        atom_type_masker_use_masker_value: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
@@ -97,6 +106,7 @@ class USPTODataset(BaseDataset):
                 feature_std=self._feature_scaler_std["atom"],
                 ratio=atom_type_masker_ratio,
             )
+            self.atom_type_masker_use_masker_value = atom_type_masker_use_masker_value
 
     @staticmethod
     def read_file(filename, nprocs):
@@ -291,7 +301,12 @@ class USPTODataset(BaseDataset):
                 products_g,
                 is_atom_masked,
                 masked_atom_labels,
-            ) = self.atom_type_masker.mask_features(reactants_g, products_g, reaction)
+            ) = self.atom_type_masker.mask_features(
+                reactants_g,
+                products_g,
+                reaction,
+                use_masker_value=self.atom_type_masker_use_masker_value,
+            )
 
             # add masked_atom_labels to label
             label["masked_atom_type"] = torch.as_tensor(

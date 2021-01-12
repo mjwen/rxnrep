@@ -567,7 +567,11 @@ class AtomTypeFeatureMasker:
             self.mask_values = torch.zeros(self.end_index - self.start_index)
 
     def mask_features(
-        self, reactants_g: dgl.DGLGraph, products_g: dgl.DGLGraph, reaction: Reaction
+        self,
+        reactants_g: dgl.DGLGraph,
+        products_g: dgl.DGLGraph,
+        reaction: Reaction,
+        use_masker_value: bool = True,
     ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, List[bool], List[int]]:
         """
         Mask the atom type features.
@@ -588,6 +592,11 @@ class AtomTypeFeatureMasker:
                 `is_atoms_masked = [True, False, True, False, False]` (i.e. atoms 0 and
                 2 are masked), then `masked_atom_labels = [1, 5]` means the label for
                 atom 0 is 1 and for atom 2 is 5.
+            use_masker_value: if `True` the atom type features of the masked atoms are
+                set to self.masker_value (mean/std or zero). If `False`, do not change
+                the atom type features of the masked atoms; the hope is that by
+                directly predicting the atom type with atom type features, the atom
+                type information is retained in the final representation.
         """
         num_atoms = sum([m.num_atoms for m in reaction.reactants])
         permuted_atoms = np.random.permutation(num_atoms).tolist()
@@ -608,13 +617,14 @@ class AtomTypeFeatureMasker:
             self.class_labels_map[reaction.species[i]] for i in masked_atoms
         ]
 
-        # set atom features to masked values
-        reactants_g.nodes["atom"].data["feat"][
-            masked_atoms, self.start_index : self.end_index
-        ] = self.mask_values
+        if use_masker_value:
+            # set atom features to masked values
+            reactants_g.nodes["atom"].data["feat"][
+                masked_atoms, self.start_index : self.end_index
+            ] = self.mask_values
 
-        products_g.nodes["atom"].data["feat"][
-            masked_atoms, self.start_index : self.end_index
-        ] = self.mask_values
+            products_g.nodes["atom"].data["feat"][
+                masked_atoms, self.start_index : self.end_index
+            ] = self.mask_values
 
         return reactants_g, products_g, is_atom_masked, masked_atom_labels
