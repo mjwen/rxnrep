@@ -525,7 +525,12 @@ def parse_args():
     parser.add_argument("--node_decoder_activation", type=str, default="ReLU")
     parser.add_argument("--max_hop_distance", type=int, default=3)
     parser.add_argument("--atom_type_masker_ratio", type=float, default=0.2)
-    parser.add_argument("--atom_type_masker_use_masker_value", type=bool, default=True)
+    parser.add_argument(
+        "--atom_type_masker_use_masker_value",
+        type=int,
+        default=1,
+        help="whether to use atom type masker value",
+    )
 
     # clustering decoder
     parser.add_argument(
