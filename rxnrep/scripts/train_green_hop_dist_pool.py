@@ -13,9 +13,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import USPTODataset
+from rxnrep.data.green import GreenDataset
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
-from rxnrep.model.model import ReactionRepresentation
+from rxnrep.model.model_hop_dist_pool import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -49,6 +49,8 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
+            # reaction pool
+            max_hop_distance=params.max_hop_distance,
             # bond hop distance decoder
             bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             bond_hop_dist_decoder_activation=params.node_decoder_activation,
@@ -449,9 +451,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
     # ========== dataset ==========
-    prefix = "/Users/mjwen/Documents/Dataset/uspto/raw/"
+    prefix = "/Users/mjwen/Documents/Dataset/activation_energy_Green/"
 
-    fname_tr = prefix + "2001_Sep2016_USPTOapplications_smiles_n200_processed_train.tsv"
+    fname_tr = prefix + "wb97xd3_n200_processed_train.tsv"
     fname_val = fname_tr
     fname_test = fname_tr
 
@@ -574,7 +576,7 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    trainset = USPTODataset(
+    trainset = GreenDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -589,7 +591,7 @@ def load_dataset(args):
 
     state_dict = trainset.state_dict()
 
-    valset = USPTODataset(
+    valset = GreenDataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -602,7 +604,7 @@ def load_dataset(args):
         num_processes=args.nprocs,
     )
 
-    testset = USPTODataset(
+    testset = GreenDataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
