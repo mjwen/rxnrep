@@ -67,7 +67,7 @@ def parse_args():
     parser.add_argument(
         "--pretrained_tune_encoder",
         type=bool,
-        default=True,
+        default=False,
         help="Whether to optimize params in the encoder of the pretrained model. "
         "Note, parameters in the decoders are set to be fixed (since they are not used).",
     )

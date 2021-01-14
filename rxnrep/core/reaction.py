@@ -124,6 +124,9 @@ class Reaction:
     def species(self) -> List[str]:
         """
         Get the species of the atoms, ordered according to the atom map number.
+
+        This assumes the atom map number are contiguous, e.g. from 0 to the number of
+        atoms minus 1.
         """
         if self._species is None:
             map_number = list(
@@ -142,12 +145,27 @@ class Reaction:
             name: property name
         """
         if self._properties is None:
-            raise ReactionError("Reaction does not have property {name}")
+            raise ReactionError(f"Reaction does not have property {name}")
         else:
             try:
                 return self._properties[name]
             except KeyError:
-                raise ReactionError("Reaction does not have property {name}")
+                raise ReactionError(f"Reaction does not have property {name}")
+
+    def set_property(self, name: str, value: Any):
+        """
+        Add additional property to the reaction.
+
+        If the property is already there this will reset it.
+
+        Args:
+            name: name of the property
+            value: value of the property
+        """
+        if self._properties is None:
+            self._properties = {}
+
+        self._properties[name] = value
 
     def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
         """
