@@ -2,7 +2,7 @@
 This script finetunes the representations of reactions obtained by `train_uspto.py` for
 the schneider dataset to predict the labels of the reaction classes.
 
-There are two modes of using this script (set `pretrained_fix_all_params`):
+There are two modes of using this script (set `pretrained_tune_encoder`):
 
 1. keep the representations fixed and build a 2-layer NN as a project head, and only
 learn the projection head.
@@ -65,12 +65,11 @@ def parse_args():
     )
     parser.add_argument("--pretrained_ckpt_path", type=str, default="checkpoint.ckpt")
     parser.add_argument(
-        "--pretrained_fix_all_params",
+        "--pretrained_tune_encoder",
         type=bool,
         default=True,
-        help="whether to keep all parameters in the pretrained model fixed. If `False`, "
-        "let the params in the encoder optimizable. Either way, parameters in the "
-        "decoders are fixed (since they are not used).",
+        help="Whether to optimize params in the encoder of the pretrained model. "
+        "Note, parameters in the decoders are set to be fixed (since they are not used).",
     )
 
     ###
@@ -284,9 +283,14 @@ class LightningModel(pl.LightningModule):
         # load pretrained model
         self.backbone = load_pretrained_model(params.pretrained_ckpt_path)
 
-        # fix parameters in the decoder of pretrained model
-        for name, p in self.backbone.named_parameters():
-            if "decoder" in name:
+        if self.hparams.pretrained_tune_encoder:
+            # only fix parameters in the decoder
+            for name, p in self.backbone.named_parameters():
+                if "decoder" in name:
+                    p.requires_grad = False
+        else:
+            # fix all backbone parameters (decoder + encoder)
+            for name, p in self.backbone.named_parameters():
                 p.requires_grad = False
 
         # linear classification head
@@ -350,9 +354,7 @@ class LightningModel(pl.LightningModule):
         return reaction_feats
 
     def on_train_epoch_start(self):
-        # fix params of pretrained model
-        # not, params in decoder already fixed in __init__()
-        if self.hparams.pretrained_fix_all_params:
+        if not self.hparams.pretrained_tune_encoder:
             self.backbone.eval()
 
     def training_step(self, batch, batch_idx):
