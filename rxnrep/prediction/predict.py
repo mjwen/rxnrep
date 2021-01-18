@@ -13,8 +13,12 @@ from rxnrep.data.featurizer import (
     BondFeaturizerMinimum,
     GlobalFeaturizer,
 )
+from rxnrep.data.green import GreenDataset
 from rxnrep.data.uspto import USPTODataset
-from rxnrep.scripts.commons import RxnRepLightningModel, RxnRepLightningModel2
+from rxnrep.scripts.train_electrolyte import RxnRepLightningModel
+from rxnrep.scripts.train_electrolyte_energy_decoder import (
+    RxnRepLightningModel as RxnRepLightningModel2,
+)
 from rxnrep.utils import to_path, yaml_load
 
 
@@ -36,9 +40,9 @@ def get_prediction(
             state dict of the dataset used in training the model.
         dataset_filename: path to the dataset file to get the predictions for.
         model_name: name of the model (dataset plus model). Options are `uspto`,
-        `electrolyte_full`, and `electrolyte_two_bond_types`.
+        `electrolyte_full`, electrolyte_two_bond_types`, `green`.
         has_reaction_energy_decoder: whether to use a model that has reaction energy
-            decoder
+            decoder. this only take effect when loading model from this
         prediction_type: the type of prediction to return. Options are `reaction_feature`,
             `diff_feature_before_rxn_conv`, and `diff_feature_after_rxn_conv`.
         model: If not `None`, the given model is used; otherwise, load model from the
@@ -48,6 +52,10 @@ def get_prediction(
         Predictions for all data points. Each dict in the list holds the prediction
         for one data point. If the data point (reaction) fails when it was read in the
         dataset, the dict will instead be a `None`, indicating no results for it.
+        Example:
+            when `prediction_type = "reaction_feature"`, each dict in the returned list
+            has the form: {'value': reaction_feature, 'reaction': Reaction}
+
     """
     model_path = to_path(model_path)
     ckpt_path = model_path.joinpath("checkpoint.ckpt")
@@ -74,8 +82,11 @@ def get_prediction(
         data_loader = load_electrolyte_dataset(
             dataset_state_dict_path, dataset_filename, dataset_type="two_bond_types"
         )
+    elif model_name == "green":
+        data_loader = load_green_dataset(dataset_state_dict_path, dataset_filename)
+
     else:
-        supported = ["uspto", "electrolyte", "electrolyte_two_bond_types"]
+        supported = ["uspto", "electrolyte", "electrolyte_two_bond_types", "green"]
         raise PredictionError(
             f"Expect model to be one of {supported}, but got {model_name}."
         )
@@ -228,6 +239,35 @@ def load_electrolyte_dataset(
     # check species and charge
     _check_species(dataset.get_species(), state_dict["species"])
     _check_charge(dataset.get_charges(), supported_charges=allowable_charge)
+
+    # create data loader
+    data_loader = DataLoader(
+        dataset,
+        batch_size=1000,
+        shuffle=False,
+        collate_fn=dataset.collate_fn,
+        drop_last=False,
+    )
+
+    return data_loader
+
+
+def load_green_dataset(state_dict_path: Path, dataset_filename: Path):
+
+    state_dict = yaml_load(state_dict_path)
+
+    dataset = GreenDataset(
+        filename=dataset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=state_dict_path,
+    )
+
+    # check species and charge
+    _check_species(dataset.get_species(), state_dict["species"])
+    # _check_charge(dataset.get_charges(), state_dict["charges"])
 
     # create data loader
     data_loader = DataLoader(

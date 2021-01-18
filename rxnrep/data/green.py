@@ -57,9 +57,12 @@ class GreenDataset(USPTODataset):
                 failed.append(True)
             else:
                 failed.append(False)
-                succeed_reactions.append(rxn)
+                # TODO, remove succeed_labels, because labels set as reaction property
                 succeed_labels["activation_energy"].append(activation_energy[i])
                 succeed_labels["reaction_enthalpy"].append(reaction_enthalpy[i])
+                rxn.set_property("activation_energy", activation_energy[i])
+                rxn.set_property("reaction_enthalpy", reaction_enthalpy[i])
+                succeed_reactions.append(rxn)
 
         counter = Counter(failed)
         logger.info(
