@@ -62,7 +62,7 @@ class USPTODataset(BaseDataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         transform_features: bool = True,
-        max_hop_distance: int = 3,
+        max_hop_distance: int = None,
         atom_type_masker_ratio: Union[float, None] = None,
         atom_type_masker_use_masker_value: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,

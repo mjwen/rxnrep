@@ -30,7 +30,7 @@ class GreenDataset(USPTODataset):
         df = pd.read_csv(filename, sep="\t")
         smiles_reactions = df["reaction"].tolist()
         activation_energy = df["activation energy"].to_list()
-        reaction_enthalpy = df["reaction enthalpy"].to_list()
+        reaction_energy = df["reaction enthalpy"].to_list()
 
         logger.info("Finish reading dataset file...")
 
@@ -59,9 +59,9 @@ class GreenDataset(USPTODataset):
                 failed.append(False)
                 # TODO, remove succeed_labels, because labels set as reaction property
                 succeed_labels["activation_energy"].append(activation_energy[i])
-                succeed_labels["reaction_enthalpy"].append(reaction_enthalpy[i])
+                succeed_labels["reaction_energy"].append(reaction_energy[i])
                 rxn.set_property("activation_energy", activation_energy[i])
-                rxn.set_property("reaction_enthalpy", reaction_enthalpy[i])
+                rxn.set_property("reaction_energy", reaction_energy[i])
                 succeed_reactions.append(rxn)
 
         counter = Counter(failed)
@@ -77,19 +77,19 @@ class GreenDataset(USPTODataset):
         Labels for all reactions.
 
         Each dict is the labels for one reaction, with keys:
-            `atom_hop_dist`, `bond_hop_dist`, `reaction_enthalpy`, `activation_energy`.
+            `atom_hop_dist`, `bond_hop_dist`, `reaction_energy`, `activation_energy`.
         """
 
         # `atom_hop_dist` and `bond_hop_dist` labels
         labels = super(GreenDataset, self).generate_labels()
 
-        # `reaction_enthalpy` and `activation_energy` label
+        # `reaction_energy` and `activation_energy` label
         # (each is a scalar, but here we make it a 1D tensor of 1 element to use the
         # collate_fn, where all energies in a batch is cat to a 1D tensor)
-        reaction_enthalpy = self._raw_labels["reaction_enthalpy"]
+        reaction_energy = self._raw_labels["reaction_energy"]
         activation_energy = self._raw_labels["activation_energy"]
-        for re, ae, rxn_label in zip(reaction_enthalpy, activation_energy, labels):
-            rxn_label["reaction_enthalpy"] = torch.as_tensor([re], dtype=torch.float32)
+        for re, ae, rxn_label in zip(reaction_energy, activation_energy, labels):
+            rxn_label["reaction_energy"] = torch.as_tensor([re], dtype=torch.float32)
             rxn_label["activation_energy"] = torch.as_tensor([ae], dtype=torch.float32)
 
         return labels

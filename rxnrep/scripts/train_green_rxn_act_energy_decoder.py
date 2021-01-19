@@ -13,8 +13,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import SchneiderDataset
-from rxnrep.model.model_clfn import ReactionRepresentation
+from rxnrep.data.green import GreenDataset
+from rxnrep.model.model_rxn_act_energy_decoder import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -48,21 +48,43 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # classification head
-            head_hidden_layer_sizes=params.head_hidden_layer_sizes,
-            num_classes=params.num_reaction_classes,
-            head_activation=params.head_activation,
+            # reaction energy decoder
+            reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
+            reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
+            # reaction energy decoder
+            activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
+            activation_energy_decoder_activation=params.activation_energy_decoder_activation,
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
         )
+
+        # reaction cluster functions
+        self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
+        self.assignments = {mode: None for mode in ["train", "val", "test"]}
+        self.centroids = {mode: None for mode in ["train", "val", "test"]}
 
         # metrics
         self.metrics = self._init_metrics()
 
         self.timer = TimeMeter()
 
-    def forward(self, batch):
+    def forward(self, batch, returns: str = "reaction_feature"):
+        """
+        Args:
+            batch:
+            returns: the type of features (embeddings) to return. Optionals are
+                `reaction_feature`, 'diff_feature_before_rxn_conv',
+                and 'diff_feature_after_rxn_conv'.
+
+        Returns:
+            If returns = `reaction_feature`, return a 2D tensor of reaction features,
+            each row for a reaction;
+            If returns = `diff_feature_before_rxn_conv` or `diff_feature_after_rxn_conv`,
+                return a dictionary of atom, bond, and global features.
+                As the name suggests, the returned features can be `before` or `after`
+                the reaction conv layers.
+        """
         nodes = ["atom", "bond", "global"]
 
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
@@ -73,9 +95,29 @@ class RxnRepLightningModel(pl.LightningModule):
 
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
-        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+        if returns == "reaction_feature":
+            _, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            return reaction_feats
 
-        return reaction_feats
+        elif returns == "diff_feature_after_rxn_conv":
+            diff_feats, _ = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            return diff_feats
+
+        elif returns == "diff_feature_before_rxn_conv":
+            diff_feats = self.model.get_diff_feats(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
+            return diff_feats
+
+        else:
+            supported = [
+                "reaction_feature",
+                "diff_feature_before_rxn_conv",
+                "diff_feature_after_rxn_conv",
+            ]
+            raise ValueError(
+                f"Expect `returns` to be one of {supported}; got `{returns}`."
+            )
 
     def training_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "train")
@@ -125,21 +167,29 @@ class RxnRepLightningModel(pl.LightningModule):
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-        logits = self.model.decode(feats, reaction_feats, metadata)
-        preds = {"reaction_class": logits}
+        preds = self.model.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========
-        loss = F.cross_entropy(
-            preds["reaction_class"],
-            labels["reaction_class"],
-            reduction="mean",
-            weight=self.hparams.reaction_class_weight.to(self.device),
+
+        # loss for reaction energy
+        preds["reaction_energy"] = preds["reaction_energy"].flatten()
+        loss_reaction_energy = F.mse_loss(
+            preds["reaction_energy"], labels["reaction_energy"]
         )
+
+        preds["activation_energy"] = preds["activation_energy"].flatten()
+        loss_activation_energy = F.mse_loss(
+            preds["activation_energy"], labels["activation_energy"]
+        )
+
+        # total loss (maybe assign different weights)
+        loss = loss_reaction_energy + loss_activation_energy
 
         # ========== log the loss ==========
         self.log_dict(
             {
-                f"{mode}/loss/reaction_class": loss,
+                f"{mode}/loss/reaction_energy": loss_reaction_energy,
+                f"{mode}/loss/activation_energy": loss_activation_energy,
             },
             on_step=False,
             on_epoch=True,
@@ -169,26 +219,12 @@ class RxnRepLightningModel(pl.LightningModule):
         for mode in ["metric_train", "metric_val", "metric_test"]:
             metrics[mode] = nn.ModuleDict(
                 {
-                    "reaction_class": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.num_reaction_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.num_reaction_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.num_reaction_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    )
+                    "reaction_energy": nn.ModuleDict(
+                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
+                    ),
+                    "activation_energy": nn.ModuleDict(
+                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
+                    ),
                 }
             )
 
@@ -199,7 +235,7 @@ class RxnRepLightningModel(pl.LightningModule):
         preds,
         labels,
         mode,
-        keys=("reaction_class",),
+        keys=("reaction_energy", "activation_energy"),
     ):
         """
         update metric states at each step
@@ -214,7 +250,7 @@ class RxnRepLightningModel(pl.LightningModule):
     def _compute_metrics(
         self,
         mode,
-        keys=("reaction_class",),
+        keys=("reaction_energy", "activation_energy"),
     ):
         """
         compute metric and log it at each epoch
@@ -240,8 +276,10 @@ class RxnRepLightningModel(pl.LightningModule):
                 # explicitly just in case
                 metric_obj.reset()
 
-                if name == "f1":
-                    sum_f1 += value
+                # NOTE, we abuse the sum_f1 to add the mae of energy (smaller the better)
+                # prediction as well
+                if name == "mae":
+                    sum_f1 -= value
 
         return sum_f1
 
@@ -250,9 +288,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
     # ========== dataset ==========
-    prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
+    prefix = "/Users/mjwen/Documents/Dataset/activation_energy_Green/"
 
-    fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
+    fname_tr = prefix + "wb97xd3_n200_processed_train.tsv"
     fname_val = fname_tr
     fname_test = fname_tr
 
@@ -295,12 +333,28 @@ def parse_args():
     parser.add_argument("--max_hop_distance", type=int, default=3)
 
     # ========== decoder ==========
-    # linear classification head
+
+    # reaction energy decoder
+
     parser.add_argument(
-        "--head_hidden_layer_sizes", type=int, nargs="+", default=[256, 128]
+        "--reaction_energy_decoder_hidden_layer_sizes",
+        type=int,
+        nargs="+",
+        default=[64],
     )
-    parser.add_argument("--head_activation", type=str, default="ReLU")
-    parser.add_argument("--num_reaction_classes", type=int, default=50)
+    parser.add_argument(
+        "--reaction_energy_decoder_activation", type=str, default="ReLU"
+    )
+
+    # parser.add_argument(
+    #     "--activation_energy_decoder_hidden_layer_sizes",
+    #     type=int,
+    #     nargs="+",
+    #     default=[64],
+    # )
+    # parser.add_argument(
+    #     "--activation_energy_decoder_activation", type=str, default="ReLU"
+    # )
 
     # ========== training ==========
 
@@ -339,6 +393,11 @@ def parse_args():
     elif args.pooling_method == "hop_distance":
         args.pooling_kwargs = {"max_hop_distance": args.max_hop_distance}
 
+    args.activation_energy_decoder_hidden_layer_sizes = (
+        args.reaction_energy_decoder_hidden_layer_sizes
+    )
+    args.activation_energy_decoder_activation = args.reaction_energy_decoder_activation
+
     return args
 
 
@@ -362,7 +421,7 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    trainset = SchneiderDataset(
+    trainset = GreenDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -375,7 +434,7 @@ def load_dataset(args):
 
     state_dict = trainset.state_dict()
 
-    valset = SchneiderDataset(
+    valset = GreenDataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -386,7 +445,7 @@ def load_dataset(args):
         num_processes=args.nprocs,
     )
 
-    testset = SchneiderDataset(
+    testset = GreenDataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -438,11 +497,6 @@ def load_dataset(args):
     # Add dataset state dict to args to log it
     args.dataset_state_dict = state_dict
 
-    # Add info that will be used in the model to args for easy access
-    class_weight = trainset.get_class_weight(
-        num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
-    )
-    args.reaction_class_weight = class_weight["reaction_class"]
     args.feature_size = trainset.feature_size
 
     return train_loader, val_loader, test_loader
