@@ -3,7 +3,8 @@
 # Others should build by modifying this code, not to subclass for easier comparison.
 #
 # encoder:
-# - set2set pooling
+#
+# pooling: set2set or hop_distance
 #
 # decoders:
 # - atom hop dist
@@ -11,7 +12,7 @@
 # - masked atom hop
 # - reaction clustering
 #
-from typing import Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 import dgl
 import torch
@@ -21,15 +22,165 @@ from rxnrep.model.decoder import (
     AtomHopDistDecoder,
     AtomTypeDecoder,
     BondHopDistDecoder,
-    FCNNDecoder,
     ReactionClusterDecoder,
-    ReactionEnergyDecoder,
 )
 from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.readout import Set2SetThenCat
+from rxnrep.model.readout import HopDistancePooling, Set2SetThenCat
 
 
-class ReactionRepresentation(nn.Module):
+class EncoderAndPooling(nn.Module):
+    """
+    Encoder and reaction feature pooling part of the model. Add decoder to use this.
+    """
+
+    def __init__(
+        self,
+        in_feats,
+        embedding_size,
+        *,
+        # encoder
+        molecule_conv_layer_sizes,
+        molecule_num_fc_layers,
+        molecule_batch_norm,
+        molecule_activation,
+        molecule_residual,
+        molecule_dropout,
+        reaction_conv_layer_sizes,
+        reaction_num_fc_layers,
+        reaction_batch_norm,
+        reaction_activation,
+        reaction_residual,
+        reaction_dropout,
+        # reaction features pooling
+        pooling_method="set2set",
+        pooling_kwargs: Dict[str, Any] = None,
+    ):
+
+        super().__init__()
+
+        # encoder
+        self.encoder = ReactionEncoder(
+            in_feats=in_feats,
+            embedding_size=embedding_size,
+            molecule_conv_layer_sizes=molecule_conv_layer_sizes,
+            molecule_num_fc_layers=molecule_num_fc_layers,
+            molecule_batch_norm=molecule_batch_norm,
+            molecule_activation=molecule_activation,
+            molecule_residual=molecule_residual,
+            molecule_dropout=molecule_dropout,
+            reaction_conv_layer_sizes=reaction_conv_layer_sizes,
+            reaction_num_fc_layers=reaction_num_fc_layers,
+            reaction_batch_norm=reaction_batch_norm,
+            reaction_activation=reaction_activation,
+            reaction_residual=reaction_residual,
+            reaction_dropout=reaction_dropout,
+        )
+
+        # have reaction conv layer
+        if reaction_conv_layer_sizes:
+            self.conv_last_layer_size = reaction_conv_layer_sizes[-1]
+        # does not have reaction conv layer
+        else:
+            self.conv_last_layer_size = molecule_conv_layer_sizes[-1]
+
+        # ========== reaction feature pooling ==========
+        # readout reaction features, one 1D tensor for each reaction
+
+        self.pooling_method = pooling_method
+
+        if pooling_method == "set2set":
+            if pooling_kwargs is None:
+                set2set_num_iterations = 6
+                set2set_num_layers = 3
+            else:
+                set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
+                set2set_num_layers = pooling_kwargs["set2set_num_layers"]
+
+            in_sizes = [self.conv_last_layer_size] * 2
+            self.set2set = Set2SetThenCat(
+                num_iters=set2set_num_iterations,
+                num_layers=set2set_num_layers,
+                ntypes=["atom", "bond"],
+                in_feats=in_sizes,
+                ntypes_direct_cat=["global"],
+            )
+
+            self.pooling_last_layer_size = self.conv_last_layer_size * 5
+
+        elif pooling_method == "hop_distance":
+            if pooling_kwargs is None:
+                raise RuntimeError(
+                    "`max_hop_distance` should be provided as `pooling_kwargs` to use "
+                    "`hop_distance_pool`"
+                )
+            else:
+                max_hop_distance = pooling_kwargs["max_hop_distance"]
+                self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
+
+            self.pooling_last_layer_size = self.conv_last_layer_size * 3
+
+        else:
+            raise ValueError(f"Unsupported pooling method `{pooling_method}`")
+
+    def forward(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, torch.Tensor],
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+        """
+        We let forward only returns features and the part to map the features to logits
+        in another function: `decode`.
+
+        Args:
+            molecule_graphs:
+            reaction_graphs:
+            feats:
+            metadata:
+        """
+        # encoder
+        feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
+
+        # readout reaction features, a 1D tensor for each reaction
+        if self.pooling_method == "set2set":
+            reaction_feats = self.set2set(reaction_graphs, feats)
+
+        elif self.pooling_method == "hop_distance":
+
+            hop_dist = {
+                "atom": metadata["atom_hop_dist"],
+                "bond": metadata["bond_hop_dist"],
+            }
+            reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
+
+        else:
+            raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
+
+        return feats, reaction_feats
+
+    def get_diff_feats(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Get the atom/bond/global difference features before applying reaction
+        convolution.
+
+        Returns:
+            {atom:feats, bond:feats, global:feats}
+
+        """
+
+        return self.encoder.get_diff_feats(
+            molecule_graphs, reaction_graphs, feats, metadata
+        )
+
+
+class ReactionRepresentation(EncoderAndPooling):
     """
     Model to represent chemical reactions.
     """
@@ -38,6 +189,7 @@ class ReactionRepresentation(nn.Module):
         self,
         in_feats,
         embedding_size,
+        *,
         # encoder
         molecule_conv_layer_sizes,
         molecule_num_fc_layers,
@@ -67,17 +219,15 @@ class ReactionRepresentation(nn.Module):
         reaction_cluster_decoder_hidden_layer_sizes,
         reaction_cluster_decoder_activation,
         reaction_cluster_decoder_output_size,
-        # readout reaction features
-        set2set_num_iterations: int = 6,
-        set2set_num_layers: int = 3,
+        # reaction features pooling
+        pooling_method="set2set",
+        pooling_kwargs: Dict[str, Any] = None,
     ):
 
-        super(ReactionRepresentation, self).__init__()
-
-        # encoder
-        self.encoder = ReactionEncoder(
-            in_feats=in_feats,
-            embedding_size=embedding_size,
+        # encoder and pooling
+        super().__init__(
+            in_feats,
+            embedding_size,
             molecule_conv_layer_sizes=molecule_conv_layer_sizes,
             molecule_num_fc_layers=molecule_num_fc_layers,
             molecule_batch_norm=molecule_batch_norm,
@@ -90,20 +240,15 @@ class ReactionRepresentation(nn.Module):
             reaction_activation=reaction_activation,
             reaction_residual=reaction_residual,
             reaction_dropout=reaction_dropout,
+            pooling_method=pooling_method,
+            pooling_kwargs=pooling_kwargs,
         )
-
-        # have reaction conv layer
-        if reaction_conv_layer_sizes:
-            conv_last_layer_size = reaction_conv_layer_sizes[-1]
-        # does not have reaction conv layer
-        else:
-            conv_last_layer_size = molecule_conv_layer_sizes[-1]
 
         # ========== node level decoder ==========
 
         # bond hop dist decoder
         self.bond_hop_dist_decoder = BondHopDistDecoder(
-            in_size=conv_last_layer_size,
+            in_size=self.conv_last_layer_size,
             num_classes=bond_hop_dist_decoder_num_classes,
             hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
             activation=bond_hop_dist_decoder_activation,
@@ -111,7 +256,7 @@ class ReactionRepresentation(nn.Module):
 
         # atom hop dist decoder
         self.atom_hop_dist_decoder = AtomHopDistDecoder(
-            in_size=conv_last_layer_size,
+            in_size=self.conv_last_layer_size,
             num_classes=atom_hop_dist_decoder_num_classes,
             hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
             activation=atom_hop_dist_decoder_activation,
@@ -119,66 +264,18 @@ class ReactionRepresentation(nn.Module):
 
         # masked atom type decoder
         self.masked_atom_type_decoder = AtomTypeDecoder(
-            in_size=conv_last_layer_size,
+            in_size=self.conv_last_layer_size,
             num_classes=masked_atom_type_decoder_num_classes,
             hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
             activation=masked_atom_type_decoder_activation,
         )
 
         # ========== reaction level decoder ==========
-
-        # readout reaction features, one 1D tensor for each reaction
-        in_sizes = [conv_last_layer_size] * 2
-        self.set2set = Set2SetThenCat(
-            num_iters=set2set_num_iterations,
-            num_layers=set2set_num_layers,
-            ntypes=["atom", "bond"],
-            in_feats=in_sizes,
-            ntypes_direct_cat=["global"],
-        )
-
-        in_size = conv_last_layer_size * 5
         self.reaction_cluster_decoder = ReactionClusterDecoder(
-            in_size=in_size,
+            in_size=self.pooling_last_layer_size,
             num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
             activation=reaction_cluster_decoder_activation,
-        )
-
-    def forward(
-        self,
-        molecule_graphs: dgl.DGLGraph,
-        reaction_graphs: dgl.DGLGraph,
-        feats: Dict[str, torch.Tensor],
-        metadata: Dict[str, torch.Tensor],
-    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
-        """
-        We let forward only returns features and the part to map the features to logits
-        in another function: `decode`.
-
-        Args:
-            molecule_graphs:
-            reaction_graphs:
-            feats:
-            metadata:
-        """
-        # encoder
-        feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
-
-        # readout reaction features, a 1D tensor for each reaction
-        reaction_feats = self.set2set(reaction_graphs, feats)
-
-        return feats, reaction_feats
-
-    def get_diff_feats(
-        self,
-        molecule_graphs: dgl.DGLGraph,
-        reaction_graphs: dgl.DGLGraph,
-        feats: Dict[str, torch.Tensor],
-        metadata: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        return self.encoder.get_diff_feats(
-            molecule_graphs, reaction_graphs, feats, metadata
         )
 
     def decode(

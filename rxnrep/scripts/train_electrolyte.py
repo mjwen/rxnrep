@@ -69,6 +69,9 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
             reaction_cluster_decoder_activation=params.cluster_decoder_activation,
             reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
+            # pooling method
+            pooling_method=params.pooling_method,
+            pooling_kwargs=params.pooling_kwargs,
         )
 
         # reaction cluster functions
@@ -110,14 +113,17 @@ class RxnRepLightningModel(pl.LightningModule):
         if returns == "reaction_feature":
             _, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             return reaction_feats
+
         elif returns == "diff_feature_after_rxn_conv":
             diff_feats, _ = self.model(mol_graphs, rxn_graphs, feats, metadata)
             return diff_feats
+
         elif returns == "diff_feature_before_rxn_conv":
             diff_feats = self.model.get_diff_feats(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
+
         else:
             supported = [
                 "reaction_feature",
@@ -497,6 +503,14 @@ def parse_args():
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
+    # ========== pooling ==========
+    parser.add_argument(
+        "--pooling_method",
+        type=str,
+        default="hop_distance",
+        help="set2set or hop_distance",
+    )
+
     # ========== decoder ==========
     # atom and bond decoder
     parser.add_argument(
@@ -568,6 +582,12 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
 
     args = parser.parse_args()
+
+    # adjust for pooling
+    if args.pooling_method == "set2set":
+        args.pooling_kwargs = None
+    elif args.pooling_method == "hop_distance":
+        args.pooling_kwargs = {"max_hop_distance": args.max_hop_distance}
 
     return args
 
