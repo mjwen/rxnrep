@@ -264,6 +264,11 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj = self.metrics[mode][key][name]
                 value = metric_obj.compute()
 
+                # reaction energy and activation energy are scaled, multiple std to get
+                # back to the original
+                if key in ["reaction_energy", "activation_energy"]:
+                    value *= self.hparams.label_std[key].to(self.device)
+
                 self.log(
                     f"{mode}/{name}/{key}",
                     value,
@@ -496,6 +501,9 @@ def load_dataset(args):
 
     # Add dataset state dict to args to log it
     args.dataset_state_dict = state_dict
+
+    # Add info that will be used in the model to args for easy access
+    args.label_std = trainset.label_std
 
     args.feature_size = trainset.feature_size
 

@@ -453,6 +453,11 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj = self.metrics[mode][key][name]
                 value = metric_obj.compute()
 
+                # reaction energy are scaled, multiple std to get back to the original
+                # scale
+                if key in ["reaction_energy"]:
+                    value *= self.hparams.label_std[key].to(self.device)
+
                 self.log(
                     f"{mode}/{name}/{key}",
                     value,
@@ -736,6 +741,7 @@ def load_dataset(args):
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
     args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
     args.masked_atom_type_num_classes = len(trainset.get_species())
+    args.label_std = trainset.label_std
 
     args.feature_size = trainset.feature_size
 
