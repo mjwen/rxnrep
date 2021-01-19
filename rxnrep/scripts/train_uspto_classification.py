@@ -78,24 +78,25 @@ class RxnRepLightningModel(pl.LightningModule):
         return reaction_feats
 
     def training_step(self, batch, batch_idx):
-        logits, labels, loss = self.shared_step(batch)
-        self._update_metrics(logits, labels, "train")
-        self.log("train/loss", loss, on_epoch=True)
+        loss, preds, labels, indices = self.shared_step(batch, "train")
+        self._update_metrics(preds, labels, "train")
 
-        return loss
+        return {"loss": loss}
 
     def training_epoch_end(self, outputs):
         self._compute_metrics("train")
 
     def validation_step(self, batch, batch_idx):
-        logits, labels, loss = self.shared_step(batch)
-        self._update_metrics(logits, labels, "val")
-        self.log("val/loss", loss, on_epoch=True, prog_bar=True)
+        loss, preds, labels, indices = self.shared_step(batch, "val")
+        self._update_metrics(preds, labels, "val")
 
-        return loss
+        return {"loss": loss}
 
     def validation_epoch_end(self, outputs):
-        self._compute_metrics("val")
+        # sum f1 to look for early stop and learning rate scheduler
+        sum_f1 = self._compute_metrics("val")
+
+        self.log(f"val/f1", sum_f1, on_step=False, on_epoch=True, prog_bar=True)
 
         # time it
         delta_t, cumulative_t = self.timer.update()
@@ -103,16 +104,15 @@ class RxnRepLightningModel(pl.LightningModule):
         self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
-        logits, labels, loss = self.shared_step(batch)
-        self._update_metrics(logits, labels, "test")
-        self.log("test/loss", loss, on_epoch=True)
+        loss, preds, labels, indices = self.shared_step(batch, "test")
+        self._update_metrics(preds, labels, "test")
 
-        return loss
+        return {"loss": loss}
 
     def test_epoch_end(self, outputs):
         self._compute_metrics("test")
 
-    def shared_step(self, batch):
+    def shared_step(self, batch, mode):
 
         # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
@@ -123,19 +123,31 @@ class RxnRepLightningModel(pl.LightningModule):
 
         nodes = ["atom", "bond", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
-        labels = labels["reaction_class"]
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
         logits = self.model.decode(feats, reaction_feats, metadata)
+        preds = {"reaction_class": logits}
 
+        # ========== compute losses ==========
         loss = F.cross_entropy(
-            logits,
-            labels,
+            preds["reaction_class"],
+            labels["reaction_class"],
             reduction="mean",
             weight=self.hparams.reaction_class_weight.to(self.device),
         )
 
-        return logits, labels, loss
+        # ========== log the loss ==========
+        self.log_dict(
+            {
+                f"{mode}/loss/reaction_class": loss,
+            },
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+        )
+        self.log(f"{mode}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        return loss, preds, labels, indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -148,66 +160,90 @@ class RxnRepLightningModel(pl.LightningModule):
             optimizer, mode="max", factor=0.4, patience=20, verbose=True
         )
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "metric_val/f1",
-        }
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
     def _init_metrics(self):
-        # metrics should be modules so that metric tensors can be placed in the correct
-        # device
 
         # (should be modules so that metric tensors can be placed in the correct device)
         metrics = nn.ModuleDict()
         for mode in ["metric_train", "metric_val", "metric_test"]:
             metrics[mode] = nn.ModuleDict(
                 {
-                    "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                    "precision": pl.metrics.Precision(
-                        num_classes=self.hparams.num_reaction_classes,
-                        average="macro",
-                        compute_on_step=False,
-                    ),
-                    "recall": pl.metrics.Recall(
-                        num_classes=self.hparams.num_reaction_classes,
-                        average="macro",
-                        compute_on_step=False,
-                    ),
-                    "f1": pl.metrics.F1(
-                        num_classes=self.hparams.num_reaction_classes,
-                        average="macro",
-                        compute_on_step=False,
-                    ),
+                    "reaction_class": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.num_reaction_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.num_reaction_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.num_reaction_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    )
                 }
             )
 
         return metrics
 
-    def _update_metrics(self, preds, labels, mode):
+    def _update_metrics(
+        self,
+        preds,
+        labels,
+        mode,
+        keys=("reaction_class",),
+    ):
         """
         update metric states at each step
         """
         mode = "metric_" + mode
 
-        for mt in self.metrics[mode]:
-            metric_obj = self.metrics[mode][mt]
-            metric_obj(preds, labels)
+        for key in keys:
+            for mt in self.metrics[mode][key]:
+                metric_obj = self.metrics[mode][key][mt]
+                metric_obj(preds[key], labels[key])
 
-    def _compute_metrics(self, mode):
+    def _compute_metrics(
+        self,
+        mode,
+        keys=("reaction_class",),
+    ):
         """
         compute metric and log it at each epoch
         """
         mode = "metric_" + mode
 
-        for mt in self.metrics[mode]:
-            metric_obj = self.metrics[mode][mt]
-            v = metric_obj.compute()
-            self.log(f"{mode}/{mt}", v, on_step=False, on_epoch=True, prog_bar=False)
+        sum_f1 = 0
+        for key in keys:
+            for name in self.metrics[mode][key]:
 
-            # reset is called automatically somewhere by lightning, here we call it
-            # explicitly just in case
-            metric_obj.reset()
+                metric_obj = self.metrics[mode][key][name]
+                value = metric_obj.compute()
+
+                self.log(
+                    f"{mode}/{name}/{key}",
+                    value,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=False,
+                )
+
+                # reset is called automatically somewhere by lightning, here we call it
+                # explicitly just in case
+                metric_obj.reset()
+
+                if name == "f1":
+                    sum_f1 += value
+
+        return sum_f1
 
 
 def parse_args():
@@ -426,10 +462,10 @@ def main():
 
     # callbacks
     checkpoint_callback = ModelCheckpoint(
-        monitor="metric_val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
+        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
     )
     early_stop_callback = EarlyStopping(
-        monitor="metric_val/f1", min_delta=0.0, patience=50, mode="max", verbose=True
+        monitor="val/f1", min_delta=0.0, patience=50, mode="max", verbose=True
     )
 
     # logger

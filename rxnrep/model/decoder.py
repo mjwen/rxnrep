@@ -107,3 +107,4 @@ AtomHopDistDecoder = BaseDecoder
 ReactionClusterDecoder = BaseDecoder
 AtomTypeDecoder = BaseDecoder
 FCNNDecoder = BaseDecoder
+ActivationEnergyDecoder = ReactionEnergyDecoder
