@@ -244,10 +244,10 @@ class BaseDataset:
         else:
             assert (
                 self._feature_mean is not None
-            ), "Corrupted state_dict. Expect `feature_mean` to be a list, got `None`."
+            ), "Corrupted state_dict. Expect `feature_mean` to be a dict, got `None`."
             assert (
                 self._feature_std is not None
-            ), "Corrupted state_dict. Expect `feature_std` to be a list, got `None`."
+            ), "Corrupted state_dict. Expect `feature_std` to be a dict, got `None`."
 
             feature_scaler = HeteroGraphFeatureStandardScaler(
                 mean=self._feature_mean, std=self._feature_std
@@ -264,6 +264,50 @@ class BaseDataset:
         logger.info(f"Feature mean: {self._feature_mean}")
         logger.info(f"Feature std: {self._feature_std}")
         logger.info(f"Finish scaling features...")
+
+    def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
+        """
+        Scale scalar labels.
+
+        Args:
+            values: 1D tensor of the labels
+            name: name of the label
+
+        Returns:
+            1D tensor Scaled label values.
+        """
+
+        if self.init_state_dict is None:
+            # compute from data
+            mean = torch.mean(values)
+            std = torch.std(values)
+
+            if self._label_mean is None:
+                self._label_mean = {name: mean}
+            else:
+                self._label_mean[name] = mean
+            if self._label_std is None:
+                self._label_std = {name: std}
+            else:
+                self._label_std[name] = std
+
+        else:
+            # recover from state dict
+            assert (
+                self.label_mean is not None
+            ), "Corrupted state_dict. Expect `label_mean` to be a dict, got `None`."
+            assert (
+                self.label_std is not None
+            ), "Corrupted state_dict. Expect `label_std` to be a dict, got `None`."
+            mean = self.label_mean[name]
+            std = self.label_std[name]
+
+        values = (values - mean) / std
+
+        logger.info(f"Label `{name}` mean: {mean}")
+        logger.info(f"Label `{name}` std: {std}")
+
+        return values
 
     def state_dict(self):
         d = {

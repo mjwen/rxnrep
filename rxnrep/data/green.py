@@ -72,62 +72,42 @@ class GreenDataset(USPTODataset):
 
         return succeed_reactions, failed
 
-    def get_reaction_property(self, name: str, normalize: bool = True):
-        """
-        Get property for all reactions.
-
-        Args:
-            name: name of the property
-            normalize: whether to normalize the property.
-        """
-
-        props = [rxn.get_property(name) for rxn in self.reactions]
-        props = torch.as_tensor(props, dtype=torch.float32)
-
-        if normalize:
-            mean = torch.mean(props)
-            std = torch.std(props)
-            props = (props - mean) / std
-
-            logger.info(f"{name} mean: {mean}")
-            logger.info(f"{name} std: {std}")
-
-        else:
-            mean = 0.0
-            std = 1.0
-
-        return props, mean, std
-
-    def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
+    def generate_labels(self, normalize: bool = True) -> List[Dict[str, torch.Tensor]]:
         """
         Labels for all reactions.
 
         Each dict is the labels for one reaction, with keys:
             `atom_hop_dist`, `bond_hop_dist`, `reaction_energy`, `activation_energy`.
+
+        Args:
+            normalize: whether to normalize the reaction energy and activation energy
+                labels
         """
 
         # `atom_hop_dist` and `bond_hop_dist` labels
         labels = super().generate_labels()
 
         # `reaction_energy` and `activation_energy` label
-        reaction_energy, rxn_e_mean, rxn_e_std = self.get_reaction_property(
-            "reaction enthalpy", normalize=True
+
+        reaction_energy = torch.as_tensor(
+            [rxn.get_property("reaction enthalpy") for rxn in self.reactions],
+            dtype=torch.float32,
         )
-        activation_energy, act_e_mean, act_e_std = self.get_reaction_property(
-            "activation energy", normalize=True
+        activation_energy = torch.as_tensor(
+            [rxn.get_property("activation energy") for rxn in self.reactions],
+            dtype=torch.float32,
         )
+        if normalize:
+            reaction_energy = self.scale_label(reaction_energy, name="reaction_energy")
+            activation_energy = self.scale_label(
+                activation_energy, name="activation_energy"
+            )
 
         # (each energy is a scalar, but here we make it a 1D tensor of 1 element to use
         # the collate_fn, where all energies in a batch is cat to a 1D tensor)
         for re, ae, rxn_label in zip(reaction_energy, activation_energy, labels):
             rxn_label["reaction_energy"] = torch.as_tensor([re], dtype=torch.float32)
             rxn_label["activation_energy"] = torch.as_tensor([ae], dtype=torch.float32)
-
-        self._label_mean = {
-            "reaction_energy": rxn_e_mean,
-            "activation_energy": act_e_mean,
-        }
-        self._label_std = {"reaction_energy": rxn_e_std, "activation_energy": act_e_std}
 
         return labels
 

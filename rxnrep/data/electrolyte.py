@@ -65,53 +65,32 @@ class ElectrolyteDataset(USPTODataset):
 
         return succeed_reactions, failed
 
-    def get_reaction_property(self, name, normalize: bool = True):
-        """
-        Get property for all reactions.
-
-        Args:
-            name: name of the property
-            normalize: whether to normalize the property.
-        """
-
-        props = [rxn.get_property(name) for rxn in self.reactions]
-        props = torch.as_tensor(props, dtype=torch.float32)
-
-        if normalize:
-            mean = torch.mean(props)
-            std = torch.std(props)
-            props = (props - mean) / std
-
-            logger.info(f"{name} mean: {mean}")
-            logger.info(f"{name} std: {std}")
-
-        else:
-            mean = 0.0
-            std = 1.0
-
-        return props, mean, std
-
-    def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
+    def generate_labels(self, normalize: bool = True) -> List[Dict[str, torch.Tensor]]:
         """
         Labels for all reactions.
 
         Each dict is the labels for one reaction, with keys:
             `atom_hop_dist`, `bond_hop_dist`, and `reaction_energy`.
+
+        Args:
+            normalize: whether to normalize `reaction_energy` labels
         """
 
         # `atom_hop_dist` and `bond_hop_dist` labels
         labels = super().generate_labels()
 
         # `reaction_energy` label
-        energies, mean, std = self.get_reaction_property("free_energy", normalize=True)
+        energies = torch.as_tensor(
+            [rxn.get_property("free_energy") for rxn in self.reactions],
+            dtype=torch.float32,
+        )
+        if normalize:
+            energies = self.scale_label(energies, name="reaction_energy")
 
         # (each e is a scalar, but here we make it a 1D tensor of 1 element to use the
         # collate_fn, where all energies in a batch is cat to a 1D tensor)
         for e, rxn_label in zip(energies, labels):
             rxn_label["reaction_energy"] = torch.as_tensor([e], dtype=torch.float32)
-
-        self._label_mean = {"reaction_energy": mean}
-        self._label_std = {"reaction_energy": std}
 
         return labels
 
