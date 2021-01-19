@@ -1,6 +1,6 @@
 import logging
 import multiprocessing
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
@@ -71,9 +71,9 @@ class USPTODataset(BaseDataset):
     ):
 
         # read input files
-        reactions, raw_labels, failed = self.read_file(filename, num_processes)
+        reactions, failed = self.read_file(filename, num_processes)
 
-        super(USPTODataset, self).__init__(
+        super().__init__(
             reactions,
             atom_featurizer,
             bond_featurizer,
@@ -86,7 +86,6 @@ class USPTODataset(BaseDataset):
 
         # set failed and raw labels
         self._failed = failed
-        self._raw_labels = raw_labels
 
         self.max_hop_distance = max_hop_distance
         self.labels = self.generate_labels()
@@ -115,11 +114,10 @@ class USPTODataset(BaseDataset):
         filename = to_path(filename)
         df = pd.read_csv(filename, sep="\t")
         smiles_reactions = df["reaction"].tolist()
-        labels = df["label"].to_list()
 
         logger.info("Finish reading dataset file...")
 
-        # convert to reactions and labels
+        # convert to reactions
         logger.info("Start converting to reactions...")
 
         ids = [f"{smi}_index-{i}" for i, smi in enumerate(smiles_reactions)]
@@ -133,17 +131,23 @@ class USPTODataset(BaseDataset):
             with multiprocessing.Pool(nprocs) as p:
                 reactions = p.starmap(process_one_reaction_from_input_file, args)
 
-        failed = []
+        # column names besides `reaction`
+        column_names = df.columns.values.tolist()
+        column_names.remove("reaction")
+
         succeed_reactions = []
-        succeed_labels = defaultdict(list)
+        failed = []
 
         for i, rxn in enumerate(reactions):
             if rxn is None:
                 failed.append(True)
             else:
-                failed.append(False)
+                # keep other info (e.g. label) in input file as reaction property
+                for name in column_names:
+                    rxn.set_property(name, df[name][i])
+
                 succeed_reactions.append(rxn)
-                succeed_labels["label"].append(labels[i])
+                failed.append(False)
 
         counter = Counter(failed)
         logger.info(
@@ -151,7 +155,7 @@ class USPTODataset(BaseDataset):
             f"number failed {counter[True]}."
         )
 
-        return succeed_reactions, succeed_labels, failed
+        return succeed_reactions, failed
 
     def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
         """
@@ -379,10 +383,11 @@ class SchneiderDataset(USPTODataset):
         """
 
         # labels for atom hop and bond hop
-        labels = super(SchneiderDataset, self).generate_labels()
+        labels = super().generate_labels()
 
         # add reaction class to the label dict
-        for rxn_class, rxn_label in zip(self._raw_labels["label"], labels):
+        for rxn, rxn_label in zip(self.reactions, labels):
+            rxn_class = rxn.get_property("label")
             rxn_label["reaction_class"] = torch.as_tensor(
                 [int(rxn_class)], dtype=torch.int64
             )
@@ -411,16 +416,18 @@ class SchneiderDataset(USPTODataset):
                 the dataset
         """
         # class weight for atom hop and bond hop
-        weight = super(SchneiderDataset, self).get_class_weight()
+        weight = super().get_class_weight()
 
         if class_weight_as_1:
             w = torch.ones(num_reaction_classes)
         else:
+            rxn_classes = [rxn.get_property("label") for rxn in self.reactions]
+
             # class weight for reaction classes
             w = class_weight.compute_class_weight(
                 "balanced",
                 classes=list(range(num_reaction_classes)),
-                y=self._raw_labels["label"],
+                y=rxn_classes,
             )
             w = torch.as_tensor(w, dtype=torch.float32)
 

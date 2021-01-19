@@ -29,12 +29,10 @@ class GreenDataset(USPTODataset):
         filename = to_path(filename)
         df = pd.read_csv(filename, sep="\t")
         smiles_reactions = df["reaction"].tolist()
-        activation_energy = df["activation energy"].to_list()
-        reaction_energy = df["reaction enthalpy"].to_list()
 
         logger.info("Finish reading dataset file...")
 
-        # convert to reactions and labels
+        # convert to reactions
         logger.info("Start converting to reactions...")
 
         ids = [f"{smi}_index-{i}" for i, smi in enumerate(smiles_reactions)]
@@ -48,21 +46,23 @@ class GreenDataset(USPTODataset):
             with multiprocessing.Pool(nprocs) as p:
                 reactions = p.starmap(process_one_reaction_from_input_file, args)
 
-        failed = []
+        # column names besides `reaction`
+        column_names = df.columns.values.tolist()
+        column_names.remove("reaction")
+
         succeed_reactions = []
-        succeed_labels = defaultdict(list)
+        failed = []
 
         for i, rxn in enumerate(reactions):
             if rxn is None:
                 failed.append(True)
             else:
-                failed.append(False)
-                # TODO, remove succeed_labels, because labels set as reaction property
-                succeed_labels["activation_energy"].append(activation_energy[i])
-                succeed_labels["reaction_energy"].append(reaction_energy[i])
-                rxn.set_property("activation_energy", activation_energy[i])
-                rxn.set_property("reaction_energy", reaction_energy[i])
+                # keep other info (e.g. label) in input file as reaction property
+                for name in column_names:
+                    rxn.set_property(name, df[name][i])
+
                 succeed_reactions.append(rxn)
+                failed.append(False)
 
         counter = Counter(failed)
         logger.info(
@@ -70,7 +70,33 @@ class GreenDataset(USPTODataset):
             f"number failed {counter[True]}."
         )
 
-        return succeed_reactions, succeed_labels, failed
+        return succeed_reactions, failed
+
+    def get_reaction_property(self, name: str, normalize: bool = True):
+        """
+        Get property for all reactions.
+
+        Args:
+            name: name of the property
+            normalize: whether to normalize the property.
+        """
+
+        props = [rxn.get_property(name) for rxn in self.reactions]
+        props = torch.as_tensor(props, dtype=torch.float32)
+
+        if normalize:
+            mean = torch.mean(props)
+            std = torch.std(props)
+            props = (props - mean) / std
+
+            logger.info(f"{name} mean: {mean}")
+            logger.info(f"{name} std: {std}")
+
+        else:
+            mean = 0.0
+            std = 1.0
+
+        return props, mean, std
 
     def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
         """
@@ -81,16 +107,27 @@ class GreenDataset(USPTODataset):
         """
 
         # `atom_hop_dist` and `bond_hop_dist` labels
-        labels = super(GreenDataset, self).generate_labels()
+        labels = super().generate_labels()
 
         # `reaction_energy` and `activation_energy` label
-        # (each is a scalar, but here we make it a 1D tensor of 1 element to use the
-        # collate_fn, where all energies in a batch is cat to a 1D tensor)
-        reaction_energy = self._raw_labels["reaction_energy"]
-        activation_energy = self._raw_labels["activation_energy"]
+        reaction_energy, rxn_e_mean, rxn_e_std = self.get_reaction_property(
+            "reaction enthalpy", normalize=True
+        )
+        activation_energy, act_e_mean, act_e_std = self.get_reaction_property(
+            "activation energy", normalize=True
+        )
+
+        # (each energy is a scalar, but here we make it a 1D tensor of 1 element to use
+        # the collate_fn, where all energies in a batch is cat to a 1D tensor)
         for re, ae, rxn_label in zip(reaction_energy, activation_energy, labels):
             rxn_label["reaction_energy"] = torch.as_tensor([re], dtype=torch.float32)
             rxn_label["activation_energy"] = torch.as_tensor([ae], dtype=torch.float32)
+
+        self._label_mean = {
+            "reaction_energy": rxn_e_mean,
+            "activation_energy": act_e_mean,
+        }
+        self._label_std = {"reaction_energy": rxn_e_std, "activation_energy": act_e_std}
 
         return labels
 

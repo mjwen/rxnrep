@@ -63,30 +63,33 @@ class ElectrolyteDataset(USPTODataset):
             f"number failed {counter[True]}."
         )
 
-        labels = None
+        return succeed_reactions, failed
 
-        return succeed_reactions, labels, failed
-
-    def get_reaction_free_energies(self, normalize: bool = True):
+    def get_reaction_property(self, name, normalize: bool = True):
         """
-        Get free energies for the reactions.
+        Get property for all reactions.
 
         Args:
-            normalize: whether to normalize the free energies.
+            name: name of the property
+            normalize: whether to normalize the property.
         """
 
-        energies = [rxn.get_property("free_energy") for rxn in self.reactions]
-        energies = torch.as_tensor(energies, dtype=torch.float32)
+        props = [rxn.get_property(name) for rxn in self.reactions]
+        props = torch.as_tensor(props, dtype=torch.float32)
 
         if normalize:
-            mean = torch.mean(energies)
-            std = torch.std(energies)
-            energies = (energies - mean) / std
+            mean = torch.mean(props)
+            std = torch.std(props)
+            props = (props - mean) / std
 
-            logger.info(f"Free energy mean: {mean}")
-            logger.info(f"Free energy std: {std}")
+            logger.info(f"{name} mean: {mean}")
+            logger.info(f"{name} std: {std}")
 
-        return energies
+        else:
+            mean = 0.0
+            std = 1.0
+
+        return props, mean, std
 
     def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
         """
@@ -97,16 +100,18 @@ class ElectrolyteDataset(USPTODataset):
         """
 
         # `atom_hop_dist` and `bond_hop_dist` labels
-        labels = super(ElectrolyteDataset, self).generate_labels()
+        labels = super().generate_labels()
 
         # `reaction_energy` label
-        # (it is a scalar, but here we make it a 1D tensor of 1element to use the
+        energies, mean, std = self.get_reaction_property("free_energy", normalize=True)
+
+        # (each e is a scalar, but here we make it a 1D tensor of 1 element to use the
         # collate_fn, where all energies in a batch is cat to a 1D tensor)
-        free_energies = self.get_reaction_free_energies(normalize=True)
-        for energy, rxn_label in zip(free_energies, labels):
-            rxn_label["reaction_energy"] = torch.as_tensor(
-                [energy], dtype=torch.float32
-            )
+        for e, rxn_label in zip(energies, labels):
+            rxn_label["reaction_energy"] = torch.as_tensor([e], dtype=torch.float32)
+
+        self._label_mean = {"reaction_energy": mean}
+        self._label_std = {"reaction_energy": std}
 
         return labels
 
