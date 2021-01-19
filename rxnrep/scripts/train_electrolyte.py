@@ -507,7 +507,7 @@ def parse_args():
     parser.add_argument(
         "--pooling_method",
         type=str,
-        default="hop_distance",
+        default="set2set",
         help="set2set or hop_distance",
     )
 

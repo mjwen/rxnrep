@@ -2,9 +2,6 @@
 # Basic representational learning model.
 # Others should build by modifying this code, not to subclass for easier comparison.
 #
-# encoder:
-#
-# pooling: set2set or hop_distance
 #
 # decoders:
 # - atom hop dist
@@ -271,6 +268,7 @@ class ReactionRepresentation(EncoderAndPooling):
         )
 
         # ========== reaction level decoder ==========
+
         self.reaction_cluster_decoder = ReactionClusterDecoder(
             in_size=self.pooling_last_layer_size,
             num_classes=reaction_cluster_decoder_output_size,
