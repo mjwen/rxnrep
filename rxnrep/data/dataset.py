@@ -31,6 +31,7 @@ class BaseDataset:
         atom_featurizer: Callable,
         bond_featurizer: Callable,
         global_featurizer: Callable,
+        transform_features: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
@@ -46,8 +47,10 @@ class BaseDataset:
 
         # will recover from state dict if it is not None
         self._species = None
-        self._feature_scaler_mean = None
-        self._feature_scaler_std = None
+        self._feature_mean = None
+        self._feature_std = None
+        self._label_mean = None
+        self._label_std = None
 
         # recovery state info
         if init_state_dict is not None:
@@ -61,6 +64,9 @@ class BaseDataset:
         # convert reactions to dgl graphs (should do this after recovering state dict,
         # since the species, feature mean and stdev might be recovered there)
         self.dgl_graphs = self.build_graph_and_featurize()
+
+        if transform_features:
+            self.scale_features()
 
         # failed reactions
         self._failed = None
@@ -90,6 +96,66 @@ class BaseDataset:
         }
 
         return name
+
+    @property
+    def label_mean(self) -> Dict[str, torch.Tensor]:
+        return self._label_mean
+
+    @property
+    def label_std(self) -> Dict[str, torch.Tensor]:
+        return self._label_std
+
+    def get_failed(self) -> List[bool]:
+        """
+        Get the information of whether the reactions fails when converting them to graphs.
+
+        The most prevalent failing reason is that cannot convert a smiles (pymatgen
+        molecule graph) to a rdkit molecule.
+
+        Returns:
+            Each element indicates whether a reaction fails. The size of this list is the
+            same as the number of reactions trying to read, each corresponding to a one
+            reaction in the same order.
+        """
+        return self._failed
+
+    def get_molecules(self) -> List[Molecule]:
+        """
+        Get all the molecules in the dataset.
+        """
+        molecules = []
+        for rxn in self.reactions:
+            molecules.extend(rxn.reactants + rxn.products)
+
+        return molecules
+
+    def get_molecule_graphs(self) -> List[dgl.DGLGraph]:
+        """
+        Get all the molecule graphs in the dataset.
+        """
+        graphs = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            graphs.extend([reactants_g, products_g])
+
+        return graphs
+
+    def get_species(self) -> List[str]:
+        """
+        Get the species (atom types) appearing in all molecules in the dataset.
+        """
+        species = set()
+        for mol in self.get_molecules():
+            species.update(mol.species)
+
+        return sorted(species)
+
+    def get_charges(self) -> List[int]:
+        """
+        Get the (unique) charges of molecules.
+        """
+        charges = set([m.charge for m in self.get_molecules()])
+
+        return sorted(charges)
 
     def build_graph_and_featurize(
         self,
@@ -163,58 +229,6 @@ class BaseDataset:
 
         return dgl_graphs
 
-    def get_failed(self) -> List[bool]:
-        """
-        Get the information of whether the reactions fails when converting them to graphs.
-
-        The most prevalent failing reason is that cannot convert a smiles (pymatgen
-        molecule graph) to a rdkit molecule.
-
-        Returns:
-            Each element indicates whether a reaction fails. The size of this list is the
-            same as the number of reactions trying to read, each corresponding to a one
-            reaction in the same order.
-        """
-        return self._failed
-
-    def get_molecules(self) -> List[Molecule]:
-        """
-        Get all the molecules in the dataset.
-        """
-        molecules = []
-        for rxn in self.reactions:
-            molecules.extend(rxn.reactants + rxn.products)
-
-        return molecules
-
-    def get_molecule_graphs(self) -> List[dgl.DGLGraph]:
-        """
-        Get all the molecule graphs in the dataset.
-        """
-        graphs = []
-        for reactants_g, products_g, _ in self.dgl_graphs:
-            graphs.extend([reactants_g, products_g])
-
-        return graphs
-
-    def get_species(self) -> List[str]:
-        """
-        Get the species (atom types) appearing in all molecules in the dataset.
-        """
-        species = set()
-        for mol in self.get_molecules():
-            species.update(mol.species)
-
-        return sorted(species)
-
-    def get_charges(self) -> List[int]:
-        """
-        Get the (unique) charges of molecules.
-        """
-        charges = set([m.charge for m in self.get_molecules()])
-
-        return sorted(charges)
-
     def scale_features(self):
         """
         Scale the feature values in the graphs by subtracting the mean and then
@@ -228,17 +242,15 @@ class BaseDataset:
 
         # recover feature scaler mean and stdev
         else:
-            assert self._feature_scaler_mean is not None, (
-                "Corrupted state_dict file. Expect `feature_scaler_mean` to be a list, "
-                "got `None`."
-            )
             assert (
-                self._feature_scaler_std is not None
-            ), "Corrupted state_dict file. Expect `feature_scaler_std` to be a list, "
-            "got `None`."
+                self._feature_mean is not None
+            ), "Corrupted state_dict. Expect `feature_mean` to be a list, got `None`."
+            assert (
+                self._feature_std is not None
+            ), "Corrupted state_dict. Expect `feature_std` to be a list, got `None`."
 
             feature_scaler = HeteroGraphFeatureStandardScaler(
-                mean=self._feature_scaler_mean, std=self._feature_scaler_std
+                mean=self._feature_mean, std=self._feature_std
             )
 
         graphs = self.get_molecule_graphs()
@@ -246,11 +258,11 @@ class BaseDataset:
 
         # save the mean and stdev of the feature scaler (should set after calling scaler)
         if self.init_state_dict is None:
-            self._feature_scaler_mean = feature_scaler.mean
-            self._feature_scaler_std = feature_scaler.std
+            self._feature_mean = feature_scaler.mean
+            self._feature_std = feature_scaler.std
 
-        logger.info(f"Feature scaler mean: {self._feature_scaler_mean}")
-        logger.info(f"Feature scaler std: {self._feature_scaler_std}")
+        logger.info(f"Feature mean: {self._feature_mean}")
+        logger.info(f"Feature std: {self._feature_std}")
         logger.info(f"Finish scaling features...")
 
     def state_dict(self):
@@ -258,8 +270,10 @@ class BaseDataset:
             "species": self._species,
             "feature_name": self.feature_name,
             "feature_size": self.feature_size,
-            "feature_scaler_mean": self._feature_scaler_mean,
-            "feature_scaler_std": self._feature_scaler_std,
+            "feature_mean": self._feature_mean,
+            "feature_std": self._feature_std,
+            "label_mean": self._label_mean,
+            "label_std": self._label_std,
         }
 
         return d
@@ -273,12 +287,11 @@ class BaseDataset:
         """
 
         try:
-            species = d["species"]
-            scaler_mean = d["feature_scaler_mean"]
-            scaler_std = d["feature_scaler_std"]
-            self._species = species
-            self._feature_scaler_mean = scaler_mean
-            self._feature_scaler_std = scaler_std
+            self._species = d["species"]
+            self._feature_mean = d["feature_mean"]
+            self._feature_std = d["feature_std"]
+            self._label_mean = d["label_mean"]
+            self._label_std = d["label_std"]
 
         except KeyError as e:
             raise ValueError(f"Corrupted state dict: {str(e)}")
@@ -306,18 +319,26 @@ class BaseDataset:
 
         try:
             species = d["species"]
-            scaler_mean = d["feature_scaler_mean"]
-            scaler_std = d["feature_scaler_std"]
+            feature_mean = d["feature_mean"]
+            feature_std = d["feature_std"]
+            label_mean = d["label_mean"]
+            label_std = d["label_std"]
             dtype = d["dtype"]
 
-            # convert tensors
-            if dtype is not None:
-                scaler_mean = to_tensor(scaler_mean, dtype)
-                scaler_std = to_tensor(scaler_std, dtype)
+            # convert to tensors
+            if feature_mean is not None and feature_std is not None:
+                feature_mean = to_tensor(feature_mean, dtype)
+                feature_std = to_tensor(feature_std, dtype)
+
+            if label_mean is not None and label_std is not None:
+                label_mean = to_tensor(label_mean, dtype)
+                label_std = to_tensor(label_std, dtype)
 
             self._species = species
-            self._feature_scaler_mean = scaler_mean
-            self._feature_scaler_std = scaler_std
+            self._feature_mean = feature_mean
+            self._feature_std = feature_std
+            self._label_mean = label_mean
+            self._label_std = label_std
 
         except KeyError as e:
             raise ValueError(f"Corrupted state_dict (file): {str(e)}")
@@ -347,7 +368,8 @@ class BaseDataset:
         filename = to_path(filename)
 
         # convert tensors to list if they exists
-        tensor_fields = ["feature_scaler_mean", "feature_scaler_std"]
+        tensor_fields = ["feature_mean", "feature_std", "label_mean", "label_std"]
+
         d = {}
         dtype = None
         for k, v in self.state_dict().items():

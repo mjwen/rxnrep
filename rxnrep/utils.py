@@ -50,7 +50,7 @@ def pickle_load(filename):
 
 def convert_tensor_to_list(data: Any) -> Any:
     """
-    Convert a tensor file in a data structure to list (list of list of ...).
+    Convert a tensor field in a data structure to list (list of list of ...).
 
     Args:
         data: data to convert, of type torch.Tensor, dict, list, tuple ...

@@ -62,10 +62,10 @@ class USPTODataset(BaseDataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         transform_features: bool = True,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
         max_hop_distance: int = None,
         atom_type_masker_ratio: Union[float, None] = None,
         atom_type_masker_use_masker_value: bool = True,
-        init_state_dict: Optional[Union[Dict, Path]] = None,
         num_processes: int = 1,
         return_index: bool = True,
     ):
@@ -78,6 +78,7 @@ class USPTODataset(BaseDataset):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
+            transform_features,
             init_state_dict,
             num_processes,
             return_index,
@@ -86,9 +87,6 @@ class USPTODataset(BaseDataset):
         # set failed and raw labels
         self._failed = failed
         self._raw_labels = raw_labels
-
-        if transform_features:
-            self.scale_features()
 
         self.max_hop_distance = max_hop_distance
         self.labels = self.generate_labels()
@@ -102,8 +100,8 @@ class USPTODataset(BaseDataset):
             self.atom_type_masker = AtomTypeFeatureMasker(
                 allowable_types=self._species,
                 feature_name=self.feature_name["atom"],
-                feature_mean=self._feature_scaler_mean["atom"],
-                feature_std=self._feature_scaler_std["atom"],
+                feature_mean=self._feature_mean["atom"],
+                feature_std=self._feature_std["atom"],
                 ratio=atom_type_masker_ratio,
             )
             self.atom_type_masker_use_masker_value = atom_type_masker_use_masker_value
