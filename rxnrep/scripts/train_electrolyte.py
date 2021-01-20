@@ -581,7 +581,54 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
 
+    ####################
+    # helper args
+    ####################
+    # encoder
+    parser.add_argument(
+        "--conv_layer_size",
+        type=int,
+        default=64,
+        help="hidden layer size for mol and rxn conv",
+    )
+    parser.add_argument("--num_mol_conv_layers", type=int, default=2)
+    parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
+
+    # node decoder
+    parser.add_argument("--num_node_decoder_layers", type=int, default=1)
+
+    # cluster decoder
+    parser.add_argument("--num_cluster_decoder_layers", type=int, default=1)
+    parser.add_argument("--prototype_size", type=int, default=10)
+    parser.add_argument("--num_prototypes", type=int, default=1)
+
+    ####################
     args = parser.parse_args()
+    ####################
+
+    ####################
+    # adjust args
+    ####################
+    # encoder
+    args.molecule_conv_layer_sizes = [args.conv_layer_size] * args.num_mol_conv_layers
+    args.reaction_conv_layer_sizes = [args.conv_layer_size] * args.num_rxn_conv_layers
+    if args.num_rxn_conv_layers == 0:
+        args.reaction_dropout = 0
+
+    decoder_layer_size = 2 * args.conv_layer_size
+
+    # node decoder
+    args.node_decoder_hidden_layer_sizes = [
+        max(decoder_layer_size // 2 ** i, 50)
+        for i in range(args.num_node_decoder_layers)
+    ]
+
+    # cluster decoder
+    args.cluster_decoder_hidden_layer_sizes = [
+        max(decoder_layer_size // 2 ** i, 50)
+        for i in range(args.num_cluster_decoder_layers)
+    ]
+    args.num_centroids = [args.prototype_size] * args.num_prototypes
 
     # adjust for pooling
     if args.pooling_method == "set2set":
