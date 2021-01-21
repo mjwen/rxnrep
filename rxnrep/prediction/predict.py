@@ -15,34 +15,27 @@ from rxnrep.data.featurizer import (
 )
 from rxnrep.data.green import GreenDataset
 from rxnrep.data.uspto import USPTODataset
-from rxnrep.scripts.train_electrolyte import RxnRepLightningModel
-from rxnrep.scripts.train_electrolyte_energy_decoder import (
-    RxnRepLightningModel as RxnRepLightningModel2,
-)
 from rxnrep.utils import to_path, yaml_load
 
 
 def get_prediction(
-    model_path: Path,
+    model,
     dataset_filename: Path,
-    model_name: str,
-    has_reaction_energy_decoder: bool = False,
+    dataset_identifier: str,
+    pretrained_path: Path,
     prediction_type: str = "reaction_feature",
-    model=None,
 ) -> List[Dict[str, Any]]:
     """
     Make predictions using a pretrained model.
 
     Args:
-        model_path: path to the directory storing the pretrained model. Two files
+        pretrained_path: path to the directory storing the pretrained model. Two files
             should exists in this directory: 1) checkpoint.ckpt, which is the checkpoint
             file of the lightning model, and 2) dataset_state_dict.yaml, which is the
             state dict of the dataset used in training the model.
         dataset_filename: path to the dataset file to get the predictions for.
-        model_name: name of the model (dataset plus model). Options are `uspto`,
+        dataset_identifier: Identification of the dataset. Options are `uspto`,
         `electrolyte_full`, electrolyte_two_bond_types`, `green`.
-        has_reaction_energy_decoder: whether to use a model that has reaction energy
-            decoder. this only take effect when loading model from this
         prediction_type: the type of prediction to return. Options are `reaction_feature`,
             `diff_feature_before_rxn_conv`, and `diff_feature_after_rxn_conv`.
         model: If not `None`, the given model is used; otherwise, load model from the
@@ -57,38 +50,27 @@ def get_prediction(
             has the form: {'value': reaction_feature, 'reaction': Reaction}
 
     """
-    model_path = to_path(model_path)
-    ckpt_path = model_path.joinpath("checkpoint.ckpt")
-    dataset_state_dict_path = model_path.joinpath("dataset_state_dict.yaml")
+    pretrained_path = to_path(pretrained_path)
+    dataset_state_dict_path = pretrained_path.joinpath("dataset_state_dict.yaml")
 
-    if model is None:
-        if has_reaction_energy_decoder:
-            model = RxnRepLightningModel2.load_from_checkpoint(
-                str(ckpt_path), map_location=torch.device("cpu")
-            )
-        else:
-            model = RxnRepLightningModel.load_from_checkpoint(
-                str(ckpt_path), map_location=torch.device("cpu")
-            )
-
-    if model_name == "uspto":
+    if dataset_identifier == "uspto":
         data_loader = load_uspto_dataset(dataset_state_dict_path, dataset_filename)
 
-    elif model_name == "electrolyte_full":
+    elif dataset_identifier == "electrolyte_full":
         data_loader = load_electrolyte_dataset(
             dataset_state_dict_path, dataset_filename, dataset_type="full"
         )
-    elif model_name == "electrolyte_two_bond_types":
+    elif dataset_identifier == "electrolyte_two_bond_types":
         data_loader = load_electrolyte_dataset(
             dataset_state_dict_path, dataset_filename, dataset_type="two_bond_types"
         )
-    elif model_name == "green":
+    elif dataset_identifier == "green":
         data_loader = load_green_dataset(dataset_state_dict_path, dataset_filename)
 
     else:
         supported = ["uspto", "electrolyte", "electrolyte_two_bond_types", "green"]
         raise PredictionError(
-            f"Expect model to be one of {supported}, but got {model_name}."
+            f"Expect model to be one of {supported}, but got {dataset_identifier}."
         )
 
     # get evaluation results from the model

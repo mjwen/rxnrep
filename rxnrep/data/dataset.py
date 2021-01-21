@@ -31,10 +31,11 @@ class BaseDataset:
         atom_featurizer: Callable,
         bond_featurizer: Callable,
         global_featurizer: Callable,
-        transform_features: bool = True,
+        *,
         init_state_dict: Optional[Union[Dict, Path]] = None,
-        num_processes: int = 1,
+        transform_features: bool = True,
         return_index: bool = True,
+        num_processes: int = 1,
     ):
 
         self.reactions = reactions

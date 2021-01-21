@@ -61,13 +61,15 @@ class USPTODataset(BaseDataset):
         atom_featurizer: Callable,
         bond_featurizer: Callable,
         global_featurizer: Callable,
-        transform_features: bool = True,
+        *,
         init_state_dict: Optional[Union[Dict, Path]] = None,
-        max_hop_distance: int = None,
+        transform_features: bool = True,
+        return_index: bool = True,
+        num_processes: int = 1,
+        # args to control labels
+        max_hop_distance: int = 2,
         atom_type_masker_ratio: Union[float, None] = None,
         atom_type_masker_use_masker_value: bool = True,
-        num_processes: int = 1,
-        return_index: bool = True,
     ):
 
         # read input files
@@ -78,10 +80,10 @@ class USPTODataset(BaseDataset):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
-            transform_features,
-            init_state_dict,
-            num_processes,
-            return_index,
+            init_state_dict=init_state_dict,
+            transform_features=transform_features,
+            return_index=return_index,
+            num_processes=num_processes,
         )
 
         # set failed and raw labels
