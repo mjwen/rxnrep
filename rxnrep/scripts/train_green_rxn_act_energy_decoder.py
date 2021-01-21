@@ -57,6 +57,8 @@ class RxnRepLightningModel(pl.LightningModule):
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
+            compressing_layer_sizes=params.compressing_layer_sizes,
+            compressing_layer_activation=params.compressing_layer_activation,
         )
 
         # reaction cluster functions
@@ -336,6 +338,10 @@ def parse_args():
         help="set2set or hop_distance",
     )
     parser.add_argument("--max_hop_distance", type=int, default=3)
+
+    # ========== compressor ==========
+    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
+    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
 
     # ========== decoder ==========
 

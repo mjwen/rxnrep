@@ -64,7 +64,7 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # linear classification head
         self.classification_head = FCNNDecoder(
-            self.pooling_last_layer_size,
+            self.reaction_feats_size,
             num_classes,
             head_hidden_layer_sizes,
             head_activation,

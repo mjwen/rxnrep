@@ -9,6 +9,8 @@ import torch
 from dgl import function as fn
 from torch import nn
 
+from rxnrep.model.utils import FCNN
+
 
 class ConcatenateMeanMax(nn.Module):
     """
@@ -345,3 +347,24 @@ class HopDistancePooling(nn.Module):
         weighted_sum = dgl.sum_nodes(graph, "r", ntype=ntype)
 
         return weighted_sum
+
+
+class CompressingNN(nn.Module):
+    """
+    A fully connected NN with (expecting) fewer number of nodes in later layers.
+
+    Used as a way to compressing information in the encoder.
+
+    Note, we use bias for all layers, since this will be internal layers, not final
+    prediction head layers.
+    """
+
+    def __init__(self, in_size: int, hidden_sizes: List[int], activation="ReLU"):
+        super().__init__()
+        acts = [activation] * len(hidden_sizes)
+        use_bias = [True] * len(hidden_sizes)
+
+        self.layers = FCNN(in_size, hidden_sizes, acts, use_bias)
+
+    def forward(self, feats):
+        return self.layers(feats)

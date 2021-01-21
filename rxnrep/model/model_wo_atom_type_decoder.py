@@ -84,7 +84,7 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # bond hop dist decoder
         self.bond_hop_dist_decoder = BondHopDistDecoder(
-            in_size=self.conv_last_layer_size,
+            in_size=self.node_feats_size,
             num_classes=bond_hop_dist_decoder_num_classes,
             hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
             activation=bond_hop_dist_decoder_activation,
@@ -92,7 +92,7 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # atom hop dist decoder
         self.atom_hop_dist_decoder = AtomHopDistDecoder(
-            in_size=self.conv_last_layer_size,
+            in_size=self.node_feats_size,
             num_classes=atom_hop_dist_decoder_num_classes,
             hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
             activation=atom_hop_dist_decoder_activation,
@@ -100,7 +100,7 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # # masked atom type decoder
         # self.masked_atom_type_decoder = AtomTypeDecoder(
-        #     in_size=self.conv_last_layer_size,
+        #     in_size=self.node_feats_size,
         #     num_classes=masked_atom_type_decoder_num_classes,
         #     hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
         #     activation=masked_atom_type_decoder_activation,
@@ -109,7 +109,7 @@ class ReactionRepresentation(EncoderAndPooling):
         # ========== reaction level decoder ==========
 
         self.reaction_cluster_decoder = ReactionClusterDecoder(
-            in_size=self.pooling_last_layer_size,
+            in_size=self.reaction_feats_size,
             num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
             activation=reaction_cluster_decoder_activation,

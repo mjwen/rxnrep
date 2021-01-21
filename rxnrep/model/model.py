@@ -2,6 +2,12 @@
 # Basic representational learning model.
 # Others should build by modifying this code, not to subclass for easier comparison.
 #
+# encoder:
+# - mol conv layers
+# - diff mol feats
+# - rxn conv layers (could be 0)
+# - pooling (set2set, hot distance)
+# - compression layers (could be 0)
 #
 # decoders:
 # - atom hop dist
@@ -22,7 +28,7 @@ from rxnrep.model.decoder import (
     ReactionClusterDecoder,
 )
 from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.readout import HopDistancePooling, Set2SetThenCat
+from rxnrep.model.readout import CompressingNN, HopDistancePooling, Set2SetThenCat
 
 
 class EncoderAndPooling(nn.Module):
@@ -51,11 +57,14 @@ class EncoderAndPooling(nn.Module):
         # reaction features pooling
         pooling_method="set2set",
         pooling_kwargs: Dict[str, Any] = None,
+        # reaction features compressing
+        compressing_layer_sizes=None,
+        compressing_layer_activation=None,
     ):
 
         super().__init__()
 
-        # encoder
+        # ========== encoder ==========
         self.encoder = ReactionEncoder(
             in_feats=in_feats,
             embedding_size=embedding_size,
@@ -75,10 +84,10 @@ class EncoderAndPooling(nn.Module):
 
         # have reaction conv layer
         if reaction_conv_layer_sizes:
-            self.conv_last_layer_size = reaction_conv_layer_sizes[-1]
+            self.node_feats_size = reaction_conv_layer_sizes[-1]
         # does not have reaction conv layer
         else:
-            self.conv_last_layer_size = molecule_conv_layer_sizes[-1]
+            self.node_feats_size = molecule_conv_layer_sizes[-1]
 
         # ========== reaction feature pooling ==========
         # readout reaction features, one 1D tensor for each reaction
@@ -93,7 +102,7 @@ class EncoderAndPooling(nn.Module):
                 set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
                 set2set_num_layers = pooling_kwargs["set2set_num_layers"]
 
-            in_sizes = [self.conv_last_layer_size] * 2
+            in_sizes = [self.node_feats_size] * 2
             self.set2set = Set2SetThenCat(
                 num_iters=set2set_num_iterations,
                 num_layers=set2set_num_layers,
@@ -102,7 +111,7 @@ class EncoderAndPooling(nn.Module):
                 ntypes_direct_cat=["global"],
             )
 
-            self.pooling_last_layer_size = self.conv_last_layer_size * 5
+            pooling_last_layer_size = self.node_feats_size * 5
 
         elif pooling_method == "hop_distance":
             if pooling_kwargs is None:
@@ -114,10 +123,22 @@ class EncoderAndPooling(nn.Module):
                 max_hop_distance = pooling_kwargs["max_hop_distance"]
                 self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
 
-            self.pooling_last_layer_size = self.conv_last_layer_size * 3
+            pooling_last_layer_size = self.node_feats_size * 3
 
         else:
             raise ValueError(f"Unsupported pooling method `{pooling_method}`")
+
+        # ========== compressor ==========
+        if compressing_layer_sizes:
+            self.compressor = CompressingNN(
+                in_size=pooling_last_layer_size,
+                hidden_sizes=compressing_layer_sizes,
+                activation=compressing_layer_activation,
+            )
+            self.reaction_feats_size = compressing_layer_sizes[-1]
+        else:
+            self.compressor = nn.Identity()
+            self.reaction_feats_size = pooling_last_layer_size
 
     def forward(
         self,
@@ -153,6 +174,9 @@ class EncoderAndPooling(nn.Module):
 
         else:
             raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
+
+        # compression
+        reaction_feats = self.compressor(reaction_feats)
 
         return feats, reaction_feats
 
@@ -219,6 +243,8 @@ class ReactionRepresentation(EncoderAndPooling):
         # reaction features pooling
         pooling_method="set2set",
         pooling_kwargs: Dict[str, Any] = None,
+        compressing_layer_sizes=None,
+        compressing_layer_activation=None,
     ):
 
         # encoder and pooling
@@ -239,13 +265,15 @@ class ReactionRepresentation(EncoderAndPooling):
             reaction_dropout=reaction_dropout,
             pooling_method=pooling_method,
             pooling_kwargs=pooling_kwargs,
+            compressing_layer_sizes=compressing_layer_sizes,
+            compressing_layer_activation=compressing_layer_activation,
         )
 
         # ========== node level decoder ==========
 
         # bond hop dist decoder
         self.bond_hop_dist_decoder = BondHopDistDecoder(
-            in_size=self.conv_last_layer_size,
+            in_size=self.node_feats_size,
             num_classes=bond_hop_dist_decoder_num_classes,
             hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
             activation=bond_hop_dist_decoder_activation,
@@ -253,7 +281,7 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # atom hop dist decoder
         self.atom_hop_dist_decoder = AtomHopDistDecoder(
-            in_size=self.conv_last_layer_size,
+            in_size=self.node_feats_size,
             num_classes=atom_hop_dist_decoder_num_classes,
             hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
             activation=atom_hop_dist_decoder_activation,
@@ -261,7 +289,7 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # masked atom type decoder
         self.masked_atom_type_decoder = AtomTypeDecoder(
-            in_size=self.conv_last_layer_size,
+            in_size=self.node_feats_size,
             num_classes=masked_atom_type_decoder_num_classes,
             hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
             activation=masked_atom_type_decoder_activation,
@@ -270,7 +298,7 @@ class ReactionRepresentation(EncoderAndPooling):
         # ========== reaction level decoder ==========
 
         self.reaction_cluster_decoder = ReactionClusterDecoder(
-            in_size=self.pooling_last_layer_size,
+            in_size=self.reaction_feats_size,
             num_classes=reaction_cluster_decoder_output_size,
             hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
             activation=reaction_cluster_decoder_activation,
