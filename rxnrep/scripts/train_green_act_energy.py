@@ -1,5 +1,7 @@
 """
 Note we use the same code as train_bondnet.py, but change target to activation energy.
+
+see: labels["reaction_energy"] = labels["activation_energy"]
 """
 
 import argparse
@@ -159,6 +161,7 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
+        labels["reaction_energy"] = labels["activation_energy"]
 
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs = mol_graphs.to(self.device)
@@ -175,9 +178,7 @@ class RxnRepLightningModel(pl.LightningModule):
         # loss for reaction energy
         preds["reaction_energy"] = preds["reaction_energy"].flatten()
         loss_reaction_energy = F.mse_loss(
-            # preds["reaction_energy"], labels["reaction_energy"]
-            preds["reaction_energy"],
-            labels["activation_energy"],
+            preds["reaction_energy"], labels["reaction_energy"]
         )
 
         # total loss (maybe assign different weights)
