@@ -204,3 +204,11 @@ class TestMolecule:
         smiles = "[N:2]([H])[CH:1][CH+:3]"
         m = Molecule.from_smiles(smiles)
         assert m.get_atom_map_number() == [2, 1, 3]
+
+        smiles = "[N:2]([H])[CH:1][CH+:3]"
+        m = Molecule.from_smiles(smiles, remove_H=False)
+        assert m.get_atom_map_number() == [2, None, 1, 3]
+
+        smiles = "[N:2]([H:4])[CH:1][CH+:3]"
+        m = Molecule.from_smiles(smiles, remove_H=False)
+        assert m.get_atom_map_number() == [2, 4, 1, 3]

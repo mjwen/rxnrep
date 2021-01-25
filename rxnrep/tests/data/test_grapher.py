@@ -323,7 +323,7 @@ def test_combine_graphs_C():
 
 def test_combine_graph_feature():
     """
-    Two CO2 and one C molecules: no bond features.
+    Two CO2 and one C molecules.
     """
     g1 = create_hetero_graph_CO2()
     g2 = create_hetero_graph_CO2()
@@ -351,7 +351,7 @@ def test_combine_graph_feature():
 
 def test_combine_graph_feature_2():
     """
-    Two C molecules: no bond features.
+    Two C molecules.
 
     The combined graph should have a bond feature of shape (0, D), where D is is
     feature size.

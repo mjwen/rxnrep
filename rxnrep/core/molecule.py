@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from collections import defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -188,11 +188,7 @@ class Molecule:
         Returns composition of the molecule with species as key and number of the species
         as value.
         """
-        comp = defaultdict(int)
-        for s in self.species:
-            comp[s] += 1
-
-        return comp
+        return Counter(self.species)
 
     @property
     def formula(self) -> str:
@@ -201,7 +197,7 @@ class Molecule:
         """
         comp = self.composition_dict
         f = ""
-        for s in sorted(set(self.species)):
+        for s in sorted(comp.keys()):
             f += f"{s}{comp[s]}"
 
         return f

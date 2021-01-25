@@ -84,10 +84,29 @@ class EncoderAndPooling(nn.Module):
 
         # have reaction conv layer
         if reaction_conv_layer_sizes:
-            self.node_feats_size = reaction_conv_layer_sizes[-1]
+            encoder_outsize = reaction_conv_layer_sizes[-1]
         # does not have reaction conv layer
         else:
-            self.node_feats_size = molecule_conv_layer_sizes[-1]
+            encoder_outsize = molecule_conv_layer_sizes[-1]
+
+        # ========== compressor ==========
+        if compressing_layer_sizes:
+            self.compressor = nn.ModuleDict(
+                {
+                    k: CompressingNN(
+                        in_size=encoder_outsize,
+                        hidden_sizes=compressing_layer_sizes,
+                        activation=compressing_layer_activation,
+                    )
+                    for k in ["atom", "bond", "global"]
+                }
+            )
+            compressor_outsize = compressing_layer_sizes[-1]
+        else:
+            self.compressor = nn.ModuleDict(
+                {k: nn.Identity() for k in ["atom", "bond", "global"]}
+            )
+            compressor_outsize = encoder_outsize
 
         # ========== reaction feature pooling ==========
         # readout reaction features, one 1D tensor for each reaction
@@ -102,7 +121,7 @@ class EncoderAndPooling(nn.Module):
                 set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
                 set2set_num_layers = pooling_kwargs["set2set_num_layers"]
 
-            in_sizes = [self.node_feats_size] * 2
+            in_sizes = [compressor_outsize] * 2
             self.set2set = Set2SetThenCat(
                 num_iters=set2set_num_iterations,
                 num_layers=set2set_num_layers,
@@ -111,7 +130,7 @@ class EncoderAndPooling(nn.Module):
                 ntypes_direct_cat=["global"],
             )
 
-            pooling_last_layer_size = self.node_feats_size * 5
+            pooling_outsize = compressor_outsize * 5
 
         elif pooling_method == "hop_distance":
             if pooling_kwargs is None:
@@ -123,22 +142,13 @@ class EncoderAndPooling(nn.Module):
                 max_hop_distance = pooling_kwargs["max_hop_distance"]
                 self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
 
-            pooling_last_layer_size = self.node_feats_size * 3
+            pooling_outsize = compressor_outsize * 3
 
         else:
             raise ValueError(f"Unsupported pooling method `{pooling_method}`")
 
-        # ========== compressor ==========
-        if compressing_layer_sizes:
-            self.compressor = CompressingNN(
-                in_size=pooling_last_layer_size,
-                hidden_sizes=compressing_layer_sizes,
-                activation=compressing_layer_activation,
-            )
-            self.reaction_feats_size = compressing_layer_sizes[-1]
-        else:
-            self.compressor = nn.Identity()
-            self.reaction_feats_size = pooling_last_layer_size
+        self.node_feats_size = compressor_outsize
+        self.reaction_feats_size = pooling_outsize
 
     def forward(
         self,
@@ -160,6 +170,9 @@ class EncoderAndPooling(nn.Module):
         # encoder
         feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
 
+        # compressor
+        feats = {k: self.compressor[k](feats[k]) for k in ["atom", "bond", "global"]}
+
         # readout reaction features, a 1D tensor for each reaction
         if self.pooling_method == "set2set":
             reaction_feats = self.set2set(reaction_graphs, feats)
@@ -174,9 +187,6 @@ class EncoderAndPooling(nn.Module):
 
         else:
             raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
-
-        # compression
-        reaction_feats = self.compressor(reaction_feats)
 
         return feats, reaction_feats
 

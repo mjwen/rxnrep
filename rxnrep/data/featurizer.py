@@ -151,6 +151,16 @@ def atom_hybridization_one_hot(atom, allowable_set=None, encode_unknown=False):
     return one_hot_encoding(atom.GetHybridization(), allowable_set, encode_unknown)
 
 
+def atom_formal_charge(atom):
+    return [atom.GetFormalCharge()]
+
+
+def atom_formal_charge_one_hot(atom, allowable_set=None, encode_unknown=False):
+    if allowable_set is None:
+        allowable_set = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+    return one_hot_encoding(atom.GetFormalCharge(), allowable_set, encode_unknown)
+
+
 def global_num_atoms(mol):
     return [mol.GetNumAtoms()]
 
@@ -239,7 +249,7 @@ class BondFeaturizer(BaseFeaturizer):
             feature size. where N is the number of bonds in the molecule and D is the
             feature size. Note, when the molecule is a single atom molecule without bonds,
             a zero tensor of shape (1, D) is returned.
-       """
+        """
 
         num_bonds = mol.GetNumBonds()
         if num_bonds == 0:
@@ -307,7 +317,7 @@ class BondFeaturizerMinimum(BaseFeaturizer):
             feature size. where N is the number of bonds in the molecule and D is the
             feature size. Note, when the molecule is a single atom molecule without bonds,
             a zero tensor of shape (1, D) is returned.
-       """
+        """
 
         num_bonds = mol.GetNumBonds()
         if num_bonds == 0:
