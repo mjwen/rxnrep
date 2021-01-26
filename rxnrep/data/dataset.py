@@ -431,6 +431,12 @@ class BaseDataset:
 
         yaml_dump(d, filename)
 
+    def __getitem__(self, item):
+        raise NotImplementedError
+
+    def __len__(self) -> int:
+        return len(self.reactions)
+
 
 class Subset(BaseDataset):
     def __init__(self, dataset, indices):

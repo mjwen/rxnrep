@@ -327,12 +327,6 @@ class USPTODataset(BaseDataset):
         else:
             return reactants_g, products_g, reaction_g, meta, label
 
-    def __len__(self) -> int:
-        """
-        Returns length of dataset (i.e. number of reactions)
-        """
-        return len(self.dgl_graphs)
-
     @staticmethod
     def collate_fn(samples):
         indices, reactants_g, products_g, reaction_g, metadata, labels = map(

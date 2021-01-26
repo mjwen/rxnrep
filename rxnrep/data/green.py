@@ -2,7 +2,7 @@ import logging
 import multiprocessing
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import pandas as pd
 import torch
@@ -18,7 +18,50 @@ logger = logging.getLogger(__name__)
 class GreenDataset(USPTODataset):
     """
     Green reaction activation energy dataset.
+
+    Args:
+        have_activation_energy_ratio: a randomly selecgted portion of this amount of
+            reactions will be marked to have activation energies, and the others not.
     """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        atom_featurizer: Callable,
+        bond_featurizer: Callable,
+        global_featurizer: Callable,
+        *,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
+        transform_features: bool = True,
+        return_index: bool = True,
+        num_processes: int = 1,
+        # args to control labels
+        max_hop_distance: int = 2,
+        atom_type_masker_ratio: Union[float, None] = None,
+        atom_type_masker_use_masker_value: bool = True,
+        # ratio of activation energy label to use
+        have_activation_energy_ratio=0.2,
+    ):
+        pass
+
+        super().__init__(
+            filename,
+            atom_featurizer,
+            bond_featurizer,
+            global_featurizer,
+            init_state_dict=init_state_dict,
+            transform_features=transform_features,
+            return_index=return_index,
+            num_processes=num_processes,
+            max_hop_distance=max_hop_distance,
+            atom_type_masker_ratio=atom_type_masker_ratio,
+            atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
+        )
+
+        self.have_activation_energy_ratio = have_activation_energy_ratio
+        self.have_activation_energy = self.generate_have_activation_energy(
+            have_activation_energy_ratio
+        )
 
     @staticmethod
     def read_file(filename: Path, nprocs: int):
@@ -110,6 +153,66 @@ class GreenDataset(USPTODataset):
             rxn_label["activation_energy"] = torch.as_tensor([ae], dtype=torch.float32)
 
         return labels
+
+    def generate_have_activation_energy(self, ratio: float) -> torch.Tensor:
+        """
+        Mark a portion of reactions to have activation energy and the others not.
+
+        Args:
+            ratio: the ratio of of reactions to have activation energy
+
+        Returns:
+            1D tensor of size N, where N is the number of data points (reactions).
+                Each element is a bool tensor indicating whether activation energy
+                exists for the reaction or not.
+
+        """
+        n = len(self.reactions)
+
+        activation_energy_exist = torch.zeros(n, dtype=torch.bool)
+
+        # randomly selected indices to make as exists
+        selected = torch.randperm(n)[: int(n * ratio)]
+
+        activation_energy_exist[selected] = True
+
+        return activation_energy_exist
+
+    def __getitem__(self, item):
+        out = super().__getitem__(item)
+        if self.return_index:
+            item, reactants_g, products_g, reaction_g, meta, label = out
+        else:
+            reactants_g, products_g, reaction_g, meta, label = out
+
+        meta["have_activation_energy"] = self.have_activation_energy[item]
+
+        if self.return_index:
+            return item, reactants_g, products_g, reaction_g, meta, label
+        else:
+            return reactants_g, products_g, reaction_g, meta, label
+
+    @staticmethod
+    def collate_fn(samples):
+        (
+            batched_indices,
+            batched_molecule_graphs,
+            batched_reaction_graphs,
+            batched_labels,
+            batched_metadata,
+        ) = super(GreenDataset, GreenDataset).collate_fn(samples)
+
+        batched_metadata["have_activation_energy"] = torch.as_tensor(
+            batched_metadata["have_activation_energy"]
+        )
+
+        return (
+            batched_indices,
+            batched_molecule_graphs,
+            batched_reaction_graphs,
+            batched_labels,
+            batched_metadata,
+        )
 
 
 def process_one_reaction_from_input_file(

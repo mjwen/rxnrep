@@ -247,6 +247,12 @@ class RxnRepLightningModel(pl.LightningModule):
         cluster_assignments = self.assignments[mode]
         cluster_centroids = self.centroids[mode]
         loss_reaction_cluster = []
+
+        # TODO potential problems
+        #  - cluster centroids are normalized (when using cosine similarity),
+        #  while preds['reaction_cluster'] not
+        #  - this is not the contrastive loss discussed in slides, instead, this is a
+        #    cross entropy classification loss
         for a, c in zip(cluster_assignments, cluster_centroids):
             a = a[indices].to(self.device)  # select for current batch from all
             c = c.to(self.device)

@@ -69,8 +69,8 @@ class DistributedReactionCluster:
         Returns:
             assignments: the assignments of the data points to the clusters. Each element
                 of the list gives the assignment for one clustering head. It is a
-                tensor of shape (N_local,), where N_local is the number of data points
-                in the local process. Returned tensors will be on cpu.
+                tensor of shape (N_global,), where N_global is the number of total data
+                points. Returned tensors will be on cpu.
             centroids: the centroids of the k-means clusters. Each element of the list
                 gives the centroid for one clustering head. It is a tensor of
                 shape (K, D), where K is the number centroids in the clustering head,
