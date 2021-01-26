@@ -214,6 +214,15 @@ class GreenDataset(USPTODataset):
             batched_metadata,
         )
 
+    def get_property(self, name: str):
+        """Get property for every data points."""
+        if name in ["reaction_energy", "activation_energy"]:
+            return torch.cat([lb[name] for lb in self.labels])
+        elif name == "have_activation_energy":
+            return torch.as_tensor(self.have_activation_energy)
+        else:
+            raise ValueError(f"Unsupported property name {name}")
+
 
 def process_one_reaction_from_input_file(
     smiles_reaction: str, id: str
