@@ -215,7 +215,9 @@ class GreenDataset(USPTODataset):
         )
 
     def get_property(self, name: str):
-        """Get property for every data points."""
+        """
+        Get property for all data points.
+        """
         if name in ["reaction_energy", "activation_energy"]:
             return torch.cat([lb[name] for lb in self.labels])
         elif name == "have_activation_energy":

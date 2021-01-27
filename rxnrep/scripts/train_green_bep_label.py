@@ -97,9 +97,9 @@ class RxnRepLightningModel(pl.LightningModule):
         self.centroids = None
 
         # bep prediction
-        self.bep_predictor = {mode: None for mode in ["train", "val", "test"]}
+        self.bep_predictor = None
         self.bep_activation_energy = {mode: None for mode in ["train", "val", "test"]}
-        self.has_bep_activation_energy = {
+        self.have_bep_activation_energy = {
             mode: None for mode in ["train", "val", "test"]
         }
 
@@ -245,20 +245,43 @@ class RxnRepLightningModel(pl.LightningModule):
             )
         self.assignments[mode] = assign
 
-        # bep activation energy prediction
-        if self.bep_predictor[mode] is None:
-            predictor = ActivationEnergyPredictor.from_data_loader(data_loader)
-            self.bep_predictor[mode] = predictor
-        else:
-            predictor = self.bep_predictor[mode]
+        #
+        # generate bep activation energy label
+        #
 
-        (
-            self.bep_activation_energy[mode],
-            self.has_bep_activation_energy[mode],
-        ) = predictor.get_predicted_activation_energy_multi_prototype(
-            assign,
-            min_num_data_points_for_fitting=self.hparams.min_num_data_points_for_fitting,
-        )
+        if mode == "train":
+            # initialize bep predictor
+            if self.bep_predictor is None:
+                self.bep_predictor = ActivationEnergyPredictor(
+                    self.hparams.num_centroids,
+                    min_num_data_points_for_fitting=self.hparams.min_num_data_points_for_fitting,
+                    device=self.device,
+                )
+
+            # predict for train set
+            dataset = data_loader.dataset
+            reaction_energy = dataset.get_property("reaction_energy")
+            activation_energy = dataset.get_property("activation_energy")
+            have_activation_energy = dataset.get_property("have_activation_energy")
+            (
+                self.bep_activation_energy[mode],
+                self.have_bep_activation_energy[mode],
+            ) = self.bep_predictor.fit_predict(
+                reaction_energy, activation_energy, have_activation_energy, assign
+            )
+
+        else:
+            # predict for val, test set
+
+            assert (
+                self.bep_predictor is not None
+            ), "bep predictor not initialized. Should not get here. something is fishy"
+
+            reaction_energy = data_loader.dataset.get_property("reaction_energy")
+            (
+                self.bep_activation_energy[mode],
+                self.have_bep_activation_energy[mode],
+            ) = self.bep_predictor.predict(reaction_energy, assign)
 
     def shared_step(self, batch, mode):
 
@@ -331,7 +354,7 @@ class RxnRepLightningModel(pl.LightningModule):
         activation_energy_bep_pred = []
         activation_energy_bep_label = []
         for energy, has_energy in zip(  # loop over kmeans prototypes
-            self.bep_activation_energy[mode], self.has_bep_activation_energy[mode]
+            self.bep_activation_energy[mode], self.have_bep_activation_energy[mode]
         ):
             energy = energy[indices].to(self.device)
 

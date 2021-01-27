@@ -31,7 +31,7 @@ class DistributedReactionCluster:
         model,
         data_loader,
         num_centroids: List[int] = (10, 10),
-        device=None,
+        device="cpu",
     ):
         self.model = model
         self.data_loader = data_loader
@@ -238,7 +238,7 @@ class ReactionCluster:
 
 
 def distributed_initialize_centroids(
-    local_data: torch.Tensor, num_prototypes: List[int], device=None
+    local_data: torch.Tensor, num_centroids: List[int], device=None
 ) -> List[torch.Tensor]:
     """
     Initialize the centroids from the features of of rank 0 for all cluster heads.
@@ -248,7 +248,7 @@ def distributed_initialize_centroids(
         local_data: data on the local process.
             shape (N, D), where N is the local number of data points, and D is the
             dimension of the data.
-        num_prototypes: number of clusters for each cluster head.
+        num_centroids: number of clusters for each cluster head.
         device:
 
     Returns:
@@ -263,7 +263,7 @@ def distributed_initialize_centroids(
     all_centroids = []
 
     with torch.no_grad():
-        for i_K, K in enumerate(num_prototypes):
+        for i_K, K in enumerate(num_centroids):
 
             # init centroids
             centroids = torch.empty(K, feature_dim, device=device)
@@ -287,7 +287,7 @@ def distributed_kmeans(
     local_data: torch.Tensor,
     local_index: torch.Tensor,
     dataset_size: int,
-    num_prototypes: List[int],
+    num_centroids: List[int],
     centroids: Optional[List[torch.Tensor]] = None,
     num_iters: int = 10,
     similarity: str = "cosine",
@@ -302,7 +302,7 @@ def distributed_kmeans(
         local_index: shape (N_local,). Index of the local data in the global dataset
             array.
         dataset_size: total size of the dataset (not the local size)
-        num_prototypes: number of clusters for each cluster head. The number of
+        num_centroids: number of clusters for each cluster head. The number of
             cluster heads is `len(num_centroids)`. e.g. (K1, K2, K3).
         centroids: initial centroids for the k-means method. If `None`, randomly
             initialize_centroids from data in rank 0 process. Otherwise, should be a list
@@ -327,7 +327,7 @@ def distributed_kmeans(
 
     if centroids is None:
         init_centroids = distributed_initialize_centroids(
-            local_data, num_prototypes, device
+            local_data, num_centroids, device
         )
     else:
         init_centroids = centroids
@@ -338,12 +338,12 @@ def distributed_kmeans(
         # normalize data
         local_data = F.normalize(local_data, dim=1, p=2)
 
-    assignments = [-100 * torch.ones(dataset_size).long() for _ in num_prototypes]
+    assignments = [-100 * torch.ones(dataset_size).long() for _ in num_centroids]
     all_centroids = []
 
     with torch.no_grad():
 
-        for i_K, K in enumerate(num_prototypes):
+        for i_K, K in enumerate(num_centroids):
             # run distributed k-means
 
             centroids = init_centroids[i_K].to(device)
@@ -423,7 +423,7 @@ def distributed_kmeans_predict(
     local_data: torch.Tensor,
     local_index: torch.Tensor,
     dataset_size: int,
-    num_prototypes: List[int],
+    num_centroids: List[int],
     init_centroids: Optional[List[torch.Tensor]],
     similarity: str = "cosine",
     device=None,
@@ -442,11 +442,11 @@ def distributed_kmeans_predict(
         # normalize data
         local_data = F.normalize(local_data, dim=1, p=2)
 
-    assignments = [-100 * torch.ones(dataset_size).long() for _ in num_prototypes]
+    assignments = [-100 * torch.ones(dataset_size).long() for _ in num_centroids]
 
     with torch.no_grad():
 
-        for i_K, K in enumerate(num_prototypes):
+        for i_K, K in enumerate(num_centroids):
 
             centroids = init_centroids[i_K].to(device)
 

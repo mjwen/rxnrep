@@ -7,123 +7,183 @@ class ActivationEnergyPredictor:
     """
     Predict activation energy from reaction energy based on BEP.
 
+    Note, not every reaction will have a predicted activation energy. This is
+    determined by `min_num_data_points_for_fitting` and see below.
+
     Args:
-        reaction_energy: 1D tensor, reaction energy of all reactions in the dataset.
-        activation_energy: 1D tensor, activation energy of all reactions in the dataset.
-        have_activation_energy: 1D tensor, whether a reaction have activation energy;
-            If `False`, the corresponding element in activation_energy should be
-            regarded as None (i.e. not exist).
+        num_centroids: number of clusters in each clustering prototype.
+        min_num_data_points_for_fitting: minimum number of data points used to fit
+                the BEP for a cluster. At least 2 data points are needed to fit the
+                linear regression model. If some cluster has fewer reactions with
+                true activation energies, we cannot fit a BEP and thus cannot predict
+                the activation energies for other reactions in the cluster. In this
+                case, their corresponding value are set to 0.0, and they can be
+                identified in ``have_predicted_activation_energy`` returned by
+                ``predict`` by setting the value to `False`.
+        device:
     """
 
     def __init__(
         self,
+        num_centroids: List[int],
+        min_num_data_points_for_fitting: int = 2,
+        device="cpu",
+    ):
+        self.num_centroids = num_centroids
+        self.min_num_data_points_for_fitting = min_num_data_points_for_fitting
+        self.device = device
+
+        self.regressors = {}
+
+    def fit(
+        self,
         reaction_energy: torch.Tensor,
         activation_energy: torch.Tensor,
         have_activation_energy: torch.Tensor,
-    ):
-        self.reaction_energy = reaction_energy
-        self.activation_energy = activation_energy
-        self.have_activation_energy = have_activation_energy
-
-    @classmethod
-    def from_data_loader(cls, data_loader):
-        """
-        We use the get_property() of dataset to get all reaction energy, activation
-        energy, have activation energy label. Alternatively, this can be obtained by
-        iterating over the data_loader and getting from label and metadata.
-        """
-        dataset = data_loader.dataset
-        reaction_energy = dataset.get_property("reaction_energy")
-        activation_energy = dataset.get_property("activation_energy")
-        have_activation_energy = dataset.get_property("have_activation_energy")
-        return cls(reaction_energy, activation_energy, have_activation_energy)
-
-    def get_predicted_activation_energy_multi_prototype(
-        self,
         assignments: List[torch.Tensor],
-        min_num_data_points_for_fitting: int = 2,
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        predict: bool = False,
+    ):
         """
-        Predict the activation energy when multiple cluster prototypes are used. This
-        is simply calling ``get_predicted_activation_energy()`` multiple times,
-        each with a different assignment.
+        Args:
+            reaction_energy: 1D tensor, reaction energy of all reactions in the dataset.
+            activation_energy: 1D tensor, activation energy of all reactions in the
+                dataset.
+            have_activation_energy: 1D tensor, whether a reaction have activation energy;
+                If `False`, the corresponding element in activation_energy should be
+                regarded as None (i.e. not exist).
+            assignments: list of 1D tensor of of shape (N,), where N is the number of
+                reactions in the dataset. Cluster assignment of data points (
+                reactions), each tensor corresponds to one clustering prototype.
+            predict: whether to make predictions. Return tensors will be on self.device.
         """
-        out = [
-            self.get_predicted_activation_energy(a, min_num_data_points_for_fitting)
-            for a in assignments
-        ]
-        predicted_activation_energy, have_predicted_activation_energy = map(
-            list, zip(*out)
+        assert len(assignments) == len(
+            self.num_centroids
+        ), "assignments size != len(num_centroids)"
+
+        reaction_energy = reaction_energy.to(self.device)
+        activation_energy = activation_energy.to(self.device)
+        have_activation_energy = have_activation_energy.to(self.device)
+
+        with torch.no_grad():
+
+            if predict:
+                N = len(reaction_energy)
+                predicted_activation_energy = [
+                    torch.zeros(N, device=self.device) for _ in self.num_centroids
+                ]
+                have_predicted_activation_energy = [
+                    torch.zeros(N, dtype=torch.bool, device=self.device)
+                    for _ in self.num_centroids
+                ]
+
+            for i_K, K in enumerate(self.num_centroids):
+
+                assignment = assignments[i_K].to(self.device)
+
+                for i in range(K):
+
+                    # select data points in cluster i
+                    indices = assignment == i
+                    rxn_energies = reaction_energy[indices]
+                    act_energies = activation_energy[indices]
+                    have_act_energy = have_activation_energy[indices]
+
+                    # select data points having activation energies
+                    rxn_e = rxn_energies[have_act_energy]
+                    act_e = act_energies[have_act_energy]
+
+                    # fit a linear regression model
+                    if len(act_e) >= self.min_num_data_points_for_fitting:
+                        # fit BEP model using data points having activation energies
+                        reg = LinearRegression()
+                        reg.fit(rxn_e, act_e)
+                        self.regressors[(i_K, i)] = reg
+
+                        if predict:
+                            # predict activation energy for all data points in cluster
+                            pred_act_energies = reg.predict(rxn_energies)
+                            predicted_activation_energy[i_K][
+                                indices
+                            ] = pred_act_energies
+                            have_predicted_activation_energy[i_K][indices] = True
+
+                    else:
+                        self.regressors[(i_K, i)] = None
+
+        if predict:
+            return predicted_activation_energy, have_predicted_activation_energy
+        else:
+            return None
+
+    def fit_predict(
+        self,
+        reaction_energy: torch.Tensor,
+        activation_energy: torch.Tensor,
+        have_activation_energy: torch.Tensor,
+        assignments: List[torch.Tensor],
+    ):
+        """
+        Fit and predict.
+        """
+        return self.fit(
+            reaction_energy,
+            activation_energy,
+            have_activation_energy,
+            assignments,
+            predict=True,
         )
 
-        return predicted_activation_energy, have_predicted_activation_energy
-
-    def get_predicted_activation_energy(
+    def predict(
         self,
-        assignment: torch.Tensor,
-        min_num_data_points_for_fitting: int = 2,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        reaction_energy: torch.Tensor,
+        assignments: List[torch.Tensor],
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
-        Predict the activation energy separately for each cluster.
+        Predict BEP activation energy.
 
-        Note, not every reaction will have a predicted activation energy,
-        see ``num_minimum_activation_energy_for_bep_fitting`` below.
-
-        Args:
-            assignment: 1D tensor of of shape (N,), where N is the number of reactions
-                in the dataset. Cluster assignment of data points (reactions).
-            min_num_data_points_for_fitting: minimum number of data points used to fit
-                the BEP for a cluster. At least 2 data points are needed to fit the
-                linear regression model. If some cluster has fewer reactions having
-                true activation energies, we cannot fit a BEP and thus cannot predict
-                the activation energies for other reactions in the cluster. In this
-                case, the corresponding element in the returned
-                ``have_predicted_activation_energy`` is set to False.
+        Returned tensors will be on self.device.
 
         Returns:
             predicted_activation_energy: 1D tensor of shape (N,), where N is the number
                 of reactions in the dataset. The value for the elements does not
                 ``have_predicted_activation_energy`` are set to 0, but they should not
                 be used. They can be selected by ``have_predicted_activation_energy``
-                Returned tensor on CPU.
+                Returned tensor on self.device.
             have_predicted_activation_energy: 1D tensor of shape (N,). Whether predicted
-                activation energy exists. Returned tensor on CPU.
+                activation energy exists. Returned tensor on self.device.
         """
-
-        # move to cpu, since 1) self.reaction_energy ... are on cpu; 2) there are
-        # simple computations, no need to move to gpu
-        assignment = assignment.to("cpu")
+        reaction_energy = reaction_energy.to(self.device)
 
         with torch.no_grad():
 
-            predicted_activation_energy = torch.zeros(assignment.shape)
-            have_predicted_activation_energy = torch.zeros(
-                assignment.shape, dtype=torch.bool
-            )
+            N = len(reaction_energy)
+            predicted_activation_energy = [
+                torch.zeros(N, device=self.device) for _ in self.num_centroids
+            ]
+            have_predicted_activation_energy = [
+                torch.zeros(N, dtype=torch.bool, device=self.device)
+                for _ in self.num_centroids
+            ]
 
-            max_cluster_index = max(assignment)
-            for i in range(max_cluster_index + 1):
+            for i_K, K in enumerate(self.num_centroids):
 
-                # select data points in cluster i
-                indices = assignment == i
-                rxn_energies = self.reaction_energy[indices]
-                act_energies = self.activation_energy[indices]
-                have_act_energy = self.have_activation_energy[indices]
+                assignment = assignments[i_K].to(self.device)
 
-                # select data points having activation energies
-                rxn_e = rxn_energies[have_act_energy]
-                act_e = act_energies[have_act_energy]
+                for i in range(K):
 
-                # fit a linear regression model
-                if len(rxn_e) >= min_num_data_points_for_fitting:
-                    # fit BEP model using data points having activation energies
-                    reg = LinearRegression()
-                    reg.fit(rxn_e, act_e)
+                    # select data points in cluster i
+                    indices = assignment == i
 
-                    # predict activation energy for all data points in cluster
-                    pred_act_energies = reg.predict(rxn_energies)
-                    predicted_activation_energy[indices] = pred_act_energies
-                    have_predicted_activation_energy[indices] = True
+                    if any(indices):
+                        rxn_energies = reaction_energy[indices]
+
+                        reg = self.regressors[(i_K, i)]
+                        if reg is not None:
+                            pred_act_energies = reg.predict(rxn_energies)
+                            predicted_activation_energy[i_K][
+                                indices
+                            ] = pred_act_energies
+                            have_predicted_activation_energy[i_K][indices] = True
 
         return predicted_activation_energy, have_predicted_activation_energy
 
