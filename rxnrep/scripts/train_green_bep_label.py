@@ -229,13 +229,19 @@ class RxnRepLightningModel(pl.LightningModule):
         if mode == "train":
             # generate centroids from training set
             assign, cent = cluster_fn.get_cluster_assignments(
-                centroids="random", predict_only=False
+                centroids="random",
+                predict_only=False,
+                num_iters=self.hparams.num_kmeans_iterations,
+                similarity=self.hparams.kmeans_similarity,
             )
             self.centroids = cent
         else:
             # use centroids from training set
             assign, _ = cluster_fn.get_cluster_assignments(
-                centroids=self.centroids, predict_only=True
+                centroids=self.centroids,
+                predict_only=True,
+                num_iters=self.hparams.num_kmeans_iterations,
+                similarity=self.hparams.kmeans_similarity,
             )
         self.assignments[mode] = assign
 
@@ -292,16 +298,19 @@ class RxnRepLightningModel(pl.LightningModule):
         )
 
         # loss for clustering prediction
-        # TODO potential problems
-        #  - cluster centroids are normalized (when using cosine similarity),
-        #  while preds['reaction_cluster'] not
-        #  - this is not the contrastive loss discussed in slides, instead, this is a
-        #    cross entropy classification loss
         loss_reaction_cluster = []
         for a, c in zip(self.assignments[mode], self.centroids):
             a = a[indices].to(self.device)  # select for current batch from all
             c = c.to(self.device)
-            p = torch.mm(preds["reaction_cluster"], c.t()) / self.hparams.temperature
+            x = preds["reaction_cluster"]
+
+            # normalize prediction tensor, since centroids are normalized
+            if self.hparams.kmeans_similarity == "cosine":
+                x = F.normalize(x, dim=1, p=2)
+            else:
+                raise NotImplementedError
+
+            p = torch.mm(x, c.t()) / self.hparams.temperature
             e = F.cross_entropy(p, a)
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
@@ -639,12 +648,23 @@ def parse_args():
         default=[10],
         help="number of centroids for each clustering prototype",
     )
-
     parser.add_argument(
         "--temperature",
         type=float,
         default=1.0,
         help="temperature in the loss for cluster decoder",
+    )
+    parser.add_argument(
+        "--num_kmeans_iterations",
+        type=int,
+        default=10,
+        help="number of kmeans clustering iterations",
+    )
+    parser.add_argument(
+        "--kmeans_similarity",
+        type=str,
+        default="cosine",
+        help="similarity measure for kmeans: `cosine` or `euclidean`",
     )
 
     # energy decoder

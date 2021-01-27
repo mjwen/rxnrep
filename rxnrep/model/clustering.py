@@ -44,8 +44,8 @@ class DistributedReactionCluster:
     def get_cluster_assignments(
         self,
         num_iters: int = 10,
-        centroids: Union[List[torch.Tensor], str, None] = "random",
         similarity: str = "cosine",
+        centroids: Union[List[torch.Tensor], str, None] = "random",
         predict_only: bool = False,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
@@ -55,13 +55,13 @@ class DistributedReactionCluster:
 
         Args:
             num_iters: number of iterations for k-means
+            similarity: [`cosine`|`l2`]. similarity measure of the distance between
+                data and centroid.
             centroids: initial centroids of the clusters. This shape of each tensor
                 should correspond to `num_centroids`. For example, if `num_centroids` is
                 `(K1, K2, K3)`, then `centroids` should be a list of 3 tensors, with shape
                 (K1, D), (K2, D), and (K3, D), respectively.
                 If `random`, will randomly select centroids from the data.
-            similarity: [`cosine`|`l2`]. similarity measure of the distance between
-                data and centroid.
             predict_only: only predict the cluster assignments, without updating
                 centroids. If `True`, `centroids_init` should be given as a list of
                 tensor.
@@ -172,8 +172,8 @@ class ReactionCluster:
     def get_cluster_assignments(
         self,
         num_iters: int = 10,
-        centroids: Union[List[torch.Tensor], str, None] = "random",
         similarity: str = "cosine",
+        centroids: Union[List[torch.Tensor], str, None] = "random",
         predict_only: bool = False,
         tol=1.0,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
