@@ -73,9 +73,9 @@ class ActivationEnergyPredictor:
                 ``have_predicted_activation_energy`` is set to False.
 
         Returns:
-            predicted_activation_energy: 1D tensor of shape (N,).
+            predicted_activation_energy: 1D tensor of shape (N,). Returned tensor on CPU.
             have_predicted_activation_energy: 1D tensor of shape (N,). Whether predicted
-                activation energy exists.
+                activation energy exists. Returned tensor on CPU.
         """
 
         # move to cpu, since 1) self.reaction_energy ... are on cpu; 2) there are

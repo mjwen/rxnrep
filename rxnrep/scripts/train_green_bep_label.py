@@ -98,6 +98,10 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # bep prediction
         self.bep_predictor = {mode: None for mode in ["train", "val", "test"]}
+        self.bep_activation_energy = {mode: None for mode in ["train", "val", "test"]}
+        self.has_bep_activation_energy = {
+            mode: None for mode in ["train", "val", "test"]
+        }
 
         # metrics
         self.metrics = self._init_metrics()
@@ -155,25 +159,7 @@ class RxnRepLightningModel(pl.LightningModule):
             )
 
     def on_train_epoch_start(self):
-        mode = "train"
-
-        # clustering
-        if self.reaction_cluster_fn[mode] is None:
-            self.reaction_cluster_fn[mode] = self._init_reaction_cluster_fn(
-                self.train_dataloader()
-            )
-
-        assi, cent = self.reaction_cluster_fn[mode].get_cluster_assignments(
-            centroids="random", predict_only=False
-        )
-        self.assignments[mode] = assi
-        self.centroids = cent
-
-        # bep activation energy prediction
-        if self.bep_predictor[mode] is None:
-            self.bep_predictor[mode] = ActivationEnergyPredictor.from_data_loader(
-                self.train_dataloader()
-            )
+        self.shared_on_epoch_start(self.train_dataloader(), "train")
 
     def training_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "train")
@@ -190,23 +176,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self._track_reaction_cluster_data(outputs, "train")
 
     def on_validation_epoch_start(self):
-        mode = "val"
-
-        if self.reaction_cluster_fn[mode] is None:
-            self.reaction_cluster_fn[mode] = self._init_reaction_cluster_fn(
-                self.val_dataloader()
-            )
-
-        assi, _ = self.reaction_cluster_fn[mode].get_cluster_assignments(
-            centroids=self.centroids, predict_only=True
-        )
-        self.assignments[mode] = assi
-
-        # bep activation energy prediction
-        if self.bep_predictor[mode] is None:
-            self.bep_predictor[mode] = ActivationEnergyPredictor.from_data_loader(
-                self.val_dataloader()
-            )
+        self.shared_on_epoch_start(self.val_dataloader(), "val")
 
     def validation_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "val")
@@ -231,23 +201,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
     def on_test_epoch_start(self):
-        mode = "test"
-
-        if self.reaction_cluster_fn[mode] is None:
-            self.reaction_cluster_fn[mode] = self._init_reaction_cluster_fn(
-                self.test_dataloader()
-            )
-
-        assi, _ = self.reaction_cluster_fn[mode].get_cluster_assignments(
-            centroids=self.centroids, predict_only=True
-        )
-        self.assignments[mode] = assi
-
-        # bep activation energy prediction
-        if self.bep_predictor[mode] is None:
-            self.bep_predictor[mode] = ActivationEnergyPredictor.from_data_loader(
-                self.val_dataloader()
-            )
+        self.shared_on_epoch_start(self.test_dataloader(), "test")
 
     def test_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "test")
@@ -262,6 +216,40 @@ class RxnRepLightningModel(pl.LightningModule):
     def test_epoch_end(self, outputs):
         self._compute_metrics("test")
         self._track_reaction_cluster_data(outputs, "test")
+
+    def shared_on_epoch_start(self, data_loader, mode):
+
+        # clustering
+        if self.reaction_cluster_fn[mode] is None:
+            cluster_fn = self._init_reaction_cluster_fn(data_loader)
+            self.reaction_cluster_fn[mode] = cluster_fn
+        else:
+            cluster_fn = self.reaction_cluster_fn[mode]
+
+        if mode == "train":
+            # generate centroids from training set
+            assign, cent = cluster_fn.get_cluster_assignments(
+                centroids="random", predict_only=False
+            )
+            self.centroids = cent
+        else:
+            # use centroids from training set
+            assign, _ = cluster_fn.get_cluster_assignments(
+                centroids=self.centroids, predict_only=True
+            )
+        self.assignments[mode] = assign
+
+        # bep activation energy prediction
+        if self.bep_predictor[mode] is None:
+            predictor = ActivationEnergyPredictor.from_data_loader(data_loader)
+            self.bep_predictor[mode] = predictor
+        else:
+            predictor = self.bep_predictor[mode]
+
+        (
+            self.bep_activation_energy[mode],
+            self.has_bep_activation_energy[mode],
+        ) = predictor.get_predicted_activation_energy_multi_prototype(assign)
 
     def shared_step(self, batch, mode):
 
@@ -326,6 +314,13 @@ class RxnRepLightningModel(pl.LightningModule):
             preds["activation_energy"], labels["activation_energy"]
         )
 
+        # BEP activation energy loss
+        loss_bep = []
+        for energy in self.bep_activation_energy[mode]:
+            ref = energy[indices].to(self.device)
+            loss_bep.append(F.mse_loss(preds["activation_energy"], ref))
+        loss_bep = sum(loss_bep) / len(loss_bep)
+
         # total loss (maybe assign different weights)
         loss = (
             loss_atom_hop
@@ -334,6 +329,7 @@ class RxnRepLightningModel(pl.LightningModule):
             + loss_reaction_cluster
             + loss_reaction_energy
             + loss_activation_energy
+            + loss_bep
         )
 
         # ========== log the loss ==========
