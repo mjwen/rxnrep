@@ -73,7 +73,7 @@ class RxnRepLightningModel(pl.LightningModule):
         # reaction cluster functions
         self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
         self.assignments = {mode: None for mode in ["train", "val", "test"]}
-        self.centroids = {mode: None for mode in ["train", "val", "test"]}
+        self.centroids = None
 
         # metrics
         self.metrics = self._init_metrics()
@@ -136,7 +136,11 @@ class RxnRepLightningModel(pl.LightningModule):
                 self.train_dataloader()
             )
 
-        self._compute_reaction_cluster_assignments("train")
+        assi, cent = self.reaction_cluster_fn["train"].get_cluster_assignments(
+            centroids="random", predict_only=False
+        )
+        self.assignments["train"] = assi
+        self.centroids = cent
 
     def training_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "train")
@@ -158,7 +162,10 @@ class RxnRepLightningModel(pl.LightningModule):
                 self.val_dataloader()
             )
 
-        self._compute_reaction_cluster_assignments("val")
+        assi, _ = self.reaction_cluster_fn["val"].get_cluster_assignments(
+            centroids=self.centroids, predict_only=True
+        )
+        self.assignments["val"] = assi
 
     def validation_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "val")
@@ -188,7 +195,10 @@ class RxnRepLightningModel(pl.LightningModule):
                 self.test_dataloader()
             )
 
-        self._compute_reaction_cluster_assignments("test")
+        assi, _ = self.reaction_cluster_fn["test"].get_cluster_assignments(
+            centroids=self.centroids, predict_only=True
+        )
+        self.assignments["test"] = assi
 
     def test_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "test")
@@ -242,10 +252,8 @@ class RxnRepLightningModel(pl.LightningModule):
         )
 
         # loss for clustering prediction
-        cluster_assignments = self.assignments[mode]
-        cluster_centroids = self.centroids[mode]
         loss_reaction_cluster = []
-        for a, c in zip(cluster_assignments, cluster_centroids):
+        for a, c in zip(self.assignments[mode], self.centroids):
             a = a[indices].to(self.device)  # select for current batch from all
             c = c.to(self.device)
             p = torch.mm(preds["reaction_cluster"], c.t()) / self.hparams.temperature
@@ -310,14 +318,6 @@ class RxnRepLightningModel(pl.LightningModule):
             )
 
         return reaction_cluster_fn
-
-    def _compute_reaction_cluster_assignments(self, mode):
-        """
-        cluster the reactions based on reaction features after mapping head
-        """
-        assi, cent = self.reaction_cluster_fn[mode].get_cluster_assignments()
-        self.assignments[mode] = assi
-        self.centroids[mode] = cent
 
     def _track_reaction_cluster_data(self, outputs, mode):
         """
@@ -810,8 +810,7 @@ def main():
         progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
-        # all data for sanity check (ensure N data for cluster larger than N centroids)
-        num_sanity_val_steps=-1,
+        num_sanity_val_steps=0,  # 0, since we use centroids from training set
         # profiler="simple",
         # deterministic=True,
     )
