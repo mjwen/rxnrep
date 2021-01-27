@@ -328,17 +328,27 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # BEP activation energy loss
         loss_bep = []
-        for energy, has_energy in zip(
+        activation_energy_bep_pred = []
+        activation_energy_bep_label = []
+        for energy, has_energy in zip(  # loop over kmeans prototypes
             self.bep_activation_energy[mode], self.has_bep_activation_energy[mode]
         ):
             energy = energy[indices].to(self.device)
 
             # select reactions having predicted bep reactions
             has_energy = has_energy[indices].to(self.device)
-            loss_bep.append(
-                F.mse_loss(preds["activation_energy"][has_energy], energy[has_energy])
-            )
+            p = preds["activation_energy"][has_energy]
+            lb = energy[has_energy]
+            loss_bep.append(F.mse_loss(p, lb))
+
+            activation_energy_bep_pred.append(p)
+            activation_energy_bep_label.append(lb)
+
         loss_bep = sum(loss_bep) / len(loss_bep)
+
+        # add to preds and labels for metric computation
+        labels["activation_energy_bep"] = torch.stack(activation_energy_bep_label)
+        preds["activation_energy_bep"] = torch.stack(activation_energy_bep_pred)
 
         # total loss (maybe assign different weights)
         loss = (
@@ -486,6 +496,9 @@ class RxnRepLightningModel(pl.LightningModule):
                     "activation_energy": nn.ModuleDict(
                         {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
                     ),
+                    "activation_energy_bep": nn.ModuleDict(
+                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
+                    ),
                 }
             )
 
@@ -502,6 +515,7 @@ class RxnRepLightningModel(pl.LightningModule):
             "masked_atom_type",
             "reaction_energy",
             "activation_energy",
+            "activation_energy_bep",
         ),
     ):
         """
@@ -523,6 +537,7 @@ class RxnRepLightningModel(pl.LightningModule):
             "masked_atom_type",
             "reaction_energy",
             "activation_energy",
+            "activation_energy_bep",
         ),
     ):
         """
@@ -537,10 +552,11 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj = self.metrics[mode][key][name]
                 value = metric_obj.compute()
 
-                # reaction energy and activation energy are scaled, multiple std to get
-                # back to the original
+                # energies are scaled, multiple std to scale back to the original
                 if key in ["reaction_energy", "activation_energy"]:
                     value *= self.hparams.label_std[key].to(self.device)
+                if key == "activation_energy_bep":
+                    value *= self.hparams.label_std["activation_energy"].to(self.device)
 
                 self.log(
                     f"{mode}/{name}/{key}",
