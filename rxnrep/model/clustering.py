@@ -2,7 +2,7 @@
 Distributed and serial K-means clustering methods.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -21,15 +21,9 @@ class DistributedReactionCluster:
     https://github.com/facebookresearch/swav/blob/master/main_deepclusterv2.py
 
     Args:
-
         num_centroids: the number of centroids in each cluster head. For example,
             `[K1, K2, K3]` means three cluster heads are used, with K1, K2, and K3
             number of centroids, respectively.
-        centroids: centroids to initialize the k-means algorithms. If `None`, will be
-            randomly initialized from the local data on rank 0. This shape of each tensor
-            should corresponds to `num_centroids`. For example, if `num_centroids` is
-            `(K1, K2, K3)`, then `centroids` should be a list of 3 tensors, with shape
-            (K1, D), (K2, D), and (K3, D), respectively.
     """
 
     def __init__(
@@ -37,21 +31,22 @@ class DistributedReactionCluster:
         model,
         data_loader,
         num_centroids: List[int] = (10, 10),
-        centroids: Optional[List[torch.Tensor]] = None,
         device=None,
     ):
-        super(DistributedReactionCluster, self).__init__()
         self.model = model
         self.data_loader = data_loader
         self.num_centroids = num_centroids
-        self.centroids = centroids
         self.device = device
 
         self.local_data = None
         self.local_index = None
 
     def get_cluster_assignments(
-        self, num_iters: int = 10, centroids_init="random", similarity: str = "cosine"
+        self,
+        num_iters: int = 10,
+        centroids: Union[List[torch.Tensor], str, None] = "random",
+        similarity: str = "cosine",
+        predict_only: bool = False,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Get the assignments of the data points to the clusters.
@@ -60,22 +55,35 @@ class DistributedReactionCluster:
 
         Args:
             num_iters: number of iterations for k-means
-            centroids_init: [`random`|`last`]. methods to initialize centroids.
+            centroids: initial centroids of the clusters. This shape of each tensor
+                should correspond to `num_centroids`. For example, if `num_centroids` is
+                `(K1, K2, K3)`, then `centroids` should be a list of 3 tensors, with shape
+                (K1, D), (K2, D), and (K3, D), respectively.
                 If `random`, will randomly select centroids from the data.
-                If `last`, will use the centroids the last time clustering is run.
             similarity: [`cosine`|`l2`]. similarity measure of the distance between
                 data and centroid.
+            predict_only: only predict the cluster assignments, without updating
+                centroids. If `True`, `centroids_init` should be given as a list of
+                tensor.
 
         Returns:
             assignments: the assignments of the data points to the clusters. Each element
                 of the list gives the assignment for one clustering head. It is a
                 tensor of shape (N_global,), where N_global is the number of total data
                 points. Returned tensors will be on cpu.
-            centroids: the centroids of the k-means clusters. Each element of the list
-                gives the centroid for one clustering head. It is a tensor of
-                shape (K, D), where K is the number centroids in the clustering head,
-                and D is the feature dimension. Returned tensors will be on cpu.
+            centroids: Centroids of the clusters. This shape of each tensor
+                should corresponds to `num_centroids`. For example, if `num_centroids` is
+                `(K1, K2, K3)`, then `centroids` should be a list of 3 tensors, with shape
+                (K1, D), (K2, D), and (K3, D), respectively.
+                Returned tensors will be on cpu.
         """
+
+        if predict_only and not isinstance(centroids, list):
+            raise ValueError(
+                "You specified `predict_only` mode, in which case centroids should be "
+                "provided as a list of tensor."
+            )
+
         # initialize local index and data
         if self.local_data is None or self.local_index is None:
             local_data, local_index = get_reaction_features(
@@ -86,29 +94,36 @@ class DistributedReactionCluster:
             local_index = self.local_index.to(self.device)
 
         # initialize centroids
-        if centroids_init == "random":
-            centroids = distributed_initialize_centroids(
+        if isinstance(centroids, list):
+            init_centroids = centroids
+        elif centroids == "random" or centroids is None:
+            init_centroids = distributed_initialize_centroids(
                 local_data, self.num_centroids, self.device
             )
-        elif centroids_init == "last":
-            centroids = self.centroids
         else:
-            raise ValueError(f"Unsupported centroids init methods: {centroids_init}")
+            raise ValueError(f"Unsupported centroids init methods: {centroids}")
 
-        # assignments and centroids are on cpu
-        assignments, centroids = distributed_kmeans(
-            local_data,
-            local_index,
-            len(self.data_loader.dataset),
-            self.num_centroids,
-            centroids,
-            num_iters,
-            similarity,
-            self.device,
-        )
-
-        if centroids_init == "last":
-            self.centroids = centroids
+        if predict_only:
+            assignments, centroids = distributed_kmeans_predict(
+                local_data,
+                local_index,
+                len(self.data_loader.dataset),
+                self.num_centroids,
+                init_centroids,
+                similarity,
+                self.device,
+            )
+        else:
+            assignments, centroids = distributed_kmeans(
+                local_data,
+                local_index,
+                len(self.data_loader.dataset),
+                self.num_centroids,
+                init_centroids,
+                num_iters,
+                similarity,
+                self.device,
+            )
 
         return assignments, centroids
 
@@ -144,14 +159,12 @@ class ReactionCluster:
         model,
         data_loader,
         num_centroids: List[int] = (10, 10),
-        centroids: Optional[List[torch.Tensor]] = None,
         device=None,
     ):
         super(ReactionCluster, self).__init__()
         self.model = model
         self.data_loader = data_loader
         self.num_centroids = num_centroids
-        self.centroids = centroids
         self.device = device
 
         self.data = None
@@ -159,10 +172,17 @@ class ReactionCluster:
     def get_cluster_assignments(
         self,
         num_iters: int = 10,
-        centroids_init="random",
+        centroids: Union[List[torch.Tensor], str, None] = "random",
         similarity: str = "cosine",
+        predict_only: bool = False,
         tol=1.0,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+
+        if predict_only and not isinstance(centroids, list):
+            raise ValueError(
+                "You specified `predict_only` mode, in which case centroids should be "
+                "provided as a list of tensor."
+            )
 
         if self.data is None:
             data, _ = get_reaction_features(self.model, self.data_loader, self.device)
@@ -170,34 +190,43 @@ class ReactionCluster:
             data = self.data
 
         # initialize centroids
-        if centroids_init == "random":
-            centroids = [initialize_centroids(data, K) for K in self.num_centroids]
-        elif centroids_init == "last":
-            centroids = self.centroids
-        else:
-            raise ValueError(f"Unsupported centroids init methods: {centroids_init}")
+        if isinstance(centroids, list):
+            init_centroids = centroids
+        elif centroids == "random" or centroids is None:
+            init_centroids = [initialize_centroids(data, K) for K in self.num_centroids]
 
-        # get features
+        else:
+            raise ValueError(f"Unsupported centroids init methods: {centroids}")
 
         # apply k-means
         all_assignments = []
         all_centroids = []
-        for K, c in zip(self.num_centroids, centroids):
-            assignment, ctrd = kmeans(
-                X=data,
-                num_clusters=K,
-                distance=similarity,
-                cluster_centers=c,
-                tol=tol,
-                tqdm_flag=False,
-                iter_limit=num_iters,
-                device=self.device,
-            )
+        for K, c in zip(self.num_centroids, init_centroids):
+            if predict_only:
+
+                if similarity == "euclidean":
+                    pairwise_distance_function = pairwise_distance
+                elif similarity == "cosine":
+                    pairwise_distance_function = pairwise_cosine
+                else:
+                    raise NotImplementedError
+                dis = pairwise_distance_function(data, c, device=self.device)
+                assignment = torch.argmin(dis, dim=1)
+                ctrd = c
+
+            else:
+                assignment, ctrd = kmeans(
+                    X=data,
+                    num_clusters=K,
+                    distance=similarity,
+                    cluster_centers=c,
+                    tol=tol,
+                    tqdm_flag=False,
+                    iter_limit=num_iters,
+                    device=self.device,
+                )
             all_assignments.append(assignment)
             all_centroids.append(ctrd)
-
-        if centroids_init == "last":
-            self.centroids = all_centroids
 
         return all_assignments, all_centroids
 
@@ -388,6 +417,84 @@ def distributed_kmeans(
         centroids = all_centroids
 
     return assignments, centroids
+
+
+def distributed_kmeans_predict(
+    local_data: torch.Tensor,
+    local_index: torch.Tensor,
+    dataset_size: int,
+    num_prototypes: List[int],
+    init_centroids: Optional[List[torch.Tensor]],
+    similarity: str = "cosine",
+    device=None,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    """
+    Given cluster centroids, predict the assignments.
+
+    Similar to distributed_kmeans(), but do not do the centroids update step.
+    To be more specific, this is the same as distributed_kmeans() with num_iters = 0
+    and without the M step.
+    """
+    local_data = local_data.to(device)
+    local_index = local_index.to(device)
+
+    if similarity == "cosine":
+        # normalize data
+        local_data = F.normalize(local_data, dim=1, p=2)
+
+    assignments = [-100 * torch.ones(dataset_size).long() for _ in num_prototypes]
+
+    with torch.no_grad():
+
+        for i_K, K in enumerate(num_prototypes):
+
+            centroids = init_centroids[i_K].to(device)
+
+            # E step
+            if similarity == "cosine":
+                centroids = F.normalize(centroids, dim=1, p=2)
+                distance = torch.mm(local_data, centroids.t())
+                _, local_assignments = distance.max(dim=1)
+            elif similarity == "euclidean":
+                # N*1*D
+                A = local_data.unsqueeze(dim=1)
+                # 1*K*D
+                B = centroids.unsqueeze(dim=0)
+                distance = torch.square(A - B).sum(dim=-1)
+                _, local_assignments = distance.min(dim=1)
+            else:
+                raise ValueError(f"Unsupported similarity: {similarity}")
+
+            # gather the assignments
+            assignments_all = torch.empty(
+                dist.get_world_size(),
+                local_assignments.size(0),
+                dtype=local_assignments.dtype,
+                device=local_assignments.device,
+            )
+            assignments_all = list(assignments_all.unbind(0))
+            dist_process = dist.all_gather(
+                assignments_all, local_assignments, async_op=True
+            )
+            dist_process.wait()
+            assignments_all = torch.cat(assignments_all).cpu()
+
+            # gather the indexes
+            indexes_all = torch.empty(
+                dist.get_world_size(),
+                local_index.size(0),
+                dtype=local_index.dtype,
+                device=local_index.device,
+            )
+            indexes_all = list(indexes_all.unbind(0))
+            dist_process = dist.all_gather(indexes_all, local_index, async_op=True)
+            dist_process.wait()
+            indexes_all = torch.cat(indexes_all).cpu()
+
+            # assign assignments
+            assignments[i_K][indexes_all] = assignments_all
+
+    return assignments, init_centroids
 
 
 def get_indices_sparse(data):
