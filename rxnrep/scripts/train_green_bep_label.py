@@ -1,3 +1,15 @@
+"""
+Train Green dataset using decoders:
+- atom in reaction center
+- bond in reaction center
+- reaction clustering
+
+- reaction energy
+- activation energy
+- bep label: for reactions without activation energy, we generate pseudo activation
+energy label using BEP.
+"""
+
 import argparse
 import warnings
 from datetime import datetime
@@ -14,7 +26,9 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.green import GreenDataset
-from rxnrep.model.model_rxn_act_energy_decoder import ReactionRepresentation
+from rxnrep.model.bep import ActivationEnergyPredictor
+from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
+from rxnrep.model.model_bep_label import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -48,6 +62,22 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
+            # bond hop distance decoder
+            bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
+            bond_hop_dist_decoder_activation=params.node_decoder_activation,
+            bond_hop_dist_decoder_num_classes=params.bond_hop_dist_num_classes,
+            # atom hop distance decoder
+            atom_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
+            atom_hop_dist_decoder_activation=params.node_decoder_activation,
+            atom_hop_dist_decoder_num_classes=params.atom_hop_dist_num_classes,
+            # masked atom type decoder
+            masked_atom_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
+            masked_atom_type_decoder_activation=params.node_decoder_activation,
+            masked_atom_type_decoder_num_classes=params.masked_atom_type_num_classes,
+            # clustering decoder
+            reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
+            reaction_cluster_decoder_activation=params.cluster_decoder_activation,
+            reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
             # energy decoder
             reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
@@ -60,6 +90,14 @@ class RxnRepLightningModel(pl.LightningModule):
             compressing_layer_sizes=params.compressing_layer_sizes,
             compressing_layer_activation=params.compressing_layer_activation,
         )
+
+        # reaction cluster functions
+        self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
+        self.assignments = {mode: None for mode in ["train", "val", "test"]}
+        self.centroids = None
+
+        # bep prediction
+        self.bep_predictor = {mode: None for mode in ["train", "val", "test"]}
 
         # metrics
         self.metrics = self._init_metrics()
@@ -116,24 +154,74 @@ class RxnRepLightningModel(pl.LightningModule):
                 f"Expect `returns` to be one of {supported}; got `{returns}`."
             )
 
+    def on_train_epoch_start(self):
+        mode = "train"
+
+        # clustering
+        if self.reaction_cluster_fn[mode] is None:
+            self.reaction_cluster_fn[mode] = self._init_reaction_cluster_fn(
+                self.train_dataloader()
+            )
+
+        assi, cent = self.reaction_cluster_fn[mode].get_cluster_assignments(
+            centroids="random", predict_only=False
+        )
+        self.assignments[mode] = assi
+        self.centroids = cent
+
+        # bep activation energy prediction
+        if self.bep_predictor[mode] is None:
+            self.bep_predictor[mode] = ActivationEnergyPredictor.from_data_loader(
+                self.train_dataloader()
+            )
+
     def training_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "train")
         self._update_metrics(preds, labels, "train")
 
-        return {"loss": loss}
+        return {
+            "loss": loss,
+            "indices": indices.cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
+        }
 
     def training_epoch_end(self, outputs):
         self._compute_metrics("train")
+        self._track_reaction_cluster_data(outputs, "train")
+
+    def on_validation_epoch_start(self):
+        mode = "val"
+
+        if self.reaction_cluster_fn[mode] is None:
+            self.reaction_cluster_fn[mode] = self._init_reaction_cluster_fn(
+                self.val_dataloader()
+            )
+
+        assi, _ = self.reaction_cluster_fn[mode].get_cluster_assignments(
+            centroids=self.centroids, predict_only=True
+        )
+        self.assignments[mode] = assi
+
+        # bep activation energy prediction
+        if self.bep_predictor[mode] is None:
+            self.bep_predictor[mode] = ActivationEnergyPredictor.from_data_loader(
+                self.val_dataloader()
+            )
 
     def validation_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "val")
         self._update_metrics(preds, labels, "val")
 
-        return {"loss": loss}
+        return {
+            "loss": loss,
+            "indices": indices.cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
+        }
 
     def validation_epoch_end(self, outputs):
         # sum f1 to look for early stop and learning rate scheduler
         sum_f1 = self._compute_metrics("val")
+        self._track_reaction_cluster_data(outputs, "val")
 
         self.log(f"val/f1", sum_f1, on_step=False, on_epoch=True, prog_bar=True)
 
@@ -142,14 +230,38 @@ class RxnRepLightningModel(pl.LightningModule):
         self.log("epoch time", delta_t, on_step=False, on_epoch=True, prog_bar=True)
         self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
+    def on_test_epoch_start(self):
+        mode = "test"
+
+        if self.reaction_cluster_fn[mode] is None:
+            self.reaction_cluster_fn[mode] = self._init_reaction_cluster_fn(
+                self.test_dataloader()
+            )
+
+        assi, _ = self.reaction_cluster_fn[mode].get_cluster_assignments(
+            centroids=self.centroids, predict_only=True
+        )
+        self.assignments[mode] = assi
+
+        # bep activation energy prediction
+        if self.bep_predictor[mode] is None:
+            self.bep_predictor[mode] = ActivationEnergyPredictor.from_data_loader(
+                self.val_dataloader()
+            )
+
     def test_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "test")
         self._update_metrics(preds, labels, "test")
 
-        return {"loss": loss}
+        return {
+            "loss": loss,
+            "indices": indices.cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
+        }
 
     def test_epoch_end(self, outputs):
         self._compute_metrics("test")
+        self._track_reaction_cluster_data(outputs, "test")
 
     def shared_step(self, batch, mode):
 
@@ -167,6 +279,41 @@ class RxnRepLightningModel(pl.LightningModule):
         preds = self.model.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========
+        # loss for bond hop distance prediction
+        loss_atom_hop = F.cross_entropy(
+            preds["bond_hop_dist"],
+            labels["bond_hop_dist"],
+            reduction="mean",
+            weight=self.hparams.bond_hop_dist_class_weight.to(self.device),
+        )
+
+        # loss for atom hop distance prediction
+        loss_bond_hop = F.cross_entropy(
+            preds["atom_hop_dist"],
+            labels["atom_hop_dist"],
+            reduction="mean",
+            weight=self.hparams.atom_hop_dist_class_weight.to(self.device),
+        )
+
+        # masked atom type decoder
+        loss_masked_atom_type = F.cross_entropy(
+            preds["masked_atom_type"], labels["masked_atom_type"], reduction="mean"
+        )
+
+        # loss for clustering prediction
+        # TODO potential problems
+        #  - cluster centroids are normalized (when using cosine similarity),
+        #  while preds['reaction_cluster'] not
+        #  - this is not the contrastive loss discussed in slides, instead, this is a
+        #    cross entropy classification loss
+        loss_reaction_cluster = []
+        for a, c in zip(self.assignments[mode], self.centroids):
+            a = a[indices].to(self.device)  # select for current batch from all
+            c = c.to(self.device)
+            p = torch.mm(preds["reaction_cluster"], c.t()) / self.hparams.temperature
+            e = F.cross_entropy(p, a)
+            loss_reaction_cluster.append(e)
+        loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
         # loss for energies
         preds["reaction_energy"] = preds["reaction_energy"].flatten()
@@ -180,11 +327,22 @@ class RxnRepLightningModel(pl.LightningModule):
         )
 
         # total loss (maybe assign different weights)
-        loss = loss_reaction_energy + loss_activation_energy
+        loss = (
+            loss_atom_hop
+            + loss_bond_hop
+            + loss_masked_atom_type
+            + loss_reaction_cluster
+            + loss_reaction_energy
+            + loss_activation_energy
+        )
 
         # ========== log the loss ==========
         self.log_dict(
             {
+                f"{mode}/loss/bond_hop_dist": loss_atom_hop,
+                f"{mode}/loss/atom_hop_dist": loss_bond_hop,
+                f"{mode}/loss/masked_atom_type": loss_masked_atom_type,
+                f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
                 f"{mode}/loss/reaction_energy": loss_reaction_energy,
                 f"{mode}/loss/activation_energy": loss_activation_energy,
             },
@@ -209,6 +367,36 @@ class RxnRepLightningModel(pl.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
+    def _init_reaction_cluster_fn(self, dataloader):
+        # distributed
+        if self.use_ddp:
+            reaction_cluster_fn = DistributedReactionCluster(
+                self.model,
+                dataloader,
+                num_centroids=self.hparams.num_centroids,
+                device=self.device,
+            )
+
+        # single process
+        else:
+            reaction_cluster_fn = ReactionCluster(
+                self.model,
+                dataloader,
+                num_centroids=self.hparams.num_centroids,
+                device=self.device,
+            )
+
+        return reaction_cluster_fn
+
+    def _track_reaction_cluster_data(self, outputs, mode):
+        """
+        Keep track of reaction clustering data to be used in the next iteration, including
+        feats used for clustering (after projection head mapping) and their indices.
+        """
+        indices = torch.cat([x["indices"] for x in outputs])
+        feats = torch.cat([x["reaction_cluster_feats"] for x in outputs])
+        self.reaction_cluster_fn[mode].set_local_data_and_index(feats, indices)
+
     def _init_metrics(self):
         # metrics should be modules so that metric tensors can be placed in the correct
         # device
@@ -217,6 +405,66 @@ class RxnRepLightningModel(pl.LightningModule):
         for mode in ["metric_train", "metric_val", "metric_test"]:
             metrics[mode] = nn.ModuleDict(
                 {
+                    "bond_hop_dist": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.bond_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    ),
+                    "atom_hop_dist": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.atom_hop_dist_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    ),
+                    "masked_atom_type": nn.ModuleDict(
+                        {
+                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                            "precision": pl.metrics.Precision(
+                                num_classes=self.hparams.masked_atom_type_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "recall": pl.metrics.Recall(
+                                num_classes=self.hparams.masked_atom_type_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                            "f1": pl.metrics.F1(
+                                num_classes=self.hparams.masked_atom_type_num_classes,
+                                average="macro",
+                                compute_on_step=False,
+                            ),
+                        }
+                    ),
                     "reaction_energy": nn.ModuleDict(
                         {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
                     ),
@@ -233,7 +481,13 @@ class RxnRepLightningModel(pl.LightningModule):
         preds,
         labels,
         mode,
-        keys=("reaction_energy", "activation_energy"),
+        keys=(
+            "bond_hop_dist",
+            "atom_hop_dist",
+            "masked_atom_type",
+            "reaction_energy",
+            "activation_energy",
+        ),
     ):
         """
         update metric states at each step
@@ -248,7 +502,13 @@ class RxnRepLightningModel(pl.LightningModule):
     def _compute_metrics(
         self,
         mode,
-        keys=("reaction_energy", "activation_energy"),
+        keys=(
+            "bond_hop_dist",
+            "atom_hop_dist",
+            "masked_atom_type",
+            "reaction_energy",
+            "activation_energy",
+        ),
     ):
         """
         compute metric and log it at each epoch
@@ -279,9 +539,11 @@ class RxnRepLightningModel(pl.LightningModule):
                 # explicitly just in case
                 metric_obj.reset()
 
-                # NOTE, we abuse the sum_f1 to add the mae of energy (smaller the better)
+                if name == "f1":
+                    sum_f1 += value
+                # NOTE, we abuse the sum_f1 to add the mae of reaction energy
                 # prediction as well
-                if name == "mae":
+                elif name == "mae":
                     sum_f1 -= value
 
         return sum_f1
@@ -337,9 +599,47 @@ def parse_args():
         default="set2set",
         help="set2set or hop_distance",
     )
-    parser.add_argument("--max_hop_distance", type=int, default=3)
 
     # ========== decoder ==========
+    # atom and bond decoder
+    parser.add_argument(
+        "--node_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
+    )
+    parser.add_argument("--node_decoder_activation", type=str, default="ReLU")
+    parser.add_argument("--max_hop_distance", type=int, default=3)
+    parser.add_argument("--atom_type_masker_ratio", type=float, default=0.2)
+    parser.add_argument(
+        "--atom_type_masker_use_masker_value",
+        type=int,
+        default=1,
+        help="whether to use atom type masker value",
+    )
+
+    # clustering decoder
+    parser.add_argument(
+        "--cluster_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
+    )
+    parser.add_argument("--cluster_decoder_activation", type=str, default="ReLU")
+    parser.add_argument(
+        "--cluster_decoder_projection_head_size",
+        type=int,
+        default=30,
+        help="projection head size for the clustering decoder",
+    )
+    parser.add_argument(
+        "--num_centroids",
+        type=int,
+        nargs="+",
+        default=[10],
+        help="number of centroids for each clustering prototype",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="temperature in the loss for cluster decoder",
+    )
 
     # energy decoder
 
@@ -405,6 +705,14 @@ def parse_args():
     parser.add_argument("--num_mol_conv_layers", type=int, default=2)
     parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
 
+    # node decoder
+    parser.add_argument("--num_node_decoder_layers", type=int, default=1)
+
+    # cluster decoder
+    parser.add_argument("--num_cluster_decoder_layers", type=int, default=1)
+    parser.add_argument("--prototype_size", type=int, default=10)
+    parser.add_argument("--num_prototypes", type=int, default=1)
+
     # energy decoder
     parser.add_argument("--num_rxn_energy_decoder_layers", type=int, default=2)
 
@@ -426,6 +734,19 @@ def parse_args():
         encoder_out_feats_size = args.compressing_layer_sizes[-1]
     else:
         encoder_out_feats_size = args.conv_layer_size
+
+    # node decoder
+    val = encoder_out_feats_size
+    args.node_decoder_hidden_layer_sizes = [
+        max(val // 2 ** i, 50) for i in range(args.num_node_decoder_layers)
+    ]
+
+    # cluster decoder
+    val = 2 * encoder_out_feats_size
+    args.cluster_decoder_hidden_layer_sizes = [
+        max(val // 2 ** i, 50) for i in range(args.num_cluster_decoder_layers)
+    ]
+    args.num_centroids = [args.prototype_size] * args.num_prototypes
 
     # energy decoder
     val = 2 * encoder_out_feats_size
@@ -473,6 +794,8 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
+        atom_type_masker_ratio=args.atom_type_masker_ratio,
+        atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
     )
@@ -486,6 +809,8 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
+        atom_type_masker_ratio=args.atom_type_masker_ratio,
+        atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -497,6 +822,8 @@ def load_dataset(args):
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
         max_hop_distance=args.max_hop_distance,
+        atom_type_masker_ratio=args.atom_type_masker_ratio,
+        atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
     )
@@ -543,6 +870,12 @@ def load_dataset(args):
     args.dataset_state_dict = state_dict
 
     # Add info that will be used in the model to args for easy access
+    class_weight = trainset.get_class_weight()
+    args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
+    args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
+    args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
+    args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
+    args.masked_atom_type_num_classes = len(trainset.get_species())
     args.label_std = trainset.label_std
 
     args.feature_size = trainset.feature_size
@@ -617,6 +950,7 @@ def main():
         progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
+        num_sanity_val_steps=0,  # 0, since we use centroids from training set
         # profiler="simple",
         # deterministic=True,
     )
