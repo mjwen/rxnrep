@@ -19,7 +19,7 @@ def test_activation_energy_predictor():
 
     predictor = ActivationEnergyPredictor(reaction_e, activation_e, has_activation_e)
     pred_act_e, pred_have_act_e = predictor.get_predicted_activation_energy(
-        assignments, minimum_activation_energy_for_bde_fitting=3
+        assignments, min_num_data_points_for_fitting=3
     )
 
     assert np.array_equal(pred_have_act_e[:7], [True] * 7)

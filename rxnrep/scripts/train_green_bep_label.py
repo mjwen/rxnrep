@@ -249,7 +249,10 @@ class RxnRepLightningModel(pl.LightningModule):
         (
             self.bep_activation_energy[mode],
             self.has_bep_activation_energy[mode],
-        ) = predictor.get_predicted_activation_energy_multi_prototype(assign)
+        ) = predictor.get_predicted_activation_energy_multi_prototype(
+            assign,
+            min_num_data_points_for_fitting=self.hparams.min_num_data_points_for_fitting,
+        )
 
     def shared_step(self, batch, mode):
 
@@ -316,9 +319,16 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # BEP activation energy loss
         loss_bep = []
-        for energy in self.bep_activation_energy[mode]:
-            ref = energy[indices].to(self.device)
-            loss_bep.append(F.mse_loss(preds["activation_energy"], ref))
+        for energy, has_energy in zip(
+            self.bep_activation_energy[mode], self.has_bep_activation_energy[mode]
+        ):
+            energy = energy[indices].to(self.device)
+
+            # select reactions having predicted bep reactions
+            has_energy = has_energy[indices].to(self.device)
+            loss_bep.append(
+                F.mse_loss(preds["activation_energy"][has_energy], energy[has_energy])
+            )
         loss_bep = sum(loss_bep) / len(loss_bep)
 
         # total loss (maybe assign different weights)
@@ -658,6 +668,9 @@ def parse_args():
     # parser.add_argument(
     #     "--activation_energy_decoder_activation", type=str, default="ReLU"
     # )
+
+    # bep label generator
+    parser.add_argument("--min_num_data_points_for_fitting", type=int, default=3)
 
     # ========== training ==========
 

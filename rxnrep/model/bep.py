@@ -39,14 +39,19 @@ class ActivationEnergyPredictor:
         return cls(reaction_energy, activation_energy, have_activation_energy)
 
     def get_predicted_activation_energy_multi_prototype(
-        self, assignments: List[torch.Tensor]
+        self,
+        assignments: List[torch.Tensor],
+        min_num_data_points_for_fitting: int = 2,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Predict the activation energy when multiple cluster prototypes are used. This
         is simply calling ``get_predicted_activation_energy()`` multiple times,
         each with a different assignment.
         """
-        out = [self.get_predicted_activation_energy(a) for a in assignments]
+        out = [
+            self.get_predicted_activation_energy(a, min_num_data_points_for_fitting)
+            for a in assignments
+        ]
         predicted_activation_energy, have_predicted_activation_energy = map(
             list, zip(*out)
         )
@@ -56,15 +61,18 @@ class ActivationEnergyPredictor:
     def get_predicted_activation_energy(
         self,
         assignment: torch.Tensor,
-        minimum_activation_energy_for_bde_fitting: int = 2,
+        min_num_data_points_for_fitting: int = 2,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predict the activation energy separately for each cluster.
 
+        Note, not every reaction will have a predicted activation energy,
+        see ``num_minimum_activation_energy_for_bep_fitting`` below.
+
         Args:
             assignment: 1D tensor of of shape (N,), where N is the number of reactions
                 in the dataset. Cluster assignment of data points (reactions).
-            minimum_activation_energy_for_bde_fitting: minimum data points used to fit
+            min_num_data_points_for_fitting: minimum number of data points used to fit
                 the BEP for a cluster. At least 2 data points are needed to fit the
                 linear regression model. If some cluster has fewer reactions having
                 true activation energies, we cannot fit a BEP and thus cannot predict
@@ -73,7 +81,11 @@ class ActivationEnergyPredictor:
                 ``have_predicted_activation_energy`` is set to False.
 
         Returns:
-            predicted_activation_energy: 1D tensor of shape (N,). Returned tensor on CPU.
+            predicted_activation_energy: 1D tensor of shape (N,), where N is the number
+                of reactions in the dataset. The value for the elements does not
+                ``have_predicted_activation_energy`` are set to 0, but they should not
+                be used. They can be selected by ``have_predicted_activation_energy``
+                Returned tensor on CPU.
             have_predicted_activation_energy: 1D tensor of shape (N,). Whether predicted
                 activation energy exists. Returned tensor on CPU.
         """
@@ -103,7 +115,7 @@ class ActivationEnergyPredictor:
                 act_e = act_energies[have_act_energy]
 
                 # fit a linear regression model
-                if len(rxn_e) >= minimum_activation_energy_for_bde_fitting:
+                if len(rxn_e) >= min_num_data_points_for_fitting:
                     # fit BEP model using data points having activation energies
                     reg = LinearRegression()
                     reg.fit(rxn_e, act_e)
