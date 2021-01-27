@@ -60,12 +60,9 @@ class RxnRepLightningModel(pl.LightningModule):
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
+            compressing_layer_sizes=params.compressing_layer_sizes,
+            compressing_layer_activation=params.compressing_layer_activation,
         )
-
-        # reaction cluster functions
-        self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
-        self.assignments = {mode: None for mode in ["train", "val", "test"]}
-        self.centroids = {mode: None for mode in ["train", "val", "test"]}
 
         # metrics
         self.metrics = self._init_metrics()
@@ -175,7 +172,7 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # ========== compute losses ==========
 
-        # loss for reaction energy
+        # loss for energies
         preds["reaction_energy"] = preds["reaction_energy"].flatten()
         loss_reaction_energy = F.mse_loss(
             preds["reaction_energy"], labels["reaction_energy"]
@@ -211,8 +208,9 @@ class RxnRepLightningModel(pl.LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
     def _init_metrics(self):
+        # metrics should be modules so that metric tensors can be placed in the correct
+        # device
 
-        # (should be modules so that metric tensors can be placed in the correct device)
         metrics = nn.ModuleDict()
         for mode in ["metric_train", "metric_val", "metric_test"]:
             metrics[mode] = nn.ModuleDict(
@@ -323,6 +321,10 @@ def parse_args():
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
+    # ========== compressor ==========
+    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
+    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
+
     # ========== pooling ==========
     parser.add_argument(
         "--pooling_method",
@@ -334,7 +336,7 @@ def parse_args():
 
     # ========== decoder ==========
 
-    # reaction energy decoder
+    # energy decoder
 
     parser.add_argument(
         "--reaction_energy_decoder_hidden_layer_sizes",
@@ -388,7 +390,7 @@ def parse_args():
     parser.add_argument("--num_mol_conv_layers", type=int, default=2)
     parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
 
-    # decoder
+    # energy decoder
     parser.add_argument("--num_rxn_energy_decoder_layers", type=int, default=2)
 
     ####################
@@ -404,8 +406,14 @@ def parse_args():
     if args.num_rxn_conv_layers == 0:
         args.reaction_dropout = 0
 
-    # decoder
-    val = 2 * args.conv_layer_size
+    # output atom/bond/global feature size, before pooling
+    if args.compressing_layer_sizes:
+        encoder_out_feats_size = args.compressing_layer_sizes[-1]
+    else:
+        encoder_out_feats_size = args.conv_layer_size
+
+    # energy decoder
+    val = 2 * encoder_out_feats_size
     args.reaction_energy_decoder_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.num_rxn_energy_decoder_layers)
     ]

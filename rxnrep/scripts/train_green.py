@@ -413,7 +413,11 @@ class RxnRepLightningModel(pl.LightningModule):
         preds,
         labels,
         mode,
-        keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type"),
+        keys=(
+            "bond_hop_dist",
+            "atom_hop_dist",
+            "masked_atom_type",
+        ),
     ):
         """
         update metric states at each step
@@ -428,7 +432,11 @@ class RxnRepLightningModel(pl.LightningModule):
     def _compute_metrics(
         self,
         mode,
-        keys=("bond_hop_dist", "atom_hop_dist", "masked_atom_type"),
+        keys=(
+            "bond_hop_dist",
+            "atom_hop_dist",
+            "masked_atom_type",
+        ),
     ):
         """
         compute metric and log it at each epoch
@@ -499,6 +507,10 @@ def parse_args():
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
+    # ========== compressor ==========
+    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
+    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
+
     # ========== pooling ==========
     parser.add_argument(
         "--pooling_method",
@@ -506,10 +518,6 @@ def parse_args():
         default="set2set",
         help="set2set or hop_distance",
     )
-
-    # ========== compressor ==========
-    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
 
     # ========== decoder ==========
     # atom and bond decoder
@@ -615,22 +623,26 @@ def parse_args():
     if args.num_rxn_conv_layers == 0:
         args.reaction_dropout = 0
 
-    decoder_layer_size = 2 * args.conv_layer_size
+    # output atom/bond/global feature size, before pooling
+    if args.compressing_layer_sizes:
+        encoder_out_feats_size = args.compressing_layer_sizes[-1]
+    else:
+        encoder_out_feats_size = args.conv_layer_size
 
     # node decoder
+    val = encoder_out_feats_size
     args.node_decoder_hidden_layer_sizes = [
-        max(decoder_layer_size // 2 ** i, 50)
-        for i in range(args.num_node_decoder_layers)
+        max(val // 2 ** i, 50) for i in range(args.num_node_decoder_layers)
     ]
 
     # cluster decoder
+    val = 2 * encoder_out_feats_size
     args.cluster_decoder_hidden_layer_sizes = [
-        max(decoder_layer_size // 2 ** i, 50)
-        for i in range(args.num_cluster_decoder_layers)
+        max(val // 2 ** i, 50) for i in range(args.num_cluster_decoder_layers)
     ]
     args.num_centroids = [args.prototype_size] * args.num_prototypes
 
-    # adjust for pooling
+    # pooling
     if args.pooling_method == "set2set":
         args.pooling_kwargs = None
     elif args.pooling_method == "hop_distance":

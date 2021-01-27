@@ -56,6 +56,8 @@ class ReactionRepresentation(EncoderAndPooling):
         # reaction features pooling
         pooling_method="set2set",
         pooling_kwargs: Dict[str, Any] = None,
+        compressing_layer_sizes=None,
+        compressing_layer_activation=None,
     ):
 
         # encoder and pooling
@@ -76,6 +78,8 @@ class ReactionRepresentation(EncoderAndPooling):
             reaction_dropout=reaction_dropout,
             pooling_method=pooling_method,
             pooling_kwargs=pooling_kwargs,
+            compressing_layer_sizes=compressing_layer_sizes,
+            compressing_layer_activation=compressing_layer_activation,
         )
 
         # ========== node level decoder ==========
