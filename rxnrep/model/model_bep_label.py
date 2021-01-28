@@ -21,6 +21,7 @@
 from typing import Any, Dict
 
 import torch
+import torch.nn as nn
 
 from rxnrep.model.decoder import (
     ActivationEnergyDecoder,
@@ -135,13 +136,16 @@ class ReactionRepresentation(EncoderAndPooling):
         )
 
         # ========== reaction level decoder ==========
-
-        self.reaction_cluster_decoder = ReactionClusterDecoder(
-            in_size=self.reaction_feats_size,
-            num_classes=reaction_cluster_decoder_output_size,
-            hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
-            activation=reaction_cluster_decoder_activation,
-        )
+        if reaction_cluster_decoder_hidden_layer_sizes:
+            self.reaction_cluster_decoder = ReactionClusterDecoder(
+                in_size=self.reaction_feats_size,
+                num_classes=reaction_cluster_decoder_output_size,
+                hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
+                activation=reaction_cluster_decoder_activation,
+            )
+        else:
+            # do not use cluster decoder
+            self.reaction_cluster_decoder = nn.Identity()
 
         # reaction energy decoder
         self.reaction_energy_decoder = ReactionEnergyDecoder(
