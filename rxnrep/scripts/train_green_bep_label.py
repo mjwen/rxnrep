@@ -6,7 +6,7 @@ Train Green dataset using decoders:
 
 - reaction energy
 - activation energy
-- bep label: for reactions without activation energy, we generate pseudo activation
+- bep activation energy: for reactions without activation energy, we generate pseudo activation
 energy label using BEP.
 """
 
@@ -83,25 +83,24 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
             activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
             activation_energy_decoder_activation=params.activation_energy_decoder_activation,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
             # compressing
             compressing_layer_sizes=params.compressing_layer_sizes,
             compressing_layer_activation=params.compressing_layer_activation,
+            # pooling method
+            pooling_method=params.pooling_method,
+            pooling_kwargs=params.pooling_kwargs,
         )
 
-        # reaction cluster functions
-        self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
-        self.assignments = {mode: None for mode in ["train", "val", "test"]}
+        # cluster reaction features
+        modes = ["train", "val", "test"]
+        self.reaction_cluster_fn = {m: None for m in modes}
+        self.assignments = {m: None for m in modes}
         self.centroids = None
 
-        # bep prediction
+        # bep activation label
         self.bep_predictor = None
-        self.bep_activation_energy = {mode: None for mode in ["train", "val", "test"]}
-        self.have_bep_activation_energy = {
-            mode: None for mode in ["train", "val", "test"]
-        }
+        self.bep_activation_energy = {m: None for m in modes}
+        self.have_bep_activation_energy = {m: None for m in modes}
 
         # metrics
         self.metrics = self._init_metrics()
@@ -189,7 +188,7 @@ class RxnRepLightningModel(pl.LightningModule):
         }
 
     def validation_epoch_end(self, outputs):
-        # sum f1 to look for early stop and learning rate scheduler
+        # sum f1 used for early stopping and learning rate scheduler
         sum_f1 = self._compute_metrics("val")
         self._track_reaction_cluster_data(outputs, "val")
 
@@ -219,7 +218,7 @@ class RxnRepLightningModel(pl.LightningModule):
 
     def shared_on_epoch_start(self, data_loader, mode):
 
-        # clustering
+        # cluster reaction features
         if self.reaction_cluster_fn[mode] is None:
             cluster_fn = self._init_reaction_cluster_fn(data_loader)
             self.reaction_cluster_fn[mode] = cluster_fn
@@ -248,7 +247,6 @@ class RxnRepLightningModel(pl.LightningModule):
         #
         # generate bep activation energy label
         #
-
         if mode == "train":
             # initialize bep predictor
             if self.bep_predictor is None:
@@ -272,7 +270,6 @@ class RxnRepLightningModel(pl.LightningModule):
 
         else:
             # predict for val, test set
-
             assert (
                 self.bep_predictor is not None
             ), "bep predictor not initialized. Should not get here. something is fishy"
@@ -300,7 +297,7 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # ========== compute losses ==========
 
-        # loss for bond hop distance prediction
+        # bond hop distance loss
         loss_atom_hop = F.cross_entropy(
             preds["bond_hop_dist"],
             labels["bond_hop_dist"],
@@ -308,7 +305,7 @@ class RxnRepLightningModel(pl.LightningModule):
             weight=self.hparams.bond_hop_dist_class_weight.to(self.device),
         )
 
-        # loss for atom hop distance prediction
+        # atom hop distance loss
         loss_bond_hop = F.cross_entropy(
             preds["atom_hop_dist"],
             labels["atom_hop_dist"],
@@ -316,13 +313,13 @@ class RxnRepLightningModel(pl.LightningModule):
             weight=self.hparams.atom_hop_dist_class_weight.to(self.device),
         )
 
-        # masked atom type decoder
+        # atom type loss
         loss_masked_atom_type = F.cross_entropy(
             preds["masked_atom_type"], labels["masked_atom_type"], reduction="mean"
         )
 
         #
-        # loss for clustering prediction
+        # clustering loss
         #
         loss_reaction_cluster = []
         for a, c in zip(self.assignments[mode], self.centroids):
@@ -342,7 +339,7 @@ class RxnRepLightningModel(pl.LightningModule):
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
         #
-        # loss for energies
+        # energy loss
         #
         preds["reaction_energy"] = preds["reaction_energy"].flatten()
         loss_reaction_energy = F.mse_loss(
@@ -408,7 +405,8 @@ class RxnRepLightningModel(pl.LightningModule):
                 f"{mode}/loss/masked_atom_type": loss_masked_atom_type,
                 f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
                 f"{mode}/loss/reaction_energy": loss_reaction_energy,
-                f"{mode}/loss/activation_energy": loss_activation_energy,
+                f"{mode}/loss/activation_energy_semi": loss_activation_energy,
+                f"{mode}/loss/activation_energy_bep": loss_bep,
             },
             on_step=False,
             on_epoch=True,
@@ -431,12 +429,12 @@ class RxnRepLightningModel(pl.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
-    def _init_reaction_cluster_fn(self, dataloader):
+    def _init_reaction_cluster_fn(self, data_loader):
         # distributed
         if self.use_ddp:
             reaction_cluster_fn = DistributedReactionCluster(
                 self.model,
-                dataloader,
+                data_loader,
                 num_centroids=self.hparams.num_centroids,
                 device=self.device,
             )
@@ -445,7 +443,7 @@ class RxnRepLightningModel(pl.LightningModule):
         else:
             reaction_cluster_fn = ReactionCluster(
                 self.model,
-                dataloader,
+                data_loader,
                 num_centroids=self.hparams.num_centroids,
                 device=self.device,
             )
@@ -462,8 +460,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.reaction_cluster_fn[mode].set_local_data_and_index(feats, indices)
 
     def _init_metrics(self):
-        # metrics should be modules so that metric tensors can be placed in the correct
-        # device
+        # should be modules so that metric tensors can be placed in the correct device
 
         metrics = nn.ModuleDict()
 
@@ -525,7 +522,7 @@ class RxnRepLightningModel(pl.LightningModule):
         ),
     ):
         """
-        update metric states at each step
+        update metric states at each step.
         """
         mode = "metric_" + mode
 
@@ -563,8 +560,8 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj = self.metrics[mode][key][name]
                 value = metric_obj.compute()
 
-                # scale labels
-                if key in label_scaler:
+                # scale mae labels
+                if key in label_scaler and name == "mae":
                     value *= self.hparams.label_std[label_scaler[key]].to(self.device)
 
                 self.log(
@@ -575,7 +572,7 @@ class RxnRepLightningModel(pl.LightningModule):
                     prog_bar=False,
                 )
 
-                # reset is called automatically somewhere by lightning, here we call it
+                # reset is called automatically somewhere in lightning, here we call it
                 # explicitly just in case
                 metric_obj.reset()
 
@@ -640,6 +637,18 @@ def parse_args():
         help="set2set or hop_distance",
     )
 
+    parser.add_argument(
+        "--hop_distance_pooling_max_hop_distance",
+        type=int,
+        default=2,
+        help=(
+            "max hop distance when hop_distance pooling method is used. Ignored when "
+            "`set2set` pooling method is used. This is different from max_hop_distance "
+            "used for node decoder, which is used to create labels for the decoders. "
+            "Also, typically we can set the two to be the same."
+        ),
+    )
+
     # ========== decoder ==========
     # atom and bond decoder
     parser.add_argument(
@@ -693,7 +702,6 @@ def parse_args():
     )
 
     # energy decoder
-
     parser.add_argument(
         "--reaction_energy_decoder_hidden_layer_sizes",
         type=int,
@@ -703,17 +711,24 @@ def parse_args():
     parser.add_argument(
         "--reaction_energy_decoder_activation", type=str, default="ReLU"
     )
-
-    parser.add_argument("--have_activation_energy_ratio", type=float, default=0.2)
-    # parser.add_argument(
-    #     "--activation_energy_decoder_hidden_layer_sizes",
-    #     type=int,
-    #     nargs="+",
-    #     default=[64],
-    # )
-    # parser.add_argument(
-    #     "--activation_energy_decoder_activation", type=str, default="ReLU"
-    # )
+    parser.add_argument(
+        "--activation_energy_decoder_hidden_layer_sizes",
+        type=int,
+        nargs="+",
+        default=[64],
+    )
+    parser.add_argument(
+        "--activation_energy_decoder_activation", type=str, default="ReLU"
+    )
+    parser.add_argument(
+        "--have_activation_energy_ratio",
+        type=float,
+        default=0.2,
+        help=(
+            "the ratio to use the activation energy, i.e. 1-ratio activation energies "
+            "will be treated as unavailable."
+        ),
+    )
 
     # bep label generator
     parser.add_argument("--min_num_data_points_for_fitting", type=int, default=3)
@@ -769,7 +784,7 @@ def parse_args():
     parser.add_argument("--num_prototypes", type=int, default=1)
 
     # energy decoder
-    parser.add_argument("--num_rxn_energy_decoder_layers", type=int, default=2)
+    parser.add_argument("--num_energy_decoder_layers", type=int, default=2)
 
     ####################
     args = parser.parse_args()
@@ -806,7 +821,7 @@ def parse_args():
     # energy decoder
     val = 2 * encoder_out_feats_size
     args.reaction_energy_decoder_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.num_rxn_energy_decoder_layers)
+        max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
     ]
     args.activation_energy_decoder_hidden_layer_sizes = (
         args.reaction_energy_decoder_hidden_layer_sizes
@@ -817,7 +832,11 @@ def parse_args():
     if args.pooling_method == "set2set":
         args.pooling_kwargs = None
     elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {"max_hop_distance": args.max_hop_distance}
+        args.pooling_kwargs = {
+            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
+        }
+    else:
+        raise NotImplementedError
 
     return args
 

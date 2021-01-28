@@ -54,12 +54,12 @@ class EncoderAndPooling(nn.Module):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # reaction features pooling
-        pooling_method="set2set",
-        pooling_kwargs: Dict[str, Any] = None,
-        # reaction features compressing
+        # compressing
         compressing_layer_sizes=None,
         compressing_layer_activation=None,
+        # pooling
+        pooling_method="set2set",
+        pooling_kwargs: Dict[str, Any] = None,
     ):
 
         super().__init__()

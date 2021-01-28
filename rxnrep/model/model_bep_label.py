@@ -78,11 +78,12 @@ class ReactionRepresentation(EncoderAndPooling):
         # activation energy decoder
         activation_energy_decoder_hidden_layer_sizes,
         activation_energy_decoder_activation,
+        # compressing
+        compressing_layer_sizes=None,
+        compressing_layer_activation=None,
         # reaction features pooling
         pooling_method="set2set",
         pooling_kwargs: Dict[str, Any] = None,
-        compressing_layer_sizes=None,
-        compressing_layer_activation=None,
     ):
 
         # encoder and pooling
