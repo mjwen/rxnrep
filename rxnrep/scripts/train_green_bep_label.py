@@ -299,6 +299,7 @@ class RxnRepLightningModel(pl.LightningModule):
         preds = self.model.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========
+
         # loss for bond hop distance prediction
         loss_atom_hop = F.cross_entropy(
             preds["bond_hop_dist"],
@@ -320,7 +321,9 @@ class RxnRepLightningModel(pl.LightningModule):
             preds["masked_atom_type"], labels["masked_atom_type"], reduction="mean"
         )
 
+        #
         # loss for clustering prediction
+        #
         loss_reaction_cluster = []
         for a, c in zip(self.assignments[mode], self.centroids):
             a = a[indices].to(self.device)  # select for current batch from all
@@ -338,30 +341,43 @@ class RxnRepLightningModel(pl.LightningModule):
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
+        #
         # loss for energies
+        #
         preds["reaction_energy"] = preds["reaction_energy"].flatten()
         loss_reaction_energy = F.mse_loss(
             preds["reaction_energy"], labels["reaction_energy"]
         )
 
-        preds["activation_energy"] = preds["activation_energy"].flatten()
-        loss_activation_energy = F.mse_loss(
-            preds["activation_energy"], labels["activation_energy"]
-        )
+        # activation energy (semi supervised)
+        # select the ones having activation energy
+        have_activation_energy = metadata["have_activation_energy"]
+        p = preds["activation_energy"].flatten()[have_activation_energy]
+        lb = labels["activation_energy"][have_activation_energy]
+        loss_activation_energy = F.mse_loss(p, lb)
 
+        # add to preds and labels for metric computation
+        # should not overwrite `activation_energy` in preds and labels, since they are
+        # used below by BEP loss
+        preds["activation_energy_semi"] = p
+        labels["activation_energy_semi"] = lb
+
+        #
         # BEP activation energy loss
+        #
         loss_bep = []
         activation_energy_bep_pred = []
         activation_energy_bep_label = []
-        for energy, has_energy in zip(  # loop over kmeans prototypes
+        for energy, have_energy in zip(  # loop over kmeans prototypes
             self.bep_activation_energy[mode], self.have_bep_activation_energy[mode]
         ):
+            # select data of current batch
             energy = energy[indices].to(self.device)
+            have_energy = have_energy[indices].to(self.device)
 
             # select reactions having predicted bep reactions
-            has_energy = has_energy[indices].to(self.device)
-            p = preds["activation_energy"][has_energy]
-            lb = energy[has_energy]
+            p = preds["activation_energy"].flatten()[have_energy]
+            lb = energy[have_energy]
             loss_bep.append(F.mse_loss(p, lb))
 
             activation_energy_bep_pred.append(p)
@@ -450,80 +466,47 @@ class RxnRepLightningModel(pl.LightningModule):
         # device
 
         metrics = nn.ModuleDict()
+
         for mode in ["metric_train", "metric_val", "metric_test"]:
-            metrics[mode] = nn.ModuleDict(
-                {
-                    "bond_hop_dist": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "atom_hop_dist": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "masked_atom_type": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "reaction_energy": nn.ModuleDict(
-                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
-                    ),
-                    "activation_energy": nn.ModuleDict(
-                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
-                    ),
-                    "activation_energy_bep": nn.ModuleDict(
-                        {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
-                    ),
-                }
-            )
+
+            metrics[mode] = nn.ModuleDict()
+
+            num_classes = {
+                "bond_hop_dist": self.hparams.bond_hop_dist_num_classes,
+                "atom_hop_dist": self.hparams.atom_hop_dist_num_classes,
+                "masked_atom_type": self.hparams.masked_atom_type_num_classes,
+            }
+
+            for key, n in num_classes.items():
+                metrics[mode][key] = nn.ModuleDict(
+                    {
+                        "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                        "precision": pl.metrics.Precision(
+                            num_classes=n,
+                            average="micro",
+                            compute_on_step=False,
+                        ),
+                        "recall": pl.metrics.Recall(
+                            num_classes=n,
+                            average="micro",
+                            compute_on_step=False,
+                        ),
+                        "f1": pl.metrics.F1(
+                            num_classes=n,
+                            average="micro",
+                            compute_on_step=False,
+                        ),
+                    }
+                )
+
+            for key in [
+                "reaction_energy",
+                "activation_energy_semi",
+                "activation_energy_bep",
+            ]:
+                metrics[mode][key] = nn.ModuleDict(
+                    {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
+                )
 
         return metrics
 
@@ -537,7 +520,7 @@ class RxnRepLightningModel(pl.LightningModule):
             "atom_hop_dist",
             "masked_atom_type",
             "reaction_energy",
-            "activation_energy",
+            "activation_energy_semi",
             "activation_energy_bep",
         ),
     ):
@@ -547,8 +530,8 @@ class RxnRepLightningModel(pl.LightningModule):
         mode = "metric_" + mode
 
         for key in keys:
-            for mt in self.metrics[mode][key]:
-                metric_obj = self.metrics[mode][key][mt]
+            for name in self.metrics[mode][key]:
+                metric_obj = self.metrics[mode][key][name]
                 metric_obj(preds[key], labels[key])
 
     def _compute_metrics(
@@ -559,9 +542,14 @@ class RxnRepLightningModel(pl.LightningModule):
             "atom_hop_dist",
             "masked_atom_type",
             "reaction_energy",
-            "activation_energy",
+            "activation_energy_semi",
             "activation_energy_bep",
         ),
+        label_scaler={
+            "reaction_energy": "reaction_energy",
+            "activation_energy_semi": "activation_energy",
+            "activation_energy_bep": "activation_energy",
+        },
     ):
         """
         compute metric and log it at each epoch
@@ -575,11 +563,9 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj = self.metrics[mode][key][name]
                 value = metric_obj.compute()
 
-                # energies are scaled, multiple std to scale back to the original
-                if key in ["reaction_energy", "activation_energy"]:
-                    value *= self.hparams.label_std[key].to(self.device)
-                if key == "activation_energy_bep":
-                    value *= self.hparams.label_std["activation_energy"].to(self.device)
+                # scale labels
+                if key in label_scaler:
+                    value *= self.hparams.label_std[label_scaler[key]].to(self.device)
 
                 self.log(
                     f"{mode}/{name}/{key}",
@@ -718,6 +704,7 @@ def parse_args():
         "--reaction_energy_decoder_activation", type=str, default="ReLU"
     )
 
+    parser.add_argument("--have_activation_energy_ratio", type=float, default=0.2)
     # parser.add_argument(
     #     "--activation_energy_decoder_hidden_layer_sizes",
     #     type=int,
@@ -866,6 +853,7 @@ def load_dataset(args):
         atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
+        have_activation_energy_ratio=args.have_activation_energy_ratio,
     )
 
     state_dict = trainset.state_dict()
@@ -881,6 +869,7 @@ def load_dataset(args):
         atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        have_activation_energy_ratio=args.have_activation_energy_ratio,
     )
 
     testset = GreenDataset(
@@ -894,6 +883,7 @@ def load_dataset(args):
         atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        have_activation_energy_ratio=args.have_activation_energy_ratio,
     )
 
     # save dataset state dict for retraining or prediction
