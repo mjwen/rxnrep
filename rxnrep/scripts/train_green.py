@@ -1,3 +1,12 @@
+"""
+Train Green dataset using decoders:
+- atom in reaction center
+- bond in reaction center
+- atom type
+- reaction clustering
+
+"""
+
 import argparse
 import warnings
 from datetime import datetime
@@ -15,7 +24,7 @@ from torch.utils.data.dataloader import DataLoader
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.green import GreenDataset
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
-from rxnrep.model.model import ReactionRepresentation
+from rxnrep.model.model_comprehensive import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -49,6 +58,12 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
+            # compressing
+            compressing_layer_sizes=params.compressing_layer_sizes,
+            compressing_layer_activation=params.compressing_layer_activation,
+            # pooling method
+            pooling_method=params.pooling_method,
+            pooling_kwargs=params.pooling_kwargs,
             # bond hop distance decoder
             bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             bond_hop_dist_decoder_activation=params.node_decoder_activation,
@@ -65,16 +80,17 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
             reaction_cluster_decoder_activation=params.cluster_decoder_activation,
             reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
-            compressing_layer_sizes=params.compressing_layer_sizes,
-            compressing_layer_activation=params.compressing_layer_activation,
+            # # energy decoder
+            # reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
+            # reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
+            # activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
+            # activation_energy_decoder_activation=params.activation_energy_decoder_activation,
         )
 
-        # reaction cluster functions
-        self.reaction_cluster_fn = {mode: None for mode in ["train", "val", "test"]}
-        self.assignments = {mode: None for mode in ["train", "val", "test"]}
+        # cluster reaction features
+        modes = ["train", "val", "test"]
+        self.reaction_cluster_fn = {m: None for m in modes}
+        self.assignments = {m: None for m in modes}
         self.centroids = None
 
         # metrics
@@ -94,9 +110,11 @@ class RxnRepLightningModel(pl.LightningModule):
             If returns = `reaction_feature`, return a 2D tensor of reaction features,
             each row for a reaction;
             If returns = `diff_feature_before_rxn_conv` or `diff_feature_after_rxn_conv`,
-                return a dictionary of atom, bond, and global features.
-                As the name suggests, the returned features can be `before` or `after`
-                the reaction conv layers.
+            return a dictionary of atom, bond, and global features.
+            As the name suggests, the returned features can be `before` or `after`
+            the reaction conv layers.
+            If returns = `activation_energy` (`reaction_energy`), return the activation
+            (reaction) energy predicted by the decoder.
         """
         nodes = ["atom", "bond", "global"]
 
@@ -122,27 +140,30 @@ class RxnRepLightningModel(pl.LightningModule):
             )
             return diff_feats
 
+        # elif returns in ["reaction_energy", "activation_energy",]:
+        #     feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+        #     preds = self.model.decode(feats, reaction_feats, metadata)
+
+        #     mean = self.hparams.label_mean[returns]
+        #     std = self.hparams.label_std[returns]
+        #     preds = preds[returns] * std + mean
+
+        #     return preds
+
         else:
             supported = [
                 "reaction_feature",
                 "diff_feature_before_rxn_conv",
                 "diff_feature_after_rxn_conv",
+                # "reaction_energy",
+                # "activation_energy",
             ]
             raise ValueError(
                 f"Expect `returns` to be one of {supported}; got `{returns}`."
             )
 
     def on_train_epoch_start(self):
-        if self.reaction_cluster_fn["train"] is None:
-            self.reaction_cluster_fn["train"] = self._init_reaction_cluster_fn(
-                self.train_dataloader()
-            )
-
-        assi, cent = self.reaction_cluster_fn["train"].get_cluster_assignments(
-            centroids="random", predict_only=False
-        )
-        self.assignments["train"] = assi
-        self.centroids = cent
+        self.shared_on_epoch_start(self.train_dataloader(), "train")
 
     def training_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "train")
@@ -159,15 +180,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self._track_reaction_cluster_data(outputs, "train")
 
     def on_validation_epoch_start(self):
-        if self.reaction_cluster_fn["val"] is None:
-            self.reaction_cluster_fn["val"] = self._init_reaction_cluster_fn(
-                self.val_dataloader()
-            )
-
-        assi, _ = self.reaction_cluster_fn["val"].get_cluster_assignments(
-            centroids=self.centroids, predict_only=True
-        )
-        self.assignments["val"] = assi
+        self.shared_on_epoch_start(self.val_dataloader(), "val")
 
     def validation_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "val")
@@ -180,7 +193,7 @@ class RxnRepLightningModel(pl.LightningModule):
         }
 
     def validation_epoch_end(self, outputs):
-        # sum f1 to look for early stop and learning rate scheduler
+        # sum f1 used for early stopping and learning rate scheduler
         sum_f1 = self._compute_metrics("val")
         self._track_reaction_cluster_data(outputs, "val")
 
@@ -192,15 +205,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
     def on_test_epoch_start(self):
-        if self.reaction_cluster_fn["test"] is None:
-            self.reaction_cluster_fn["test"] = self._init_reaction_cluster_fn(
-                self.test_dataloader()
-            )
-
-        assi, _ = self.reaction_cluster_fn["test"].get_cluster_assignments(
-            centroids=self.centroids, predict_only=True
-        )
-        self.assignments["test"] = assi
+        self.shared_on_epoch_start(self.test_dataloader(), "test")
 
     def test_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "test")
@@ -215,6 +220,70 @@ class RxnRepLightningModel(pl.LightningModule):
     def test_epoch_end(self, outputs):
         self._compute_metrics("test")
         self._track_reaction_cluster_data(outputs, "test")
+
+    def shared_on_epoch_start(self, data_loader, mode):
+
+        # cluster reaction features
+        if self.reaction_cluster_fn[mode] is None:
+            cluster_fn = self._init_reaction_cluster_fn(data_loader)
+            self.reaction_cluster_fn[mode] = cluster_fn
+        else:
+            cluster_fn = self.reaction_cluster_fn[mode]
+
+        if mode == "train":
+            # generate centroids from training set
+            assign, cent = cluster_fn.get_cluster_assignments(
+                centroids="random",
+                predict_only=False,
+                num_iters=self.hparams.num_kmeans_iterations,
+                similarity=self.hparams.kmeans_similarity,
+            )
+            self.centroids = cent
+        else:
+            # use centroids from training set
+            assign, _ = cluster_fn.get_cluster_assignments(
+                centroids=self.centroids,
+                predict_only=True,
+                num_iters=self.hparams.num_kmeans_iterations,
+                similarity=self.hparams.kmeans_similarity,
+            )
+        self.assignments[mode] = assign
+
+        # #
+        # # generate bep activation energy label
+        # #
+        # if mode == "train":
+        #    # initialize bep predictor
+        #    if self.bep_predictor is None:
+        #        self.bep_predictor = ActivationEnergyPredictor(
+        #            self.hparams.num_centroids,
+        #            min_num_data_points_for_fitting=self.hparams.min_num_data_points_for_fitting,
+        #            device=self.device,
+        #        )
+
+        #    # predict for train set
+        #    dataset = data_loader.dataset
+        #    reaction_energy = dataset.get_property("reaction_energy")
+        #    activation_energy = dataset.get_property("activation_energy")
+        #    have_activation_energy = dataset.get_property("have_activation_energy")
+        #    (
+        #        self.bep_activation_energy[mode],
+        #        self.have_bep_activation_energy[mode],
+        #    ) = self.bep_predictor.fit_predict(
+        #        reaction_energy, activation_energy, have_activation_energy, assign
+        #    )
+
+        # else:
+        #    # predict for val, test set
+        #    assert (
+        #        self.bep_predictor is not None
+        #    ), "bep predictor not initialized. Should not get here. something is fishy"
+
+        #    reaction_energy = data_loader.dataset.get_property("reaction_energy")
+        #    (
+        #        self.bep_activation_energy[mode],
+        #        self.have_bep_activation_energy[mode],
+        #    ) = self.bep_predictor.predict(reaction_energy, assign)
 
     def shared_step(self, batch, mode):
 
@@ -232,7 +301,8 @@ class RxnRepLightningModel(pl.LightningModule):
         preds = self.model.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========
-        # loss for bond hop distance prediction
+
+        # bond hop distance loss
         loss_atom_hop = F.cross_entropy(
             preds["bond_hop_dist"],
             labels["bond_hop_dist"],
@@ -240,7 +310,7 @@ class RxnRepLightningModel(pl.LightningModule):
             weight=self.hparams.bond_hop_dist_class_weight.to(self.device),
         )
 
-        # loss for atom hop distance prediction
+        # atom hop distance loss
         loss_bond_hop = F.cross_entropy(
             preds["atom_hop_dist"],
             labels["atom_hop_dist"],
@@ -248,25 +318,78 @@ class RxnRepLightningModel(pl.LightningModule):
             weight=self.hparams.atom_hop_dist_class_weight.to(self.device),
         )
 
-        # masked atom type decoder
+        # atom type loss
         loss_masked_atom_type = F.cross_entropy(
             preds["masked_atom_type"], labels["masked_atom_type"], reduction="mean"
         )
 
-        # loss for clustering prediction
-        # TODO potential problems
-        #  - cluster centroids are normalized (when using cosine similarity),
-        #  while preds['reaction_cluster'] not
-        #  - this is not the contrastive loss discussed in slides, instead, this is a
-        #    cross entropy classification loss
+        #
+        # clustering loss
+        #
         loss_reaction_cluster = []
         for a, c in zip(self.assignments[mode], self.centroids):
             a = a[indices].to(self.device)  # select for current batch from all
             c = c.to(self.device)
-            p = torch.mm(preds["reaction_cluster"], c.t()) / self.hparams.temperature
+            x = preds["reaction_cluster"]
+
+            # normalize prediction tensor, since centroids are normalized
+            if self.hparams.kmeans_similarity == "cosine":
+                x = F.normalize(x, dim=1, p=2)
+            else:
+                raise NotImplementedError
+
+            p = torch.mm(x, c.t()) / self.hparams.temperature
             e = F.cross_entropy(p, a)
             loss_reaction_cluster.append(e)
         loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
+
+        # #
+        # # energy loss
+        # #
+        # preds["reaction_energy"] = preds["reaction_energy"].flatten()
+        # loss_reaction_energy = F.mse_loss(
+        #     preds["reaction_energy"], labels["reaction_energy"]
+        # )
+
+        # # activation energy (semi supervised)
+        # # select the ones having activation energy
+        # have_activation_energy = metadata["have_activation_energy"]
+        # p = preds["activation_energy"].flatten()[have_activation_energy]
+        # lb = labels["activation_energy"][have_activation_energy]
+        # loss_activation_energy = F.mse_loss(p, lb)
+
+        # # add to preds and labels for metric computation
+        # # should not overwrite `activation_energy` in preds and labels, since they are
+        # # used below by BEP loss
+        # preds["activation_energy_semi"] = p
+        # labels["activation_energy_semi"] = lb
+
+        # #
+        # # BEP activation energy loss
+        # #
+        # loss_bep = []
+        # activation_energy_bep_pred = []
+        # activation_energy_bep_label = []
+        # for energy, have_energy in zip(  # loop over kmeans prototypes
+        #     self.bep_activation_energy[mode], self.have_bep_activation_energy[mode]
+        # ):
+        #     # select data of current batch
+        #     energy = energy[indices].to(self.device)
+        #     have_energy = have_energy[indices].to(self.device)
+
+        #     # select reactions having predicted bep reactions
+        #     p = preds["activation_energy"].flatten()[have_energy]
+        #     lb = energy[have_energy]
+        #     loss_bep.append(F.mse_loss(p, lb))
+
+        #     activation_energy_bep_pred.append(p)
+        #     activation_energy_bep_label.append(lb)
+
+        # loss_bep = sum(loss_bep) / len(loss_bep)
+
+        # # add to preds and labels for metric computation
+        # labels["activation_energy_bep"] = torch.cat(activation_energy_bep_label)
+        # preds["activation_energy_bep"] = torch.cat(activation_energy_bep_pred)
 
         # total loss (maybe assign different weights)
         loss = (
@@ -274,6 +397,9 @@ class RxnRepLightningModel(pl.LightningModule):
             + loss_bond_hop
             + loss_masked_atom_type
             + loss_reaction_cluster
+            # + loss_reaction_energy
+            # + loss_activation_energy
+            # + loss_bep
         )
 
         # ========== log the loss ==========
@@ -283,6 +409,9 @@ class RxnRepLightningModel(pl.LightningModule):
                 f"{mode}/loss/atom_hop_dist": loss_bond_hop,
                 f"{mode}/loss/masked_atom_type": loss_masked_atom_type,
                 f"{mode}/loss/reaction_cluster": loss_reaction_cluster,
+                # f"{mode}/loss/reaction_energy": loss_reaction_energy,
+                # f"{mode}/loss/activation_energy_semi": loss_activation_energy,
+                # f"{mode}/loss/activation_energy_bep": loss_bep,
             },
             on_step=False,
             on_epoch=True,
@@ -305,12 +434,12 @@ class RxnRepLightningModel(pl.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
-    def _init_reaction_cluster_fn(self, dataloader):
+    def _init_reaction_cluster_fn(self, data_loader):
         # distributed
         if self.use_ddp:
             reaction_cluster_fn = DistributedReactionCluster(
                 self.model,
-                dataloader,
+                data_loader,
                 num_centroids=self.hparams.num_centroids,
                 device=self.device,
             )
@@ -319,7 +448,7 @@ class RxnRepLightningModel(pl.LightningModule):
         else:
             reaction_cluster_fn = ReactionCluster(
                 self.model,
-                dataloader,
+                data_loader,
                 num_centroids=self.hparams.num_centroids,
                 device=self.device,
             )
@@ -336,75 +465,50 @@ class RxnRepLightningModel(pl.LightningModule):
         self.reaction_cluster_fn[mode].set_local_data_and_index(feats, indices)
 
     def _init_metrics(self):
-        # metrics should be modules so that metric tensors can be placed in the correct
-        # device
+        # should be modules so that metric tensors can be placed in the correct device
 
         metrics = nn.ModuleDict()
+
         for mode in ["metric_train", "metric_val", "metric_test"]:
-            metrics[mode] = nn.ModuleDict(
-                {
-                    "bond_hop_dist": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.bond_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "atom_hop_dist": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.atom_hop_dist_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                    "masked_atom_type": nn.ModuleDict(
-                        {
-                            "accuracy": pl.metrics.Accuracy(compute_on_step=False),
-                            "precision": pl.metrics.Precision(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "recall": pl.metrics.Recall(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                            "f1": pl.metrics.F1(
-                                num_classes=self.hparams.masked_atom_type_num_classes,
-                                average="macro",
-                                compute_on_step=False,
-                            ),
-                        }
-                    ),
-                }
-            )
+
+            metrics[mode] = nn.ModuleDict()
+
+            num_classes = {
+                "bond_hop_dist": self.hparams.bond_hop_dist_num_classes,
+                "atom_hop_dist": self.hparams.atom_hop_dist_num_classes,
+                "masked_atom_type": self.hparams.masked_atom_type_num_classes,
+            }
+
+            for key, n in num_classes.items():
+                metrics[mode][key] = nn.ModuleDict(
+                    {
+                        "accuracy": pl.metrics.Accuracy(compute_on_step=False),
+                        "precision": pl.metrics.Precision(
+                            num_classes=n,
+                            average="micro",
+                            compute_on_step=False,
+                        ),
+                        "recall": pl.metrics.Recall(
+                            num_classes=n,
+                            average="micro",
+                            compute_on_step=False,
+                        ),
+                        "f1": pl.metrics.F1(
+                            num_classes=n,
+                            average="micro",
+                            compute_on_step=False,
+                        ),
+                    }
+                )
+
+            # for key in [
+            #     "reaction_energy",
+            #     "activation_energy_semi",
+            #     "activation_energy_bep",
+            # ]:
+            #     metrics[mode][key] = nn.ModuleDict(
+            #         {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
+            #     )
 
         return metrics
 
@@ -417,16 +521,19 @@ class RxnRepLightningModel(pl.LightningModule):
             "bond_hop_dist",
             "atom_hop_dist",
             "masked_atom_type",
+            # "reaction_energy",
+            # "activation_energy_semi",
+            # "activation_energy_bep",
         ),
     ):
         """
-        update metric states at each step
+        update metric states at each step.
         """
         mode = "metric_" + mode
 
         for key in keys:
-            for mt in self.metrics[mode][key]:
-                metric_obj = self.metrics[mode][key][mt]
+            for name in self.metrics[mode][key]:
+                metric_obj = self.metrics[mode][key][name]
                 metric_obj(preds[key], labels[key])
 
     def _compute_metrics(
@@ -436,7 +543,15 @@ class RxnRepLightningModel(pl.LightningModule):
             "bond_hop_dist",
             "atom_hop_dist",
             "masked_atom_type",
+            # "reaction_energy",
+            # "activation_energy_semi",
+            # "activation_energy_bep",
         ),
+        label_scaler={
+            # "reaction_energy": "reaction_energy",
+            # "activation_energy_semi": "activation_energy",
+            # "activation_energy_bep": "activation_energy",
+        },
     ):
         """
         compute metric and log it at each epoch
@@ -450,6 +565,10 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj = self.metrics[mode][key][name]
                 value = metric_obj.compute()
 
+                # scale mae labels
+                if key in label_scaler and name == "mae":
+                    value *= self.hparams.label_std[label_scaler[key]].to(self.device)
+
                 self.log(
                     f"{mode}/{name}/{key}",
                     value,
@@ -458,12 +577,16 @@ class RxnRepLightningModel(pl.LightningModule):
                     prog_bar=False,
                 )
 
-                # reset is called automatically somewhere by lightning, here we call it
+                # reset is called automatically somewhere in lightning, here we call it
                 # explicitly just in case
                 metric_obj.reset()
 
                 if name == "f1":
                     sum_f1 += value
+                # NOTE, we abuse the sum_f1 to add the mae of reaction energy
+                # prediction as well
+                elif name == "mae":
+                    sum_f1 -= value
 
         return sum_f1
 
@@ -519,6 +642,18 @@ def parse_args():
         help="set2set or hop_distance",
     )
 
+    parser.add_argument(
+        "--hop_distance_pooling_max_hop_distance",
+        type=int,
+        default=2,
+        help=(
+            "max hop distance when hop_distance pooling method is used. Ignored when "
+            "`set2set` pooling method is used. This is different from max_hop_distance "
+            "used for node decoder, which is used to create labels for the decoders. "
+            "Also, typically we can set the two to be the same."
+        ),
+    )
+
     # ========== decoder ==========
     # atom and bond decoder
     parser.add_argument(
@@ -552,12 +687,23 @@ def parse_args():
         default=[10],
         help="number of centroids for each clustering prototype",
     )
-
     parser.add_argument(
         "--temperature",
         type=float,
         default=1.0,
         help="temperature in the loss for cluster decoder",
+    )
+    parser.add_argument(
+        "--num_kmeans_iterations",
+        type=int,
+        default=10,
+        help="number of kmeans clustering iterations",
+    )
+    parser.add_argument(
+        "--kmeans_similarity",
+        type=str,
+        default="cosine",
+        help="similarity measure for kmeans: `cosine` or `euclidean`",
     )
 
     # ========== training ==========
@@ -646,7 +792,11 @@ def parse_args():
     if args.pooling_method == "set2set":
         args.pooling_kwargs = None
     elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {"max_hop_distance": args.max_hop_distance}
+        args.pooling_kwargs = {
+            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
+        }
+    else:
+        raise NotImplementedError
 
     return args
 
@@ -760,6 +910,8 @@ def load_dataset(args):
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
     args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
     args.masked_atom_type_num_classes = len(trainset.get_species())
+    # args.label_mean = trainset.label_mean
+    # args.label_std = trainset.label_std
 
     args.feature_size = trainset.feature_size
 

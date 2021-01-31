@@ -2,6 +2,7 @@
 Train Green dataset using decoders:
 - atom in reaction center
 - bond in reaction center
+- atom type
 - reaction clustering
 
 - reaction energy
@@ -28,7 +29,7 @@ from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturi
 from rxnrep.data.green import GreenDataset
 from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
-from rxnrep.model.model_bep_label import ReactionRepresentation
+from rxnrep.model.model_comprehensive import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
@@ -62,6 +63,12 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
+            # compressing
+            compressing_layer_sizes=params.compressing_layer_sizes,
+            compressing_layer_activation=params.compressing_layer_activation,
+            # pooling method
+            pooling_method=params.pooling_method,
+            pooling_kwargs=params.pooling_kwargs,
             # bond hop distance decoder
             bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             bond_hop_dist_decoder_activation=params.node_decoder_activation,
@@ -83,12 +90,6 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
             activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
             activation_energy_decoder_activation=params.activation_energy_decoder_activation,
-            # compressing
-            compressing_layer_sizes=params.compressing_layer_sizes,
-            compressing_layer_activation=params.compressing_layer_activation,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
         )
 
         # cluster reaction features
@@ -148,7 +149,10 @@ class RxnRepLightningModel(pl.LightningModule):
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
-        elif returns in ["reaction_energy", "activation_energy"]:
+        elif returns in [
+            "reaction_energy",
+            "activation_energy",
+        ]:
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.model.decode(feats, reaction_feats, metadata)
 
@@ -156,14 +160,15 @@ class RxnRepLightningModel(pl.LightningModule):
             std = self.hparams.label_std[returns]
             preds = preds[returns] * std + mean
 
-            return preds[returns]
+            return preds
+
         else:
             supported = [
                 "reaction_feature",
                 "diff_feature_before_rxn_conv",
                 "diff_feature_after_rxn_conv",
-                "activation_energy",
                 "reaction_energy",
+                "activation_energy",
             ]
             raise ValueError(
                 f"Expect `returns` to be one of {supported}; got `{returns}`."

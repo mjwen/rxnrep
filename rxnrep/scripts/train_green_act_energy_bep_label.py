@@ -1,6 +1,8 @@
 """
 Decoders:
 - activation energy
+- bep activation energy: for reactions without activation energy, we generate pseudo activation
+energy label using BEP.
 """
 
 import argparse
@@ -19,6 +21,8 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.green import GreenDataset
+from rxnrep.model.bep import ActivationEnergyPredictor
+from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
 from rxnrep.model.model_comprehensive import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
@@ -59,12 +63,27 @@ class RxnRepLightningModel(pl.LightningModule):
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
+            # clustering decoder
+            reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
+            reaction_cluster_decoder_activation=params.cluster_decoder_activation,
+            reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
             # energy decoder
             # reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
             # reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
             activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
             activation_energy_decoder_activation=params.activation_energy_decoder_activation,
         )
+
+        # cluster reaction features
+        modes = ["train", "val", "test"]
+        self.reaction_cluster_fn = {m: None for m in modes}
+        self.assignments = {m: None for m in modes}
+        self.centroids = None
+
+        # bep activation label
+        self.bep_predictor = None
+        self.bep_activation_energy = {m: None for m in modes}
+        self.have_bep_activation_energy = {m: None for m in modes}
 
         # metrics
         self.metrics = self._init_metrics()
@@ -137,24 +156,40 @@ class RxnRepLightningModel(pl.LightningModule):
                 f"Expect `returns` to be one of {supported}; got `{returns}`."
             )
 
+    def on_train_epoch_start(self):
+        self.shared_on_epoch_start(self.train_dataloader(), "train")
+
     def training_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "train")
         self._update_metrics(preds, labels, "train")
 
-        return {"loss": loss}
+        return {
+            "loss": loss,
+            "indices": indices.cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
+        }
 
     def training_epoch_end(self, outputs):
         self._compute_metrics("train")
+        self._track_reaction_cluster_data(outputs, "train")
+
+    def on_validation_epoch_start(self):
+        self.shared_on_epoch_start(self.val_dataloader(), "val")
 
     def validation_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "val")
         self._update_metrics(preds, labels, "val")
 
-        return {"loss": loss}
+        return {
+            "loss": loss,
+            "indices": indices.cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
+        }
 
     def validation_epoch_end(self, outputs):
         # sum f1 used for early stopping and learning rate scheduler
         sum_f1 = self._compute_metrics("val")
+        self._track_reaction_cluster_data(outputs, "val")
 
         self.log(f"val/f1", sum_f1, on_step=False, on_epoch=True, prog_bar=True)
 
@@ -163,14 +198,86 @@ class RxnRepLightningModel(pl.LightningModule):
         self.log("epoch time", delta_t, on_step=False, on_epoch=True, prog_bar=True)
         self.log("cumulative time", cumulative_t, on_step=False, on_epoch=True)
 
+    def on_test_epoch_start(self):
+        self.shared_on_epoch_start(self.test_dataloader(), "test")
+
     def test_step(self, batch, batch_idx):
         loss, preds, labels, indices = self.shared_step(batch, "test")
         self._update_metrics(preds, labels, "test")
 
-        return {"loss": loss}
+        return {
+            "loss": loss,
+            "indices": indices.cpu(),
+            "reaction_cluster_feats": preds["reaction_cluster"].detach().cpu(),
+        }
 
     def test_epoch_end(self, outputs):
         self._compute_metrics("test")
+        self._track_reaction_cluster_data(outputs, "test")
+
+    def shared_on_epoch_start(self, data_loader, mode):
+
+        # cluster reaction features
+        if self.reaction_cluster_fn[mode] is None:
+            cluster_fn = self._init_reaction_cluster_fn(data_loader)
+            self.reaction_cluster_fn[mode] = cluster_fn
+        else:
+            cluster_fn = self.reaction_cluster_fn[mode]
+
+        if mode == "train":
+            # generate centroids from training set
+            assign, cent = cluster_fn.get_cluster_assignments(
+                centroids="random",
+                predict_only=False,
+                num_iters=self.hparams.num_kmeans_iterations,
+                similarity=self.hparams.kmeans_similarity,
+            )
+            self.centroids = cent
+        else:
+            # use centroids from training set
+            assign, _ = cluster_fn.get_cluster_assignments(
+                centroids=self.centroids,
+                predict_only=True,
+                num_iters=self.hparams.num_kmeans_iterations,
+                similarity=self.hparams.kmeans_similarity,
+            )
+        self.assignments[mode] = assign
+
+        #
+        # generate bep activation energy label
+        #
+        if mode == "train":
+            # initialize bep predictor
+            if self.bep_predictor is None:
+                self.bep_predictor = ActivationEnergyPredictor(
+                    self.hparams.num_centroids,
+                    min_num_data_points_for_fitting=self.hparams.min_num_data_points_for_fitting,
+                    device=self.device,
+                )
+
+            # predict for train set
+            dataset = data_loader.dataset
+            reaction_energy = dataset.get_property("reaction_energy")
+            activation_energy = dataset.get_property("activation_energy")
+            have_activation_energy = dataset.get_property("have_activation_energy")
+            (
+                self.bep_activation_energy[mode],
+                self.have_bep_activation_energy[mode],
+            ) = self.bep_predictor.fit_predict(
+                reaction_energy, activation_energy, have_activation_energy, assign
+            )
+
+        else:
+            # predict for val, test set
+            assert (
+                self.bep_predictor is not None
+            ), "bep predictor not initialized. Should not get here. something is fishy"
+
+            reaction_energy = data_loader.dataset.get_property("reaction_energy")
+            (
+                self.bep_activation_energy[mode],
+                self.have_bep_activation_energy[mode],
+            ) = self.bep_predictor.predict(reaction_energy, assign)
 
     def shared_step(self, batch, mode):
 
@@ -190,6 +297,26 @@ class RxnRepLightningModel(pl.LightningModule):
         # ========== compute losses ==========
 
         #
+        # clustering loss
+        #
+        loss_reaction_cluster = []
+        for a, c in zip(self.assignments[mode], self.centroids):
+            a = a[indices].to(self.device)  # select for current batch from all
+            c = c.to(self.device)
+            x = preds["reaction_cluster"]
+
+            # normalize prediction tensor, since centroids are normalized
+            if self.hparams.kmeans_similarity == "cosine":
+                x = F.normalize(x, dim=1, p=2)
+            else:
+                raise NotImplementedError
+
+            p = torch.mm(x, c.t()) / self.hparams.temperature
+            e = F.cross_entropy(p, a)
+            loss_reaction_cluster.append(e)
+        loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
+
+        #
         # energy loss
         #
         # preds["reaction_energy"] = preds["reaction_energy"].flatten()
@@ -197,19 +324,59 @@ class RxnRepLightningModel(pl.LightningModule):
         #     preds["reaction_energy"], labels["reaction_energy"]
         # )
 
-        preds["activation_energy"] = preds["activation_energy"].flatten()
-        loss_activation_energy = F.mse_loss(
-            preds["activation_energy"], labels["activation_energy"]
-        )
+        # activation energy (semi supervised)
+        # select the ones having activation energy
+        have_activation_energy = metadata["have_activation_energy"]
+        p = preds["activation_energy"].flatten()[have_activation_energy]
+        lb = labels["activation_energy"][have_activation_energy]
+        loss_activation_energy = F.mse_loss(p, lb)
+
+        # add to preds and labels for metric computation
+        # should not overwrite `activation_energy` in preds and labels, since they are
+        # used below by BEP loss
+        preds["activation_energy_semi"] = p
+        labels["activation_energy_semi"] = lb
+
+        #
+        # BEP activation energy loss
+        #
+        loss_bep = []
+        activation_energy_bep_pred = []
+        activation_energy_bep_label = []
+        for energy, have_energy in zip(  # loop over kmeans prototypes
+            self.bep_activation_energy[mode], self.have_bep_activation_energy[mode]
+        ):
+            # select data of current batch
+            energy = energy[indices].to(self.device)
+            have_energy = have_energy[indices].to(self.device)
+
+            # select reactions having predicted bep reactions
+            p = preds["activation_energy"].flatten()[have_energy]
+            lb = energy[have_energy]
+            loss_bep.append(F.mse_loss(p, lb))
+
+            activation_energy_bep_pred.append(p)
+            activation_energy_bep_label.append(lb)
+
+        loss_bep = sum(loss_bep) / len(loss_bep)
+
+        # add to preds and labels for metric computation
+        labels["activation_energy_bep"] = torch.cat(activation_energy_bep_label)
+        preds["activation_energy_bep"] = torch.cat(activation_energy_bep_pred)
 
         # total loss (maybe assign different weights)
-        loss = loss_activation_energy
+        loss = (
+            # + loss_reaction_energy
+            loss_activation_energy
+            + loss_bep
+        )
 
         # ========== log the loss ==========
         self.log_dict(
             {
                 # f"{mode}/loss/reaction_energy": loss_reaction_energy,
-                f"{mode}/loss/activation_energy": loss_activation_energy,
+                f"{mode}/loss/activation_energy_semi": loss_activation_energy,
+                f"{mode}/loss/activation_energy_bep": loss_bep,
             },
             on_step=False,
             on_epoch=True,
@@ -232,6 +399,36 @@ class RxnRepLightningModel(pl.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
+    def _init_reaction_cluster_fn(self, data_loader):
+        # distributed
+        if self.use_ddp:
+            reaction_cluster_fn = DistributedReactionCluster(
+                self.model,
+                data_loader,
+                num_centroids=self.hparams.num_centroids,
+                device=self.device,
+            )
+
+        # single process
+        else:
+            reaction_cluster_fn = ReactionCluster(
+                self.model,
+                data_loader,
+                num_centroids=self.hparams.num_centroids,
+                device=self.device,
+            )
+
+        return reaction_cluster_fn
+
+    def _track_reaction_cluster_data(self, outputs, mode):
+        """
+        Keep track of reaction clustering data to be used in the next iteration, including
+        feats used for clustering (after projection head mapping) and their indices.
+        """
+        indices = torch.cat([x["indices"] for x in outputs])
+        feats = torch.cat([x["reaction_cluster_feats"] for x in outputs])
+        self.reaction_cluster_fn[mode].set_local_data_and_index(feats, indices)
+
     def _init_metrics(self):
         # should be modules so that metric tensors can be placed in the correct device
 
@@ -243,7 +440,8 @@ class RxnRepLightningModel(pl.LightningModule):
 
             for key in [
                 # "reaction_energy",
-                "activation_energy",
+                "activation_energy_semi",
+                "activation_energy_bep",
             ]:
                 metrics[mode][key] = nn.ModuleDict(
                     {"mae": pl.metrics.MeanAbsoluteError(compute_on_step=False)}
@@ -258,7 +456,8 @@ class RxnRepLightningModel(pl.LightningModule):
         mode,
         keys=(
             # "reaction_energy",
-            "activation_energy",
+            "activation_energy_semi",
+            "activation_energy_bep",
         ),
     ):
         """
@@ -276,11 +475,13 @@ class RxnRepLightningModel(pl.LightningModule):
         mode,
         keys=(
             # "reaction_energy",
-            "activation_energy",
+            "activation_energy_semi",
+            "activation_energy_bep",
         ),
         label_scaler={
             # "reaction_energy": "reaction_energy",
-            "activation_energy": "activation_energy",
+            "activation_energy_semi": "activation_energy",
+            "activation_energy_bep": "activation_energy",
         },
     ):
         """
@@ -386,6 +587,43 @@ def parse_args():
 
     # ========== decoder ==========
 
+    # clustering decoder
+    parser.add_argument(
+        "--cluster_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
+    )
+    parser.add_argument("--cluster_decoder_activation", type=str, default="ReLU")
+    parser.add_argument(
+        "--cluster_decoder_projection_head_size",
+        type=int,
+        default=30,
+        help="projection head size for the clustering decoder",
+    )
+    parser.add_argument(
+        "--num_centroids",
+        type=int,
+        nargs="+",
+        default=[10],
+        help="number of centroids for each clustering prototype",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="temperature in the loss for cluster decoder",
+    )
+    parser.add_argument(
+        "--num_kmeans_iterations",
+        type=int,
+        default=10,
+        help="number of kmeans clustering iterations",
+    )
+    parser.add_argument(
+        "--kmeans_similarity",
+        type=str,
+        default="cosine",
+        help="similarity measure for kmeans: `cosine` or `euclidean`",
+    )
+
     # energy decoder
     parser.add_argument(
         "--reaction_energy_decoder_hidden_layer_sizes",
@@ -405,6 +643,18 @@ def parse_args():
     parser.add_argument(
         "--activation_energy_decoder_activation", type=str, default="ReLU"
     )
+    parser.add_argument(
+        "--have_activation_energy_ratio",
+        type=float,
+        default=0.2,
+        help=(
+            "the ratio to use the activation energy, i.e. 1-ratio activation energies "
+            "will be treated as unavailable."
+        ),
+    )
+
+    # bep label generator
+    parser.add_argument("--min_num_data_points_for_fitting", type=int, default=3)
 
     # ========== training ==========
 
@@ -448,6 +698,11 @@ def parse_args():
     parser.add_argument("--num_mol_conv_layers", type=int, default=2)
     parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
 
+    # cluster decoder
+    parser.add_argument("--num_cluster_decoder_layers", type=int, default=1)
+    parser.add_argument("--prototype_size", type=int, default=10)
+    parser.add_argument("--num_prototypes", type=int, default=1)
+
     # energy decoder
     parser.add_argument("--num_energy_decoder_layers", type=int, default=2)
 
@@ -469,6 +724,13 @@ def parse_args():
         encoder_out_feats_size = args.compressing_layer_sizes[-1]
     else:
         encoder_out_feats_size = args.conv_layer_size
+
+    # cluster decoder
+    val = 2 * encoder_out_feats_size
+    args.cluster_decoder_hidden_layer_sizes = [
+        max(val // 2 ** i, 50) for i in range(args.num_cluster_decoder_layers)
+    ]
+    args.num_centroids = [args.prototype_size] * args.num_prototypes
 
     # energy decoder
     val = 2 * encoder_out_feats_size
@@ -521,6 +783,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
+        have_activation_energy_ratio=args.have_activation_energy_ratio,
     )
 
     state_dict = trainset.state_dict()
@@ -533,6 +796,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        have_activation_energy_ratio=args.have_activation_energy_ratio,
     )
 
     testset = GreenDataset(
@@ -543,6 +807,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        have_activation_energy_ratio=args.have_activation_energy_ratio,
     )
 
     # save dataset state dict for retraining or prediction
@@ -662,6 +927,7 @@ def main():
         progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
+        num_sanity_val_steps=0,  # 0, since we use centroids from training set
         # profiler="simple",
         # deterministic=True,
     )
