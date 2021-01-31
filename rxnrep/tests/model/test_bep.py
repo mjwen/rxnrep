@@ -17,15 +17,36 @@ def test_activation_energy_predictor():
     has_activation_e = torch.as_tensor(has_activation_e, dtype=torch.bool)
     assignments = torch.as_tensor(assignments)
 
-    predictor = ActivationEnergyPredictor(reaction_e, activation_e, has_activation_e)
-    pred_act_e, pred_have_act_e = predictor.get_predicted_activation_energy(
-        assignments, min_num_data_points_for_fitting=3
+    ref_pred_have_act_e = [True] * 7 + [False] * 7
+    ref_pred_act_e = [1.0, 2.01, 3.02, 4.03, 5.04, 6.05, 7.06] + [0.0] * 7
+
+    predictor = ActivationEnergyPredictor(
+        num_centroids=[2], min_num_data_points_for_fitting=3
     )
 
-    assert np.array_equal(pred_have_act_e[:7], [True] * 7)
-    assert np.array_equal(pred_have_act_e[7:], [False] * 7)
-    assert np.allclose(pred_act_e[:7], [1.0, 2.01, 3.02, 4.03, 5.04, 6.05, 7.06])
-    assert np.allclose(pred_act_e[7:], [0.0] * 7)
+    pred_act_e, pred_have_act_e = predictor.fit_predict(
+        reaction_e,
+        activation_e,
+        has_activation_e,
+        [assignments],
+    )
+    pred_act_e = pred_act_e[0]
+    pred_have_act_e = pred_have_act_e[0]
+    assert np.array_equal(pred_have_act_e[:7], ref_pred_have_act_e[:7])
+    assert np.array_equal(pred_have_act_e[7:], ref_pred_have_act_e[7:])
+    assert np.allclose(pred_act_e[:7], ref_pred_act_e[:7])
+    assert np.allclose(pred_act_e[7:], ref_pred_act_e[7:])
+
+    pred_act_e, pred_have_act_e = predictor.predict(
+        reaction_e,
+        [assignments],
+    )
+    pred_act_e = pred_act_e[0]
+    pred_have_act_e = pred_have_act_e[0]
+    assert np.array_equal(pred_have_act_e[:7], ref_pred_have_act_e[:7])
+    assert np.array_equal(pred_have_act_e[7:], ref_pred_have_act_e[7:])
+    assert np.allclose(pred_act_e[:7], ref_pred_act_e[:7])
+    assert np.allclose(pred_act_e[7:], ref_pred_act_e[7:])
 
 
 def test_linear_regression():
