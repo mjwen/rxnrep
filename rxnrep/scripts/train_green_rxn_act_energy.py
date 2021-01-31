@@ -362,7 +362,13 @@ def parse_args():
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
     # ========== compressor ==========
-    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
+    parser.add_argument(
+        "--compressing_layer_sizes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="`None` to not use it",
+    )
     parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
 
     # ========== pooling ==========

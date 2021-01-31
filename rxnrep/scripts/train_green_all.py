@@ -81,10 +81,6 @@ class RxnRepLightningModel(pl.LightningModule):
             masked_atom_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             masked_atom_type_decoder_activation=params.node_decoder_activation,
             masked_atom_type_decoder_num_classes=params.masked_atom_type_num_classes,
-            # clustering decoder
-            reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
-            reaction_cluster_decoder_activation=params.cluster_decoder_activation,
-            reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
             # energy decoder
             reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
@@ -643,7 +639,13 @@ def parse_args():
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
     # ========== compressor ==========
-    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
+    parser.add_argument(
+        "--compressing_layer_sizes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="`None` to not use it",
+    )
     parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
 
     # ========== pooling ==========
@@ -682,16 +684,6 @@ def parse_args():
     )
 
     # clustering decoder
-    parser.add_argument(
-        "--cluster_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
-    )
-    parser.add_argument("--cluster_decoder_activation", type=str, default="ReLU")
-    parser.add_argument(
-        "--cluster_decoder_projection_head_size",
-        type=int,
-        default=30,
-        help="projection head size for the clustering decoder",
-    )
     parser.add_argument(
         "--num_centroids",
         type=int,
@@ -796,7 +788,6 @@ def parse_args():
     parser.add_argument("--num_node_decoder_layers", type=int, default=1)
 
     # cluster decoder
-    parser.add_argument("--num_cluster_decoder_layers", type=int, default=1)
     parser.add_argument("--prototype_size", type=int, default=10)
     parser.add_argument("--num_prototypes", type=int, default=1)
 
@@ -829,10 +820,6 @@ def parse_args():
     ]
 
     # cluster decoder
-    val = 2 * encoder_out_feats_size
-    args.cluster_decoder_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.num_cluster_decoder_layers)
-    ]
     args.num_centroids = [args.prototype_size] * args.num_prototypes
 
     # energy decoder

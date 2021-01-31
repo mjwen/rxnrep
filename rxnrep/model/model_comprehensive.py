@@ -25,14 +25,12 @@
 from typing import Any, Dict
 
 import torch
-import torch.nn as nn
 
 from rxnrep.model.decoder import (
     ActivationEnergyDecoder,
     AtomHopDistDecoder,
     AtomTypeDecoder,
     BondHopDistDecoder,
-    ReactionClusterDecoder,
     ReactionEnergyDecoder,
 )
 from rxnrep.model.model import EncoderAndPooling
@@ -79,10 +77,6 @@ class ReactionRepresentation(EncoderAndPooling):
         masked_atom_type_decoder_hidden_layer_sizes=None,
         masked_atom_type_decoder_activation=None,
         masked_atom_type_decoder_num_classes=None,
-        # clustering decoder
-        reaction_cluster_decoder_hidden_layer_sizes=None,
-        reaction_cluster_decoder_activation=None,
-        reaction_cluster_decoder_output_size=None,
         # reaction energy decoder
         reaction_energy_decoder_hidden_layer_sizes=None,
         reaction_energy_decoder_activation=None,
@@ -149,15 +143,6 @@ class ReactionRepresentation(EncoderAndPooling):
             self.masked_atom_type_decoder = None
 
         # ========== reaction level decoder ==========
-        if reaction_cluster_decoder_hidden_layer_sizes:
-            self.reaction_cluster_decoder = ReactionClusterDecoder(
-                in_size=self.reaction_feats_size,
-                num_classes=reaction_cluster_decoder_output_size,
-                hidden_layer_sizes=reaction_cluster_decoder_hidden_layer_sizes,
-                activation=reaction_cluster_decoder_activation,
-            )
-        else:
-            self.reaction_cluster_decoder = None
 
         # reaction energy decoder
         if reaction_energy_decoder_hidden_layer_sizes:
@@ -221,11 +206,6 @@ class ReactionRepresentation(EncoderAndPooling):
             masked_atom_type = self.masked_atom_type_decoder(atom_ft_of_masked_atoms)
 
         # reaction decoder
-        reaction_cluster = (
-            None
-            if self.reaction_cluster_decoder is None
-            else self.reaction_cluster_decoder(reaction_feats)
-        )
         reaction_energy = (
             None
             if self.reaction_energy_decoder is None
@@ -242,7 +222,7 @@ class ReactionRepresentation(EncoderAndPooling):
             "bond_hop_dist": bond_hop_dist,
             "atom_hop_dist": atom_hop_dist,
             "masked_atom_type": masked_atom_type,
-            "reaction_cluster": reaction_cluster,
+            "reaction_cluster": reaction_feats,
             "reaction_energy": reaction_energy,
             "activation_energy": activation_energy,
         }

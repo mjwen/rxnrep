@@ -64,10 +64,6 @@ class RxnRepLightningModel(pl.LightningModule):
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
-            # clustering decoder
-            reaction_cluster_decoder_hidden_layer_sizes=params.cluster_decoder_hidden_layer_sizes,
-            reaction_cluster_decoder_activation=params.cluster_decoder_activation,
-            reaction_cluster_decoder_output_size=params.cluster_decoder_projection_head_size,
             # energy decoder
             reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
@@ -300,22 +296,22 @@ class RxnRepLightningModel(pl.LightningModule):
         #
         # clustering loss
         #
-        loss_reaction_cluster = []
-        for a, c in zip(self.assignments[mode], self.centroids):
-            a = a[indices].to(self.device)  # select for current batch from all
-            c = c.to(self.device)
-            x = preds["reaction_cluster"]
-
-            # normalize prediction tensor, since centroids are normalized
-            if self.hparams.kmeans_similarity == "cosine":
-                x = F.normalize(x, dim=1, p=2)
-            else:
-                raise NotImplementedError
-
-            p = torch.mm(x, c.t()) / self.hparams.temperature
-            e = F.cross_entropy(p, a)
-            loss_reaction_cluster.append(e)
-        loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
+        # loss_reaction_cluster = []
+        # for a, c in zip(self.assignments[mode], self.centroids):
+        #     a = a[indices].to(self.device)  # select for current batch from all
+        #     c = c.to(self.device)
+        #     x = preds["reaction_cluster"]
+        #
+        #     # normalize prediction tensor, since centroids are normalized
+        #     if self.hparams.kmeans_similarity == "cosine":
+        #         x = F.normalize(x, dim=1, p=2)
+        #     else:
+        #         raise NotImplementedError
+        #
+        #     p = torch.mm(x, c.t()) / self.hparams.temperature
+        #     e = F.cross_entropy(p, a)
+        #     loss_reaction_cluster.append(e)
+        # loss_reaction_cluster = sum(loss_reaction_cluster) / len(loss_reaction_cluster)
 
         #
         # energy loss
@@ -366,7 +362,12 @@ class RxnRepLightningModel(pl.LightningModule):
         preds["activation_energy_bep"] = torch.cat(activation_energy_bep_pred)
 
         # total loss (maybe assign different weights)
-        loss = loss_reaction_energy + loss_activation_energy + loss_bep
+        loss = (
+            # loss_reaction_cluster
+            loss_reaction_energy
+            + loss_activation_energy
+            + loss_bep
+        )
 
         # ========== log the loss ==========
         self.log_dict(
@@ -559,7 +560,13 @@ def parse_args():
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
     # ========== compressor ==========
-    parser.add_argument("--compressing_layer_sizes", type=int, nargs="+", default=[32])
+    parser.add_argument(
+        "--compressing_layer_sizes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="`None` to not use it",
+    )
     parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
 
     # ========== pooling ==========
@@ -585,16 +592,6 @@ def parse_args():
     # ========== decoder ==========
 
     # clustering decoder
-    parser.add_argument(
-        "--cluster_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
-    )
-    parser.add_argument("--cluster_decoder_activation", type=str, default="ReLU")
-    parser.add_argument(
-        "--cluster_decoder_projection_head_size",
-        type=int,
-        default=30,
-        help="projection head size for the clustering decoder",
-    )
     parser.add_argument(
         "--num_centroids",
         type=int,
@@ -696,7 +693,6 @@ def parse_args():
     parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
 
     # cluster decoder
-    parser.add_argument("--num_cluster_decoder_layers", type=int, default=1)
     parser.add_argument("--prototype_size", type=int, default=10)
     parser.add_argument("--num_prototypes", type=int, default=1)
 
@@ -723,10 +719,6 @@ def parse_args():
         encoder_out_feats_size = args.conv_layer_size
 
     # cluster decoder
-    val = 2 * encoder_out_feats_size
-    args.cluster_decoder_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.num_cluster_decoder_layers)
-    ]
     args.num_centroids = [args.prototype_size] * args.num_prototypes
 
     # energy decoder
