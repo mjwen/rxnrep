@@ -119,9 +119,11 @@ class RxnRepLightningModel(pl.LightningModule):
             If returns = `reaction_feature`, return a 2D tensor of reaction features,
             each row for a reaction;
             If returns = `diff_feature_before_rxn_conv` or `diff_feature_after_rxn_conv`,
-                return a dictionary of atom, bond, and global features.
-                As the name suggests, the returned features can be `before` or `after`
-                the reaction conv layers.
+            return a dictionary of atom, bond, and global features.
+            As the name suggests, the returned features can be `before` or `after`
+            the reaction conv layers.
+            If returns = `activation_energy` (`reaction_energy`), return the activation
+            (reaction) energy predicted by the decoder.
         """
         nodes = ["atom", "bond", "global"]
 
@@ -146,12 +148,22 @@ class RxnRepLightningModel(pl.LightningModule):
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
+        elif returns in ["reaction_energy", "activation_energy"]:
+            feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            preds = self.model.decode(feats, reaction_feats, metadata)
 
+            mean = self.hparams.label_mean[returns]
+            std = self.hparams.label_std[returns]
+            preds = preds[returns] * std + mean
+
+            return preds[returns]
         else:
             supported = [
                 "reaction_feature",
                 "diff_feature_before_rxn_conv",
                 "diff_feature_after_rxn_conv",
+                "activation_energy",
+                "reaction_energy",
             ]
             raise ValueError(
                 f"Expect `returns` to be one of {supported}; got `{returns}`."
@@ -383,8 +395,8 @@ class RxnRepLightningModel(pl.LightningModule):
         loss_bep = sum(loss_bep) / len(loss_bep)
 
         # add to preds and labels for metric computation
-        labels["activation_energy_bep"] = torch.stack(activation_energy_bep_label)
-        preds["activation_energy_bep"] = torch.stack(activation_energy_bep_pred)
+        labels["activation_energy_bep"] = torch.cat(activation_energy_bep_label)
+        preds["activation_energy_bep"] = torch.cat(activation_energy_bep_pred)
 
         # total loss (maybe assign different weights)
         loss = (
@@ -953,6 +965,7 @@ def load_dataset(args):
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
     args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
     args.masked_atom_type_num_classes = len(trainset.get_species())
+    args.label_mean = trainset.label_mean
     args.label_std = trainset.label_std
 
     args.feature_size = trainset.feature_size

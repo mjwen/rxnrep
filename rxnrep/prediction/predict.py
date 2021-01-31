@@ -244,6 +244,7 @@ def load_green_dataset(state_dict_path: Path, dataset_filename: Path):
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
+        atom_type_masker_ratio=0.1,
         init_state_dict=state_dict_path,
     )
 

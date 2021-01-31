@@ -103,6 +103,15 @@ class RxnRepLightningModel(pl.LightningModule):
         else:
             raise ValueError(f"Unsupported pooling method {pooling_method}")
 
+        ####################
+        # adjust args
+        ####################
+        val = 2 * conv_last_layer_size
+        params.head_hidden_layer_sizes = [
+            max(val // 2 ** i, 50) for i in range(params.num_head_hidden_layers)
+        ]
+
+        # decoder
         self.classification_head = FCNNDecoder(
             pooling_last_layer_size,
             params.num_reaction_classes,
@@ -371,6 +380,13 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=100, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
+
+    ####################
+    # helper args
+    ####################
+    # decoder (note, this is used in model init where we determine hidden layer sizes
+    # using encoder output sizes, search `adjust args`)
+    parser.add_argument("--num_head_hidden_layers", type=int, default=2)
 
     args = parser.parse_args()
 
