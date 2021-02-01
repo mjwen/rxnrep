@@ -495,6 +495,81 @@ class AtomFeaturizerMinimum(BaseFeaturizer):
         return feats
 
 
+class AtomFeaturizerMinimum2(BaseFeaturizer):
+    """
+    Featurize atoms in a molecule using minimum features like atom type, whether an
+    atom in ring.
+
+    Exactly the same as bondnet.
+    """
+
+    @property
+    def feature_name(self):
+
+        if not hasattr(self, "allowable_atom_type"):
+            raise RuntimeError(
+                "`feature_name` should be called after features are generated."
+            )
+
+        mol = Chem.MolFromSmiles("CO")
+        ring = mol.GetRingInfo()
+        atom = mol.GetAtomWithIdx(0)
+
+        names = (
+            ["total degree"] * len(atom_total_degree(atom))
+            + ["total num H"] * len(atom_total_num_H(atom, include_neighbors=True))
+            + ["is in ring"] * len(atom_is_in_ring(atom))
+            + ["atom type"]
+            * len(atom_type_one_hot(atom, allowable_set=self.allowable_atom_type))
+            + ["ring size"] * len(atom_in_ring_of_size_one_hot(0, ring))
+        )
+
+        # Create a dummy molecule to make sure feature size is correct.
+        # This is to avoid the case where we updated the __call__() function but forgot
+        # the `feature_name()`
+        feat_size = self(mol, self.allowable_atom_type).shape[1]
+        if len(names) != feat_size:
+            raise RuntimeError(
+                f"Feature size calculated from feature name ({len(names)}) not equal to "
+                f"that calculated from real feature({feat_size}). Probably you forget to "
+                f"update the `feature_name()` function. "
+            )
+
+        return names
+
+    def __call__(self, mol: Chem.Mol, allowable_atom_type: List[str]) -> torch.Tensor:
+        """
+        Args:
+            mol: rdkit molecule
+            allowable_atom_type: allowed atom species set for one-hot encoding
+
+        Returns:
+             2D tensor of shape (N, D), where N is the number of atoms, and D is the
+             feature size.
+        """
+
+        # keep track of runtime argument
+        self.allowable_atom_type = allowable_atom_type
+
+        ring = mol.GetRingInfo()
+
+        feats = []
+        for i in range(mol.GetNumAtoms()):
+            atom = mol.GetAtomWithIdx(i)
+
+            ft = atom_total_degree(atom)
+            ft += atom_total_num_H(atom, include_neighbors=True)
+            ft += atom_is_in_ring(atom)
+            ft += atom_type_one_hot(atom, allowable_set=allowable_atom_type)
+            ft += atom_in_ring_of_size_one_hot(i, ring)
+
+            feats.append(ft)
+
+        feats = torch.tensor(feats, dtype=torch.float32)
+
+        return feats
+
+
 class GlobalFeaturizer(BaseFeaturizer):
     """
     Featurize the global state of a molecules.

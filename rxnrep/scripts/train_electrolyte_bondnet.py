@@ -19,7 +19,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.electrolyte import ElectrolyteDataset, ElectrolyteDatasetNoAddedBond
 from rxnrep.data.featurizer import (
-    AtomFeaturizerMinimum,
+    AtomFeaturizerMinimum2,
     BondFeaturizerMinimum,
     GlobalFeaturizer,
 )
@@ -533,7 +533,7 @@ def load_dataset(args):
 
     trainset = DST(
         filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizerMinimum(),
+        atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
@@ -545,7 +545,7 @@ def load_dataset(args):
 
     valset = DST(
         filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizerMinimum(),
+        atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
@@ -555,7 +555,7 @@ def load_dataset(args):
 
     testset = DST(
         filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizerMinimum(),
+        atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
         transform_features=True,
