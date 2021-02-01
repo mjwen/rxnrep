@@ -40,7 +40,7 @@ class GreenDataset(USPTODataset):
         atom_type_masker_ratio: Union[float, None] = None,
         atom_type_masker_use_masker_value: bool = True,
         # ratio of activation energy label to use
-        have_activation_energy_ratio=0.2,
+        have_activation_energy_ratio=1.0,
     ):
         pass
 

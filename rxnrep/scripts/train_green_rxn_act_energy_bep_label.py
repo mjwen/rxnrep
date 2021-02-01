@@ -785,7 +785,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
-        have_activation_energy_ratio=args.have_activation_energy_ratio,
+        have_activation_energy_ratio=1.0,
     )
 
     testset = GreenDataset(
@@ -796,7 +796,7 @@ def load_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
-        have_activation_energy_ratio=args.have_activation_energy_ratio,
+        have_activation_energy_ratio=1.0,
     )
 
     # save dataset state dict for retraining or prediction
