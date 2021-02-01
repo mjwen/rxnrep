@@ -80,16 +80,16 @@ class ElectrolyteDataset(USPTODataset):
         labels = super().generate_labels()
 
         # `reaction_energy` label
-        energies = torch.as_tensor(
+        reaction_energy = torch.as_tensor(
             [rxn.get_property("free_energy") for rxn in self.reactions],
             dtype=torch.float32,
         )
         if normalize:
-            energies = self.scale_label(energies, name="reaction_energy")
+            reaction_energy = self.scale_label(reaction_energy, name="reaction_energy")
 
         # (each e is a scalar, but here we make it a 1D tensor of 1 element to use the
         # collate_fn, where all energies in a batch is cat to a 1D tensor)
-        for e, rxn_label in zip(energies, labels):
+        for e, rxn_label in zip(reaction_energy, labels):
             rxn_label["reaction_energy"] = torch.as_tensor([e], dtype=torch.float32)
 
         return labels
