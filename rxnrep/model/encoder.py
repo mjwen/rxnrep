@@ -210,7 +210,7 @@ def create_reaction_features(
     subtracted from the products. For lost bonds in the reactants, the negative of the
     features are used. For added bonds in the products, the features are directly copied.
 
-    Each reaction has 1 global reactions: computed as the difference of the mean of the
+    Each reaction has 1 global reactions: computed as the difference of the sum of the
     global features between the products and the reactants.
 
     Args:
@@ -240,6 +240,8 @@ def create_reaction_features(
 
     # Atom difference feats
     size = len(atom_feats) // 2  # same number of atom nodes in reactants and products
+    # we can do the below to lines because in the collate fn of dataset, all products
+    # graphs are appended to reactants graphs
     reactant_atom_feats = atom_feats[:size]
     product_atom_feats = atom_feats[size:]
     diff_atom_feats = product_atom_feats - reactant_atom_feats
@@ -279,16 +281,16 @@ def create_reaction_features(
     # TODO benchmark segment_reduce and torch.split one. report bug to dgl
 
     # mean_reactant_global_feats = dgl.ops.segment.segment_reduce(
-    # torch.tensor(reactant_num_molecules), reactant_global_feats, reducer="mean",
+    # torch.tensor(reactant_num_molecules), reactant_global_feats, reducer="sum",
     # )
     # mean_product_global_feats = dgl.ops.segment.segment_reduce(
-    # torch.tensor(product_num_molecules), product_global_feats, reducer="mean",
+    # torch.tensor(product_num_molecules), product_global_feats, reducer="sum",
     # )
 
     split = torch.split(reactant_global_feats, reactant_num_molecules)
-    mean_reactant_global_feats = torch.stack([torch.mean(x, dim=0) for x in split])
+    mean_reactant_global_feats = torch.stack([torch.sum(x, dim=0) for x in split])
     split = torch.split(product_global_feats, product_num_molecules)
-    mean_product_global_feats = torch.stack([torch.mean(x, dim=0) for x in split])
+    mean_product_global_feats = torch.stack([torch.sum(x, dim=0) for x in split])
     diff_global_feats = mean_product_global_feats - mean_reactant_global_feats
 
     diff_feats = {

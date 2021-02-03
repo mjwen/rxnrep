@@ -46,8 +46,8 @@ def test_create_reaction_features():
 
     ref_global_feats = torch.stack(
         [
-            torch.mean(global_feats[3:5], dim=0) - torch.mean(global_feats[0:2], dim=0),
-            torch.mean(global_feats[5:7], dim=0) - global_feats[2],
+            torch.sum(global_feats[3:5], dim=0) - torch.sum(global_feats[0:2], dim=0),
+            torch.sum(global_feats[5:7], dim=0) - global_feats[2],
         ]
     )
 
