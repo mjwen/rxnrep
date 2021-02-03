@@ -23,8 +23,8 @@ from rxnrep.model.model_wo_atom_type_decoder import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
-    get_latest_checkpoint_wandb,
     get_repo_git_commit,
+    load_checkpoint_wandb,
     save_files_to_wandb,
 )
 
@@ -739,7 +739,7 @@ def main():
     # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
         # restore
-        checkpoint_path = get_latest_checkpoint_wandb(log_save_dir, project)
+        checkpoint_path = load_checkpoint_wandb(log_save_dir, project)
     else:
         # create new
         checkpoint_path = None

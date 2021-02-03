@@ -269,7 +269,7 @@ class ProgressMeter:
         print(fmt_str)
 
 
-def get_latest_checkpoint_tensorboard(save_dir="./lightning_logs"):
+def load_checkpoint_tensorboard(save_dir="./lightning_logs"):
     """
     Get the latest checkpoint path of tensorboard logger.
     """
@@ -284,13 +284,17 @@ def get_latest_checkpoint_tensorboard(save_dir="./lightning_logs"):
     return ckpt_path
 
 
-def get_latest_checkpoint_wandb(save_dir: Path, project: str) -> Tuple[str, str]:
+def load_checkpoint_wandb(
+    save_dir: Path, project: str, run_directory: str = "latest-run"
+) -> Tuple[str, str]:
     """
     Get the latest checkpoint path and the identifier when using wandb logger.
 
     Args:
         save_dir: name of the directory to save wandb log, e.g. /some/path/wandb/
         project: project name of the wandb run
+        run_directory: the directory for the run that stores files, logs, and run info,
+            e.g. run-20210203_142512-6eooscnj
     Returns:
         ckpt_path: path to the latest run
         identifier: identifier of the wandb run
@@ -298,7 +302,7 @@ def get_latest_checkpoint_wandb(save_dir: Path, project: str) -> Tuple[str, str]
     save_dir = Path(save_dir).expanduser().resolve()
 
     # get identifier of latest_run
-    latest_run = save_dir.joinpath("wandb", "latest-run").resolve()
+    latest_run = save_dir.joinpath("wandb", run_directory).resolve()
     identifier = str(latest_run).split("-")[-1]
 
     # get checkpoint of latest run
