@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import dgl
 import numpy as np
@@ -284,13 +284,16 @@ def get_latest_checkpoint_tensorboard(save_dir="./lightning_logs"):
     return ckpt_path
 
 
-def get_latest_checkpoint_wandb(save_dir: Path, project: str) -> str:
+def get_latest_checkpoint_wandb(save_dir: Path, project: str) -> Tuple[str, str]:
     """
-    Get the latest checkpoint path when using wandb logger.
+    Get the latest checkpoint path and the identifier when using wandb logger.
 
     Args:
         save_dir: name of the directory to save wandb log, e.g. /some/path/wandb/
         project: project name of the wandb run
+    Returns:
+        ckpt_path: path to the latest run
+        identifier: identifier of the wandb run
     """
     save_dir = Path(save_dir).expanduser().resolve()
 
@@ -304,7 +307,7 @@ def get_latest_checkpoint_wandb(save_dir: Path, project: str) -> str:
     ).resolve()
     ckpt_path = str(ckpt_path)
 
-    return ckpt_path
+    return ckpt_path, identifier
 
 
 def get_repo_git_commit(repo_path: Path) -> str:

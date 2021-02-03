@@ -631,10 +631,11 @@ def main():
     # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
         # restore
-        checkpoint_path = get_latest_checkpoint_wandb(log_save_dir, project)
+        checkpoint_path, identifier = get_latest_checkpoint_wandb(log_save_dir, project)
     else:
         # create new
         checkpoint_path = None
+        identifier = None
 
     if not log_save_dir.exists():
         # put in try except in case it throws errors in distributed training
@@ -642,7 +643,7 @@ def main():
             log_save_dir.mkdir()
         except FileExistsError:
             pass
-    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project)
+    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
 
     # cluster environment to use torch.distributed.launch, e.g.
     # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
