@@ -1,4 +1,6 @@
 import os
+import random
+from datetime import datetime
 
 from pytorch_lightning.cluster_environments import ClusterEnvironment
 
@@ -27,7 +29,20 @@ class PyTorchLaunch(ClusterEnvironment):
         return os.environ["MASTER_ADDR"]
 
     def master_port(self):
-        return int(os.environ["MASTER_PORT"])
+        # return int(os.environ["MASTER_PORT"])
+
+        # randomly pick a port between 15000 and 29500
+        # This is useful when we do sweeping: if one sweep run fails, the port will
+        # still be occupied. If we use the same port, it errors out.
+
+        # set seed based on time, in case seed is set by lightning or pytorch
+        random.seed(datetime.now())
+        port = 15000 + random.randrange(0, 5000)
+
+        # set seed to a fixed value, for later determinate state
+        random.seed(305)
+
+        return port
 
     def world_size(self):
         return int(os.environ["WORLD_SIZE"])

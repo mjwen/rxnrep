@@ -309,7 +309,13 @@ def load_checkpoint_wandb(
     ckpt_path = save_dir.joinpath(
         project, identifier, "checkpoints", "last.ckpt"
     ).resolve()
-    ckpt_path = str(ckpt_path)
+
+    # the checkpoint does not exist
+    if not latest_run.exists() or not ckpt_path.exists() or identifier == "run":
+        ckpt_path = None
+        identifier = None
+    else:
+        ckpt_path = str(ckpt_path)
 
     return ckpt_path, identifier
 
