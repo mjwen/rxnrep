@@ -21,7 +21,7 @@ from torch.utils.data.dataloader import DataLoader
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.green import GreenDataset
 from rxnrep.model.model_comprehensive import ReactionRepresentation
-from rxnrep.scripts.launch_environment import PyTorchLaunch
+from rxnrep.scripts.launch_environment import PyTorchLaunch, set_port
 from rxnrep.scripts.utils import (
     TimeMeter,
     get_repo_git_commit,
@@ -649,6 +649,10 @@ def main():
     # cluster environment to use torch.distributed.launch, e.g.
     # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
     cluster = PyTorchLaunch()
+
+    # run in ddp mode (set port manually, so that each W&B sweep run using different port)
+    if args.accelerator is not None:
+        set_port(args.gpus)
 
     #
     # To run ddp on cpu, comment out `gpus` and `plugins`, and then set

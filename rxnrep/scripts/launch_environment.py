@@ -1,7 +1,7 @@
 import os
-import random
-from datetime import datetime
+from pathlib import Path
 
+import psutil
 from pytorch_lightning.cluster_environments import ClusterEnvironment
 
 
@@ -29,23 +29,76 @@ class PyTorchLaunch(ClusterEnvironment):
         return os.environ["MASTER_ADDR"]
 
     def master_port(self):
-        # return int(os.environ["MASTER_PORT"])
-
-        # randomly pick a port between 15000 and 29500
-        # This is useful when we do sweeping: if one sweep run fails, the port will
-        # still be occupied. If we use the same port, it errors out.
-
-        # set seed based on time, in case seed is set by lightning or pytorch
-        random.seed(datetime.now())
-        port = 15000 + random.randrange(0, 5000)
-
-        # set seed to a fixed value, for later determinate state
-        random.seed(305)
-
-        return port
+        return int(os.environ["MASTER_PORT"])
 
     def world_size(self):
         return int(os.environ["WORLD_SIZE"])
 
     def local_rank(self):
         return int(os.environ["LOCAL_RANK"])
+
+
+def set_port(gpus, filename="current_port.txt"):
+    """
+    Set `MASTER_PORT`, using a value in `filename` and the input gpus.
+
+    This is to deal with W&B sweep: if some sweep fail,
+
+    Seems we can only do this because this is called before torch distributed groups
+    are created, and thus we cannot init port on rank 1 and pass them to others.
+    (Because dist.barrier cannot be used).
+
+    The function relies on shared file, and check whether this is a handle on a file to
+    avoid racing.
+
+    Args:
+        gpus: number of gpus, group of `gpus` values will have the same port
+        filename: file to store the port into
+    """
+
+    path = Path(filename)
+
+    while has_handle(str(path)):
+        continue
+
+    if not path.exists():
+        fh = open(path, "w")
+        port = 15000
+        N = 0
+    else:
+        fh = open(path, "r+")
+        line = fh.readlines()[-1].split()
+        port = int(line[0])
+        N = int(line[1])
+
+    if N % gpus == 0:
+        port += 1
+    N += 1
+
+    # set port
+    os.environ["MASTER_PORT"] = str(port)
+
+    # write current for next use
+    fh.write(f"{port} {N}\n")
+
+    fh.close()
+
+
+def has_handle(fpath):
+    """
+    Whether there is a handle on a file.
+    """
+    for proc in psutil.process_iter():
+        try:
+            for item in proc.open_files():
+                if fpath == item.path:
+                    return True
+        except Exception:
+            pass
+
+    return False
+
+
+if __name__ == "__main__":
+    for i in range(20):
+        set_port(2)
