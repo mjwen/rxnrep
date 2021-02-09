@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 import psutil
@@ -51,6 +52,9 @@ def set_port(gpus, filename="current_port.txt"):
     The function relies on shared file, and check whether this is a handle on a file to
     avoid racing.
 
+    Warnings:
+        This only works for running on one node.
+
     Args:
         gpus: number of gpus, group of `gpus` values will have the same port
         filename: file to store the port into
@@ -79,7 +83,7 @@ def set_port(gpus, filename="current_port.txt"):
     os.environ["MASTER_PORT"] = str(port)
 
     # write current for next use
-    fh.write(f"{port} {N}\n")
+    fh.write(f"{port} {N}  {datetime.now()}\n")
 
     fh.close()
 
