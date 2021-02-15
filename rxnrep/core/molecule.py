@@ -207,10 +207,9 @@ class Molecule:
         """
         Returns coordinates of the atoms. The 2D array is of shape (N, 3), where N is the
         number of atoms.
-
-        Conformer needs to be created before calling this. Conformer can be created by
-        embedding the atom.
         """
+        self._mol = generate_3D_coords(self._mol)
+
         # coords = self._mol.GetConformer().GetPositions()
         # NOTE, the above way to get coords results in segfault on linux, so we use the
         # below workaround
@@ -490,6 +489,44 @@ class Molecule:
         self.sanitize()
 
         return self
+
+
+def generate_3D_coords(m: Chem.Mol) -> Chem.Mol:
+    """
+    Generate 3D coords for an rdkit molecule.
+
+    This is done by embedding and then optimizing using MMFF force filed (or UFF force
+    field).
+
+    Args:
+        m: rdkit mol.
+
+    Returns:
+        rdkit mol with updated coords
+    """
+
+    def optimize_till_converge(method, m):
+        maxiters = 200
+        while True:
+            error = method(m, maxIters=maxiters)
+            if error == 1:
+                maxiters *= 2
+            else:
+                return error
+
+    # embedding
+    error = AllChem.EmbedMolecule(m, randomSeed=35)
+    if error == -1:  # https://sourceforge.net/p/rdkit/mailman/message/33386856/
+        AllChem.EmbedMolecule(m, randomSeed=35, useRandomCoords=True)
+    if error == -1:
+        raise MoleculeError("Cannot generate coords for mol.")
+
+    # optimize, try MMFF first, if fails then UFF
+    error = optimize_till_converge(AllChem.MMFFOptimizeMolecule, m)
+    if error == -1:  # MMFF cannot be set up
+        optimize_till_converge(AllChem.UFFOptimizeMolecule, m)
+
+    return m
 
 
 class MoleculeError(Exception):

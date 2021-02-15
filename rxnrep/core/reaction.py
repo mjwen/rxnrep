@@ -326,6 +326,26 @@ class Reaction:
 
         return unchanged_bonds, lost_bonds, added_bonds
 
+    def get_altered_bond_type(self) -> str:
+        """
+        Return the altered bond type as a string.
+
+        Returns:
+            altered bonds: e.g. `+C,C;-C,N` means a carbon carbon bond is created and a
+                carbon nitrogen bond is broken.
+        """
+
+        species = self.species
+        bonds = []
+        for b in self.lost_bonds:
+            bonds.append("-" + ",".join(sorted([species[b[0]], species[b[1]]])))
+        for b in self.added_bonds:
+            bonds.append("+" + ",".join(sorted([species[b[0]], species[b[1]]])))
+
+        altered_bonds = ";".join(sorted(bonds))
+
+        return altered_bonds
+
     @staticmethod
     def _get_atom_map_number(molecules: List[Molecule], zero_based=False):
         """
