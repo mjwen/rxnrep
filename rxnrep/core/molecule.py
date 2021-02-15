@@ -56,7 +56,10 @@ class Molecule:
             raise MoleculeError(f"Cannot create molecule for: {s}")
 
         if not remove_H:
-            Chem.SanitizeMol(m)
+            try:
+                Chem.SanitizeMol(m)
+            except Exception as e:
+                raise MoleculeError(f"Cannot sanitize molecule: {e}")
 
         return cls(m, s)
 

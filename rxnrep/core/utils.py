@@ -115,7 +115,11 @@ def get_atom_mapping(
             )
         else:
             raise RuntimeError("Not supported number of products")
-        broken_bond = broken_bonds[0]
+
+        if not broken_bonds:
+            raise RuntimeError("Cannot find broken bond, check your input")
+        else:
+            broken_bond = broken_bonds[0]
 
     # Split the reactant mol graph to form two sub graphs
     # This is similar to MoleculeGraph.split_molecule_subbraphs(), but do not reorder
