@@ -552,8 +552,10 @@ class AtomTypeFeatureMasker:
         self.class_labels_map = {s: i for i, s in enumerate(self.allowable_types)}
 
         # indices of atom type features
-        self.start_index = feature_name.index("atom type")
-        self.end_index = len(feature_name) - feature_name[::-1].index("atom type")
+        self.start_index = feature_name.index("atom_type_one_hot")
+        self.end_index = len(feature_name) - feature_name[::-1].index(
+            "atom_type_one_hot"
+        )
 
         if feature_mean is not None and feature_std is not None:
             # set mask values to be - mean/std. This is equivalent to set all values of
