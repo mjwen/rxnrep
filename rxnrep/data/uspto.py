@@ -107,8 +107,7 @@ class USPTODataset(BaseDataset):
             )
             self.atom_type_masker_use_masker_value = atom_type_masker_use_masker_value
 
-    @staticmethod
-    def read_file(filename: Path, nprocs: int):
+    def read_file(self, filename: Path, nprocs: int):
 
         # read file
         logger.info("Start reading dataset file...")
@@ -125,13 +124,13 @@ class USPTODataset(BaseDataset):
         ids = [f"{smi}_index-{i}" for i, smi in enumerate(smiles_reactions)]
         if nprocs == 1:
             reactions = [
-                process_one_reaction_from_input_file(smi, i)
+                self._process_one_reaction_from_input_file(smi, i)
                 for smi, i in zip(smiles_reactions, ids)
             ]
         else:
             args = zip(smiles_reactions, ids)
             with multiprocessing.Pool(nprocs) as p:
-                reactions = p.starmap(process_one_reaction_from_input_file, args)
+                reactions = p.starmap(self._process_one_reaction_from_input_file, args)
 
         # column names besides `reaction`
         column_names = df.columns.values.tolist()
@@ -158,6 +157,29 @@ class USPTODataset(BaseDataset):
         )
 
         return succeed_reactions, failed
+
+    @staticmethod
+    def _process_one_reaction_from_input_file(
+        smiles_reaction: str, id: str
+    ) -> Union[Reaction, None]:
+        """
+        Helper function to create reactions using multiprocessing.
+
+        Note, remove H from smiles.
+        """
+
+        try:
+            reaction = smiles_to_reaction(
+                smiles_reaction,
+                id=id,
+                ignore_reagents=True,
+                remove_H=True,
+                sanity_check=False,
+            )
+        except (MoleculeError, ReactionError):
+            return None
+
+        return reaction
 
     def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
         """
@@ -430,26 +452,3 @@ class SchneiderDataset(USPTODataset):
         weight["reaction_class"] = w
 
         return weight
-
-
-def process_one_reaction_from_input_file(
-    smiles_reaction: str, id: str
-) -> Union[Reaction, None]:
-    """
-    Helper function to create reactions using multiprocessing.
-
-    Note, remove H from smiles.
-    """
-
-    try:
-        reaction = smiles_to_reaction(
-            smiles_reaction,
-            id=id,
-            ignore_reagents=True,
-            remove_H=True,
-            sanity_check=False,
-        )
-    except (MoleculeError, ReactionError):
-        return None
-
-    return reaction

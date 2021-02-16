@@ -1,16 +1,12 @@
 import logging
-import multiprocessing
-from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
-import pandas as pd
 import torch
 
 from rxnrep.core.molecule import MoleculeError
 from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
 from rxnrep.data.uspto import USPTODataset
-from rxnrep.utils import to_path
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +38,6 @@ class GreenDataset(USPTODataset):
         # ratio of activation energy label to use
         have_activation_energy_ratio=1.0,
     ):
-        pass
-
         super().__init__(
             filename,
             atom_featurizer,
@@ -64,56 +58,27 @@ class GreenDataset(USPTODataset):
         )
 
     @staticmethod
-    def read_file(filename: Path, nprocs: int):
+    def _process_one_reaction_from_input_file(
+        smiles_reaction: str, id: str
+    ) -> Union[Reaction, None]:
+        """
+        Helper function to create reactions using multiprocessing.
 
-        # read file
-        logger.info("Start reading dataset file...")
+        Note, not remove H from smiles.
+        """
 
-        filename = to_path(filename)
-        df = pd.read_csv(filename, sep="\t")
-        smiles_reactions = df["reaction"].tolist()
+        try:
+            reaction = smiles_to_reaction(
+                smiles_reaction,
+                id=id,
+                ignore_reagents=True,
+                remove_H=False,
+                sanity_check=False,
+            )
+        except (MoleculeError, ReactionError):
+            return None
 
-        logger.info("Finish reading dataset file...")
-
-        # convert to reactions
-        logger.info("Start converting to reactions...")
-
-        ids = [f"{smi}_index-{i}" for i, smi in enumerate(smiles_reactions)]
-        if nprocs == 1:
-            reactions = [
-                process_one_reaction_from_input_file(smi, i)
-                for smi, i in zip(smiles_reactions, ids)
-            ]
-        else:
-            args = zip(smiles_reactions, ids)
-            with multiprocessing.Pool(nprocs) as p:
-                reactions = p.starmap(process_one_reaction_from_input_file, args)
-
-        # column names besides `reaction`
-        column_names = df.columns.values.tolist()
-        column_names.remove("reaction")
-
-        succeed_reactions = []
-        failed = []
-
-        for i, rxn in enumerate(reactions):
-            if rxn is None:
-                failed.append(True)
-            else:
-                # keep other info (e.g. label) in input file as reaction property
-                for name in column_names:
-                    rxn.set_property(name, df[name][i])
-
-                succeed_reactions.append(rxn)
-                failed.append(False)
-
-        counter = Counter(failed)
-        logger.info(
-            f"Finish converting to reactions. Number succeed {counter[False]}, "
-            f"number failed {counter[True]}."
-        )
-
-        return succeed_reactions, failed
+        return reaction
 
     def generate_labels(self, normalize: bool = True) -> List[Dict[str, torch.Tensor]]:
         """
@@ -224,26 +189,3 @@ class GreenDataset(USPTODataset):
             return torch.as_tensor(self.have_activation_energy)
         else:
             raise ValueError(f"Unsupported property name {name}")
-
-
-def process_one_reaction_from_input_file(
-    smiles_reaction: str, id: str
-) -> Union[Reaction, None]:
-    """
-    Helper function to create reactions using multiprocessing.
-
-    Note, not remove H from smiles.
-    """
-
-    try:
-        reaction = smiles_to_reaction(
-            smiles_reaction,
-            id=id,
-            ignore_reagents=True,
-            remove_H=False,
-            sanity_check=False,
-        )
-    except (MoleculeError, ReactionError):
-        return None
-
-    return reaction

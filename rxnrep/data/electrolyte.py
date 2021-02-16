@@ -24,8 +24,7 @@ class ElectrolyteDataset(USPTODataset):
     Electrolyte dataset for unsupervised reaction representation.
     """
 
-    @staticmethod
-    def read_file(filename, nprocs):
+    def read_file(self, filename, nprocs):
 
         # read file
         logger.info("Start reading dataset file...")
@@ -39,14 +38,14 @@ class ElectrolyteDataset(USPTODataset):
 
         if nprocs == 1:
             reactions = [
-                process_one_reaction_from_input_file(rxn, i)
+                self._process_one_reaction_from_input_file(rxn, i)
                 for i, rxn in enumerate(pmg_reactions)
             ]
         else:
             ids = list(range(len(pmg_reactions)))
             args = zip(pmg_reactions, ids)
             with multiprocessing.Pool(nprocs) as p:
-                reactions = p.starmap(process_one_reaction_from_input_file, args)
+                reactions = p.starmap(self._process_one_reaction_from_input_file, args)
 
         failed = []
         succeed_reactions = []
@@ -64,6 +63,20 @@ class ElectrolyteDataset(USPTODataset):
         )
 
         return succeed_reactions, failed
+
+    @staticmethod
+    def _process_one_reaction_from_input_file(
+        pmg_reaction: PMG_Reaction, index: int
+    ) -> Union[Reaction, None]:
+        """
+        Helper function to process one reaction.
+        """
+        try:
+            reaction = pymatgen_reaction_to_reaction(pmg_reaction, index)
+        except (MoleculeError, ReactionError):
+            return None
+
+        return reaction
 
     def generate_labels(self, normalize: bool = True) -> List[Dict[str, torch.Tensor]]:
         """
@@ -107,75 +120,71 @@ class ElectrolyteDatasetNoAddedBond(ElectrolyteDataset):
     def get_class_weight(self) -> Dict[str, torch.Tensor]:
         """
         Create class weight to be used in cross entropy losses.
-
-        This is for labels generated in `generate_labels()`.
-        For each type of, it is computed as the mean over all reactions.
         """
-
-        # atom hop class weight
-
-        # Unique labels should be `list(range(atom_hop_num_classes))`,  where
-        # `atom_hop_num_classes` should be `max_hop_distance + 1`.
-        # The labels are: atoms in lost bond (class 0) and atoms in unchanged bond (
-        # class 1 to max_hop_distance).
-        all_atom_hop_labels = np.concatenate(
-            [lb["atom_hop_dist"] for lb in self.labels]
+        return _atom_bond_hop_class_weight_one_bond_break(
+            self.labels, self.max_hop_distance
         )
 
-        unique_labels = sorted(set(all_atom_hop_labels))
-        if unique_labels != list(range(self.max_hop_distance + 1)):
-            raise RuntimeError(
-                f"Unable to compute atom class weight; some classes do not have valid "
-                f"labels. num_classes: {self.max_hop_distance + 1} unique labels: "
-                f"{unique_labels}"
-            )
 
-        atom_hop_weight = class_weight.compute_class_weight(
-            "balanced",
-            classes=unique_labels,
-            y=all_atom_hop_labels,
+def _atom_bond_hop_class_weight_one_bond_break(
+    labels: List[Dict[str, torch.Tensor]], max_hop_distance: int
+) -> Dict[str, torch.Tensor]:
+    """
+    Generate atom and bond hop distance class weight for A->B and A->B+C style bond bond
+    breaking reactions. There is no bond creation.
+
+    As a result, allowed number of classes for atom hop distance and bond hop distances
+    are both different from reactions with bond creation.
+    """
+
+    # atom hop class weight
+
+    # Unique labels should be `list(range(atom_hop_num_classes))`,  where
+    # `atom_hop_num_classes` should be `max_hop_distance + 1`.
+    # The labels are: atoms in lost bond (class 0) and atoms in unchanged bond (
+    # class 1 to max_hop_distance).
+    all_atom_hop_labels = np.concatenate([lb["atom_hop_dist"] for lb in labels])
+
+    unique_labels = sorted(set(all_atom_hop_labels))
+    if unique_labels != list(range(max_hop_distance + 1)):
+        raise RuntimeError(
+            f"Unable to compute atom class weight; some classes do not have valid "
+            f"labels. num_classes: {max_hop_distance + 1} unique labels: "
+            f"{unique_labels}"
         )
 
-        # bond hop class weight
-        # Unique labels should be `list(range(bond_hop_num_classes))`, where
-        # `bond_hop_num_classes = max_hop_distance + 1`.
-        # The labels are: lost bond (class 0), unchanged (class 1 to max_hop_distance).
-        all_bond_hop_labels = np.concatenate(
-            [lb["bond_hop_dist"] for lb in self.labels]
+    atom_hop_weight = class_weight.compute_class_weight(
+        "balanced",
+        classes=unique_labels,
+        y=all_atom_hop_labels,
+    )
+
+    # bond hop class weight
+    # Unique labels should be `list(range(bond_hop_num_classes))`, where
+    # `bond_hop_num_classes = max_hop_distance + 1`.
+    # The labels are: lost bond (class 0), unchanged (class 1 to max_hop_distance).
+    all_bond_hop_labels = np.concatenate([lb["bond_hop_dist"] for lb in labels])
+
+    unique_labels = sorted(set(all_bond_hop_labels))
+    if unique_labels != list(range(max_hop_distance + 1)):
+        raise RuntimeError(
+            f"Unable to compute bond class weight; some classes do not have valid "
+            f"labels. num_classes: {max_hop_distance + 1} unique labels: "
+            f"{unique_labels}"
         )
 
-        unique_labels = sorted(set(all_bond_hop_labels))
-        if unique_labels != list(range(self.max_hop_distance + 1)):
-            raise RuntimeError(
-                f"Unable to compute bond class weight; some classes do not have valid "
-                f"labels. num_classes: {self.max_hop_distance + 1} unique labels: "
-                f"{unique_labels}"
-            )
+    bond_hop_weight = class_weight.compute_class_weight(
+        "balanced",
+        classes=unique_labels,
+        y=all_bond_hop_labels,
+    )
 
-        bond_hop_weight = class_weight.compute_class_weight(
-            "balanced",
-            classes=unique_labels,
-            y=all_bond_hop_labels,
-        )
+    weight = {
+        "atom_hop_dist": torch.as_tensor(atom_hop_weight, dtype=torch.float32),
+        "bond_hop_dist": torch.as_tensor(bond_hop_weight, dtype=torch.float32),
+    }
 
-        weight = {
-            "atom_hop_dist": torch.as_tensor(atom_hop_weight, dtype=torch.float32),
-            "bond_hop_dist": torch.as_tensor(bond_hop_weight, dtype=torch.float32),
-        }
-
-        return weight
-
-
-def process_one_reaction_from_input_file(
-    pmg_reaction: PMG_Reaction, index: int
-) -> Union[Reaction, None]:
-
-    try:
-        reaction = pymatgen_reaction_to_reaction(pmg_reaction, index)
-    except (MoleculeError, ReactionError):
-        return None
-
-    return reaction
+    return weight
 
 
 def pymatgen_reaction_to_reaction(pmg_reaction: PMG_Reaction, index: int) -> Reaction:
