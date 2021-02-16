@@ -763,9 +763,15 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
+    atom_featurizer_kwargs = {
+        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
+        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
+        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
+    }
+
     trainset = GreenDataset(
         filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(),
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
@@ -778,7 +784,7 @@ def load_dataset(args):
 
     valset = GreenDataset(
         filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(),
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
@@ -789,7 +795,7 @@ def load_dataset(args):
 
     testset = GreenDataset(
         filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(),
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
         transform_features=True,
