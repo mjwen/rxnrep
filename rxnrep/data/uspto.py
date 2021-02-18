@@ -1,40 +1,32 @@
 import logging
-import multiprocessing
 from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
 import dgl
 import numpy as np
-import pandas as pd
 import torch
 from sklearn.utils import class_weight
 
-from rxnrep.core.molecule import MoleculeError
-from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
 from rxnrep.data.dataset import BaseDataset
 from rxnrep.data.grapher import (
     AtomTypeFeatureMasker,
     get_atom_distance_to_reaction_center,
     get_bond_distance_to_reaction_center,
 )
-from rxnrep.utils import to_path
+from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
 
 
 class USPTODataset(BaseDataset):
     """
-    USPTO dataset for unsupervised reaction representation.
+    USPTO dataset.
+
+    See the base class for docs of arguments not given here.
 
     Args:
         filename: tsv file of smiles reactions and labels
-        atom_featurizer: function to create atom features
-        bond_featurizer: function to create bond features
-        global_featurizer: function to create global features
-        transform_features: whether to standardize the atom, bond, and global features.
-            If `True`, each feature column will first subtract the mean and then divide
-            by the standard deviation.
         max_hop_distance: maximum allowed hop distance from the reaction center for
             atom and bond. Used to determine atom and bond label
         atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
@@ -47,12 +39,6 @@ class USPTODataset(BaseDataset):
             that the masker is not even created. But `atom_type_masker_use_mask_value`
             be of `False` means that the masker are created, but we simply skip the
             change of the atom type features of the masked atoms.
-        init_state_dict: initial state dict (or a yaml file of the state dict) containing
-            the state of the dataset used for training: including all the atom types in
-            the molecules, mean and stdev of the features (if transform_features is
-            `True`). If `None`, these properties are computed from the current dataset.
-        num_processes: number of processes used to load and process the dataset.
-        return_index: whether to return the index of the sample in the dataset
     """
 
     def __init__(
@@ -67,16 +53,13 @@ class USPTODataset(BaseDataset):
         return_index: bool = True,
         num_processes: int = 1,
         # args to control labels
-        max_hop_distance: int = 2,
-        atom_type_masker_ratio: Union[float, None] = None,
-        atom_type_masker_use_masker_value: bool = True,
+        max_hop_distance: Optional[int] = None,
+        atom_type_masker_ratio: Optional[float] = None,
+        atom_type_masker_use_masker_value: Optional[bool] = None,
     ):
 
-        # read input files
-        reactions, failed = self.read_file(filename, num_processes)
-
         super().__init__(
-            reactions,
+            filename,
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
@@ -86,8 +69,7 @@ class USPTODataset(BaseDataset):
             num_processes=num_processes,
         )
 
-        # set failed and raw labels
-        self._failed = failed
+        # labels
 
         self.max_hop_distance = max_hop_distance
         self.labels = self.generate_labels()
@@ -107,79 +89,20 @@ class USPTODataset(BaseDataset):
             )
             self.atom_type_masker_use_masker_value = atom_type_masker_use_masker_value
 
-    def read_file(self, filename: Path, nprocs: int):
+    def read_file(self, filename: Path):
+        logger.info("Start reading dataset ...")
 
-        # read file
-        logger.info("Start reading dataset file...")
-
-        filename = to_path(filename)
-        df = pd.read_csv(filename, sep="\t")
-        smiles_reactions = df["reaction"].tolist()
-
-        logger.info("Finish reading dataset file...")
-
-        # convert to reactions
-        logger.info("Start converting to reactions...")
-
-        ids = [f"{smi}_index-{i}" for i, smi in enumerate(smiles_reactions)]
-        if nprocs == 1:
-            reactions = [
-                self._process_one_reaction_from_input_file(smi, i)
-                for smi, i in zip(smiles_reactions, ids)
-            ]
-        else:
-            args = zip(smiles_reactions, ids)
-            with multiprocessing.Pool(nprocs) as p:
-                reactions = p.starmap(self._process_one_reaction_from_input_file, args)
-
-        # column names besides `reaction`
-        column_names = df.columns.values.tolist()
-        column_names.remove("reaction")
-
-        succeed_reactions = []
-        failed = []
-
-        for i, rxn in enumerate(reactions):
-            if rxn is None:
-                failed.append(True)
-            else:
-                # keep other info (e.g. label) in input file as reaction property
-                for name in column_names:
-                    rxn.set_property(name, df[name][i])
-
-                succeed_reactions.append(rxn)
-                failed.append(False)
+        succeed_reactions, failed = read_smiles_tsv_dataset(
+            filename, remove_H=True, nprocs=self.nprocs
+        )
 
         counter = Counter(failed)
         logger.info(
-            f"Finish converting to reactions. Number succeed {counter[False]}, "
-            f"number failed {counter[True]}."
+            f"Finish reading dataset. Number succeed {counter[False]}, number failed "
+            f"{counter[True]}."
         )
 
         return succeed_reactions, failed
-
-    @staticmethod
-    def _process_one_reaction_from_input_file(
-        smiles_reaction: str, id: str
-    ) -> Union[Reaction, None]:
-        """
-        Helper function to create reactions using multiprocessing.
-
-        Note, remove H from smiles.
-        """
-
-        try:
-            reaction = smiles_to_reaction(
-                smiles_reaction,
-                id=id,
-                ignore_reagents=True,
-                remove_H=True,
-                sanity_check=False,
-            )
-        except (MoleculeError, ReactionError):
-            return None
-
-        return reaction
 
     def generate_labels(self) -> List[Dict[str, torch.Tensor]]:
         """

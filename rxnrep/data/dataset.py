@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import dgl
 import torch
+from rdkit import Chem
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
@@ -22,23 +23,43 @@ logger = logging.getLogger(__name__)
 
 class BaseDataset:
     """
-    Base dataset class.
+    Base dataset.
+
+    This base dataset deal with input molecule/reaction graphs and their features.
+
+    Labels are added in subclass dataset.
+
+    Args:
+        filename: path to the dataset file
+        atom_featurizer: function to create atom features
+        bond_featurizer: function to create bond features
+        global_featurizer: function to create global features
+        init_state_dict: initial state dict (or a yaml file of the state dict) containing
+            the state of the dataset used for training: including all the atom types in
+            the molecules, mean and stdev of the features (if transform_features is
+            `True`). If `None`, these properties are computed from the current dataset.
+        transform_features: whether to standardize the atom, bond, and global features.
+            If `True`, each feature column will first subtract the mean and then divide
+            by the standard deviation.
+        return_index: whether to return the index of the sample in the dataset
+        num_processes: number of processes used to load and process the dataset.
     """
 
     def __init__(
         self,
-        reactions: List[Reaction],
-        atom_featurizer: Callable,
-        bond_featurizer: Callable,
-        global_featurizer: Callable,
+        filename: Union[str, Path],
+        atom_featurizer: Callable[[Chem.Mol], torch.Tensor],
+        bond_featurizer: Callable[[Chem.Mol], torch.Tensor],
+        global_featurizer: Callable[[Chem.Mol], torch.Tensor],
         *,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
     ):
+        # read input files
+        self.reactions, self._failed = self.read_file(filename)
 
-        self.reactions = reactions
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
@@ -68,9 +89,6 @@ class BaseDataset:
 
         if transform_features:
             self.scale_features()
-
-        # failed reactions
-        self._failed = None
 
     @property
     def feature_size(self) -> Dict[str, int]:
@@ -431,11 +449,28 @@ class BaseDataset:
 
         yaml_dump(d, filename)
 
-    def __getitem__(self, item):
+    def read_file(self, filename: Path) -> Tuple[List[Reaction], List[bool]]:
+        """
+        Read reactions from dataset file.
+
+        Args:
+            filename: name of the dataset
+
+        Returns:
+            reactions: a list of rxnrep Reaction succeed in converting to dgl graphs.
+                The length of this list could be shorter than the number of entries in
+                the dataset file (when some entry fails).
+            failed: a list of bool indicating whether each entry in the dataset file
+                fails or not. The length of the list is the same as the number of
+                entries in the dataset file.
+        """
         raise NotImplementedError
 
     def __len__(self) -> int:
         return len(self.reactions)
+
+    def __getitem__(self, item):
+        raise NotImplementedError
 
 
 class Subset(BaseDataset):
