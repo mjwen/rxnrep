@@ -52,8 +52,8 @@ class ActivationEnergyPredictor:
                 If `False`, the corresponding element in activation_energy should be
                 regarded as None (i.e. not exist).
             assignments: list of 1D tensor of of shape (N,), where N is the number of
-                reactions in the dataset. Cluster assignment of data points (
-                reactions), each tensor corresponds to one clustering prototype.
+                reactions in the dataset. Cluster assignment of data points (reactions),
+                each tensor corresponds to one clustering prototype.
             predict: whether to make predictions. Return tensors will be on self.device.
         """
         assert len(assignments) == len(
