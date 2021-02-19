@@ -7,8 +7,8 @@ Train Green dataset using decoders:
 
 - reaction energy
 - activation energy
-- bep activation energy: for reactions without activation energy, we generate pseudo activation
-energy label using BEP.
+- bep activation energy: for reactions without activation energy, we generate pseudo
+  activation energy label using BEP.
 """
 
 import argparse

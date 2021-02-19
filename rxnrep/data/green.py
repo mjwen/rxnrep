@@ -1,9 +1,11 @@
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, Optional, Union
 
 import torch
 
+from rxnrep.data.io import read_smiles_tsv_dataset
 from rxnrep.data.uspto import USPTODataset
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,21 @@ class GreenDataset(USPTODataset):
             atom_type_masker_ratio=atom_type_masker_ratio,
             atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
         )
+
+    def read_file(self, filename: Path):
+        logger.info("Start reading dataset ...")
+
+        succeed_reactions, failed = read_smiles_tsv_dataset(
+            filename, remove_H=False, nprocs=self.nprocs
+        )
+
+        counter = Counter(failed)
+        logger.info(
+            f"Finish reading dataset. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
+        )
+
+        return succeed_reactions, failed
 
     def generate_labels(self, normalize: bool = True):
         """
@@ -135,7 +152,7 @@ class GreenDataset(USPTODataset):
         if name in ["reaction_energy", "activation_energy"]:
             return torch.cat([lb[name] for lb in self.labels])
         elif name == "have_activation_energy":
-            return torch.cat([m[name] for m in self.medadata])
+            return torch.stack([m[name] for m in self.medadata])
         else:
             raise ValueError(f"Unsupported property name {name}")
 

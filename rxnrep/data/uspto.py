@@ -72,8 +72,9 @@ class USPTODataset(BaseDataset):
         )
 
         # labels and metadata (one inner dict for each reaction)
-        self.labels = [{}] * len(self.reactions)
-        self.medadata = [{}] * len(self.reactions)
+        # do not use [{}] * len(self.reactions); update one will change all
+        self.labels = [{} for _ in range(len(self.reactions))]
+        self.medadata = [{} for _ in range(len(self.reactions))]
 
         # atom bond hop distance label
         self.max_hop_distance = max_hop_distance

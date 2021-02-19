@@ -57,15 +57,15 @@ class BaseDataset:
         return_index: bool = True,
         num_processes: int = 1,
     ):
-        # read input files
-        self.reactions, self._failed = self.read_file(filename)
-
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
         self.init_state_dict = init_state_dict
-        self.nprocs = num_processes
         self.return_index = return_index
+        self.nprocs = num_processes
+
+        # read input files
+        self.reactions, self._failed = self.read_file(filename)
 
         # will recover from state dict if it is not None
         self._species = None

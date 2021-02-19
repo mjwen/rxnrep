@@ -20,7 +20,7 @@ class NRELDataset(USPTODataset):
         logger.info("Start reading dataset ...")
 
         succeed_reactions, failed = read_smiles_tsv_dataset(
-            filename, remove_H=True, nprocs=self.nprocs
+            filename, remove_H=False, nprocs=self.nprocs
         )
 
         counter = Counter(failed)
