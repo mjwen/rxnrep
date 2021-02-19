@@ -19,7 +19,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.green import GreenDataset
-from rxnrep.model.model_comprehensive import ReactionRepresentation
+from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
