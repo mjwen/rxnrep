@@ -193,15 +193,6 @@ def activation_energy_decoder_args(parser):
     parser.add_argument(
         "--activation_energy_decoder_activation", type=str, default="ReLU"
     )
-    parser.add_argument(
-        "--have_activation_energy_ratio",
-        type=float,
-        default=0.2,
-        help=(
-            "the ratio to use the activation energy, i.e. 1-ratio activation energies "
-            "will be treated as unavailable."
-        ),
-    )
 
     return parser
 
@@ -228,6 +219,15 @@ def activation_energy_decoder_adjuster(args):
 
 
 def bep_label_args(parser):
+    parser.add_argument(
+        "--have_activation_energy_ratio",
+        type=float,
+        default=0.2,
+        help=(
+            "the ratio to use the activation energy, i.e. 1-ratio activation energies "
+            "will be treated as unavailable."
+        ),
+    )
     parser.add_argument("--min_num_data_points_for_fitting", type=int, default=3)
 
     return parser

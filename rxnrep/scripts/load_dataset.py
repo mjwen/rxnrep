@@ -11,12 +11,6 @@ def load_Green_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
 
-    atom_featurizer_kwargs = {
-        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
-        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
-        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
-    }
-
     # adjust args controlling labels
     max_hop_distance = args.max_hop_distance if "max_hop_distance" in args else None
     atom_type_masker_ratio = (
@@ -33,6 +27,12 @@ def load_Green_dataset(args):
     else:
         have_activation_energy_ratio_trainset = None
         have_activation_energy_ratio_val_test_set = None
+
+    atom_featurizer_kwargs = {
+        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
+        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
+        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
+    }
 
     trainset = GreenDataset(
         filename=args.trainset_filename,

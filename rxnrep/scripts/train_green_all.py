@@ -12,31 +12,70 @@ Train Green dataset using decoders:
 """
 
 import argparse
-import warnings
 from datetime import datetime
-from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+import wandb
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.green import GreenDataset
 from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
 from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts.launch_environment import PyTorchLaunch
-from rxnrep.scripts.utils import (
-    TimeMeter,
-    get_repo_git_commit,
-    load_checkpoint_wandb,
-    save_files_to_wandb,
-)
+from rxnrep.scripts import argument
+from rxnrep.scripts.load_dataset import load_Green_dataset
+from rxnrep.scripts.main import main
+from rxnrep.scripts.utils import TimeMeter, get_repo_git_commit
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Reaction Representation")
+
+    # ========== dataset ==========
+    prefix = "/Users/mjwen/Documents/Dataset/activation_energy_Green/"
+
+    fname_tr = prefix + "wb97xd3_n200_processed_train.tsv"
+    fname_val = fname_tr
+    fname_test = fname_tr
+
+    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
+    parser.add_argument("--valset_filename", type=str, default=fname_val)
+    parser.add_argument("--testset_filename", type=str, default=fname_test)
+    parser.add_argument(
+        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
+    )
+
+    # ========== model ==========
+    parser = argument.encoder_args(parser)
+    parser = argument.atom_bond_decoder_args(parser)
+    parser = argument.kmeans_cluster_decoder_args(parser)
+    parser = argument.reaction_energy_decoder_args(parser)
+    parser = argument.activation_energy_decoder_args(parser)
+    parser = argument.bep_label_args(parser)
+
+    # ========== training ==========
+    parser = argument.training_args(parser)
+
+    # ========== helper ==========
+    parser = argument.encoder_helper(parser)
+    parser = argument.atom_bond_decoder_helper(parser)
+    parser = argument.kmeans_cluster_decoder_helper(parser)
+    parser = argument.energy_decoder_helper(parser)
+
+    ####################
+    args = parser.parse_args()
+    ####################
+
+    # ========== adjuster ==========
+    args = argument.encoder_adjuster(args)
+    args = argument.atom_bond_decoder_adjuster(args)
+    args = argument.kmeans_cluster_decoder_adjuster(args)
+    args = argument.reaction_energy_decoder_adjuster(args)
+    args = argument.activation_energy_decoder_adjuster(args)
+
+    return args
 
 
 class RxnRepLightningModel(pl.LightningModule):
@@ -239,14 +278,20 @@ class RxnRepLightningModel(pl.LightningModule):
             cluster_fn = self.reaction_cluster_fn[mode]
 
         if mode == "train":
+
+            if self.current_epoch < 10:
+                in_centroids = "random"
+            else:
+                in_centroids = self.centroids
+
             # generate centroids from training set
-            assign, cent = cluster_fn.get_cluster_assignments(
-                centroids="random",
+            assign, out_centroids = cluster_fn.get_cluster_assignments(
+                centroids=in_centroids,
                 predict_only=False,
                 num_iters=self.hparams.num_kmeans_iterations,
                 similarity=self.hparams.kmeans_similarity,
             )
-            self.centroids = cent
+            self.centroids = out_centroids
         else:
             # use centroids from training set
             assign, _ = cluster_fn.get_cluster_assignments(
@@ -256,6 +301,13 @@ class RxnRepLightningModel(pl.LightningModule):
                 similarity=self.hparams.kmeans_similarity,
             )
         self.assignments[mode] = assign
+
+        self.logger.experiment.log(
+            {
+                f"cluster histogram {i}": wandb.Histogram(a.cpu().numpy().tolist())
+                for i, a in enumerate(assign)
+            }
+        )
 
         #
         # generate bep activation energy label
@@ -437,7 +489,7 @@ class RxnRepLightningModel(pl.LightningModule):
         )
 
         scheduler = ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.4, patience=20, verbose=True
+            optimizer, mode="max", factor=0.4, patience=50, verbose=True
         )
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
@@ -599,472 +651,26 @@ class RxnRepLightningModel(pl.LightningModule):
         return sum_f1
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Reaction Representation")
-
-    # ========== dataset ==========
-    prefix = "/Users/mjwen/Documents/Dataset/activation_energy_Green/"
-
-    fname_tr = prefix + "wb97xd3_n200_processed_train.tsv"
-    fname_val = fname_tr
-    fname_test = fname_tr
-
-    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
-    parser.add_argument("--valset_filename", type=str, default=fname_val)
-    parser.add_argument("--testset_filename", type=str, default=fname_test)
-    parser.add_argument(
-        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
-    )
-
-    # ========== model ==========
-    # embedding
-    parser.add_argument("--embedding_size", type=int, default=24)
-
-    # encoder
-    parser.add_argument(
-        "--molecule_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
-    )
-    parser.add_argument("--molecule_num_fc_layers", type=int, default=2)
-    parser.add_argument("--molecule_batch_norm", type=int, default=1)
-    parser.add_argument("--molecule_activation", type=str, default="ReLU")
-    parser.add_argument("--molecule_residual", type=int, default=1)
-    parser.add_argument("--molecule_dropout", type=float, default="0.0")
-    parser.add_argument(
-        "--reaction_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
-    )
-    parser.add_argument("--reaction_num_fc_layers", type=int, default=2)
-    parser.add_argument("--reaction_batch_norm", type=int, default=1)
-    parser.add_argument("--reaction_activation", type=str, default="ReLU")
-    parser.add_argument("--reaction_residual", type=int, default=1)
-    parser.add_argument("--reaction_dropout", type=float, default="0.0")
-
-    # ========== compressor ==========
-    parser.add_argument(
-        "--compressing_layer_sizes",
-        type=int,
-        nargs="+",
-        default=None,
-        help="`None` to not use it",
-    )
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
-
-    # ========== pooling ==========
-    parser.add_argument(
-        "--pooling_method",
-        type=str,
-        default="set2set",
-        help="set2set or hop_distance",
-    )
-
-    parser.add_argument(
-        "--hop_distance_pooling_max_hop_distance",
-        type=int,
-        default=2,
-        help=(
-            "max hop distance when hop_distance pooling method is used. Ignored when "
-            "`set2set` pooling method is used. This is different from max_hop_distance "
-            "used for node decoder, which is used to create labels for the decoders. "
-            "Also, typically we can set the two to be the same."
-        ),
-    )
-
-    # ========== decoder ==========
-    # atom and bond decoder
-    parser.add_argument(
-        "--node_decoder_hidden_layer_sizes", type=int, nargs="+", default=[64]
-    )
-    parser.add_argument("--node_decoder_activation", type=str, default="ReLU")
-    parser.add_argument("--max_hop_distance", type=int, default=3)
-    parser.add_argument("--atom_type_masker_ratio", type=float, default=0.2)
-    parser.add_argument(
-        "--atom_type_masker_use_masker_value",
-        type=int,
-        default=1,
-        help="whether to use atom type masker value",
-    )
-
-    # clustering decoder
-    parser.add_argument(
-        "--num_centroids",
-        type=int,
-        nargs="+",
-        default=[10],
-        help="number of centroids for each clustering prototype",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=1.0,
-        help="temperature in the loss for cluster decoder",
-    )
-    parser.add_argument(
-        "--num_kmeans_iterations",
-        type=int,
-        default=10,
-        help="number of kmeans clustering iterations",
-    )
-    parser.add_argument(
-        "--kmeans_similarity",
-        type=str,
-        default="cosine",
-        help="similarity measure for kmeans: `cosine` or `euclidean`",
-    )
-
-    # energy decoder
-    parser.add_argument(
-        "--reaction_energy_decoder_hidden_layer_sizes",
-        type=int,
-        nargs="+",
-        default=[64],
-    )
-    parser.add_argument(
-        "--reaction_energy_decoder_activation", type=str, default="ReLU"
-    )
-    parser.add_argument(
-        "--activation_energy_decoder_hidden_layer_sizes",
-        type=int,
-        nargs="+",
-        default=[64],
-    )
-    parser.add_argument(
-        "--activation_energy_decoder_activation", type=str, default="ReLU"
-    )
-    parser.add_argument(
-        "--have_activation_energy_ratio",
-        type=float,
-        default=0.2,
-        help=(
-            "the ratio to use the activation energy, i.e. 1-ratio activation energies "
-            "will be treated as unavailable."
-        ),
-    )
-
-    # bep label generator
-    parser.add_argument("--min_num_data_points_for_fitting", type=int, default=3)
-
-    # ========== training ==========
-
-    # restore
-    parser.add_argument("--restore", type=int, default=0, help="restore training")
-
-    # accelerator
-    parser.add_argument("--num_nodes", type=int, default=1, help="number of nodes")
-    parser.add_argument(
-        "--gpus", type=int, default=None, help="number of gpus per node"
-    )
-    parser.add_argument(
-        "--accelerator", type=str, default=None, help="backend, e.g. `ddp`"
-    )
-    parser.add_argument(
-        "--num_workers", type=int, default=0, help="number of workers for dataloader"
-    )
-    parser.add_argument(
-        "--nprocs",
-        type=int,
-        default=1,
-        help="number of processes for constructing graphs in dataset",
-    )
-
-    # training algorithm
-    parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
-    parser.add_argument("--batch_size", type=int, default=100, help="batch size")
-    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
-    parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
-
-    ####################
-    # helper args
-    ####################
-    # encoder
-    parser.add_argument(
-        "--conv_layer_size",
-        type=int,
-        default=64,
-        help="hidden layer size for mol and rxn conv",
-    )
-    parser.add_argument("--num_mol_conv_layers", type=int, default=2)
-    parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
-
-    # node decoder
-    parser.add_argument("--num_node_decoder_layers", type=int, default=1)
-
-    # cluster decoder
-    parser.add_argument("--prototype_size", type=int, default=10)
-    parser.add_argument("--num_prototypes", type=int, default=1)
-
-    # energy decoder
-    parser.add_argument("--num_energy_decoder_layers", type=int, default=2)
-
-    ####################
-    args = parser.parse_args()
-    ####################
-
-    ####################
-    # adjust args
-    ####################
-    # encoder
-    args.molecule_conv_layer_sizes = [args.conv_layer_size] * args.num_mol_conv_layers
-    args.reaction_conv_layer_sizes = [args.conv_layer_size] * args.num_rxn_conv_layers
-    if args.num_rxn_conv_layers == 0:
-        args.reaction_dropout = 0
-
-    # output atom/bond/global feature size, before pooling
-    if args.compressing_layer_sizes:
-        encoder_out_feats_size = args.compressing_layer_sizes[-1]
-    else:
-        encoder_out_feats_size = args.conv_layer_size
-
-    # node decoder
-    val = encoder_out_feats_size
-    args.node_decoder_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.num_node_decoder_layers)
-    ]
-
-    # cluster decoder
-    args.num_centroids = [args.prototype_size] * args.num_prototypes
-
-    # energy decoder
-    val = 2 * encoder_out_feats_size
-    args.reaction_energy_decoder_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
-    ]
-    args.activation_energy_decoder_hidden_layer_sizes = (
-        args.reaction_energy_decoder_hidden_layer_sizes
-    )
-    args.activation_energy_decoder_activation = args.reaction_energy_decoder_activation
-
-    # pooling
-    if args.pooling_method == "set2set":
-        args.pooling_kwargs = None
-    elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {
-            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
-        }
-    else:
-        raise NotImplementedError
-
-    return args
-
-
-def load_dataset(args):
-
-    # check dataset state dict if restore model
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
-    else:
-        state_dict_filename = None
-
-    atom_featurizer_kwargs = {
-        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
-        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
-        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
-    }
-
-    trainset = GreenDataset(
-        filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        max_hop_distance=args.max_hop_distance,
-        atom_type_masker_ratio=args.atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
-        init_state_dict=state_dict_filename,
-        num_processes=args.nprocs,
-        have_activation_energy_ratio=args.have_activation_energy_ratio,
-    )
-
-    state_dict = trainset.state_dict()
-
-    valset = GreenDataset(
-        filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        max_hop_distance=args.max_hop_distance,
-        atom_type_masker_ratio=args.atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-        have_activation_energy_ratio=1.0,
-    )
-
-    testset = GreenDataset(
-        filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        max_hop_distance=args.max_hop_distance,
-        atom_type_masker_ratio=args.atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=args.atom_type_masker_use_masker_value,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-        have_activation_energy_ratio=1.0,
-    )
-
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
-
-    # Add info that will be used in the model to args for easy access
-    class_weight = trainset.get_class_weight()
-    args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
-    args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
-    args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
-    args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
-    args.masked_atom_type_num_classes = len(trainset.get_species())
-    args.label_mean = trainset.label_mean
-    args.label_std = trainset.label_std
-
-    args.feature_size = trainset.feature_size
-
-    return train_loader, val_loader, test_loader
-
-
-def main():
-    print("\nStart training at:", datetime.now())
-
-    pl.seed_everything(25)
-
-    args = parse_args()
-
-    # ========== dataset ==========
-    train_loader, val_loader, test_loader = load_dataset(args)
-
-    # ========== model ==========
-    model = RxnRepLightningModel(args)
-
-    # ========== trainer ==========
-
-    # callbacks
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
-    )
-    early_stop_callback = EarlyStopping(
-        monitor="val/f1", min_delta=0.0, patience=50, mode="max", verbose=True
-    )
-
-    # logger
-    log_save_dir = Path("wandb").resolve()
-    project = "tmp-rxnrep"
-
-    # restore model, epoch, shared_step, LR schedulers, apex, etc...
-    if args.restore and log_save_dir.exists():
-        # restore
-        checkpoint_path, identifier = load_checkpoint_wandb(log_save_dir, project)
-    else:
-        # create new
-        checkpoint_path = None
-        identifier = None
-
-    if not log_save_dir.exists():
-        # put in try except in case it throws errors in distributed training
-        try:
-            log_save_dir.mkdir()
-        except FileExistsError:
-            pass
-    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
-
-    # cluster environment to use torch.distributed.launch, e.g.
-    # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
-    cluster = PyTorchLaunch()
-
-    #
-    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
-    # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
-    # work, size of val (test) set should be larger than
-    # `--num_centroids*num_processes`; otherwise clustering will raise an error,
-    # but ddp_cpu cannot respond to it. As a result, it will stuck there.
-    #
-
-    trainer = pl.Trainer(
-        max_epochs=args.epochs,
-        num_nodes=args.num_nodes,
-        gpus=args.gpus,
-        accelerator=args.accelerator,
-        plugins=[cluster],
-        callbacks=[checkpoint_callback, early_stop_callback],
-        logger=wandb_logger,
-        resume_from_checkpoint=checkpoint_path,
-        progress_bar_refresh_rate=100,
-        flush_logs_every_n_steps=50,
-        weights_summary="top",
-        num_sanity_val_steps=0,  # 0, since we use centroids from training set
-        # profiler="simple",
-        # deterministic=True,
-    )
-
-    # ========== fit and test ==========
-    trainer.fit(model, train_loader, val_loader)
-    trainer.test(test_dataloaders=test_loader)
-
-    # ========== save files to wandb ==========
-    # Do not do this before trainer, since this might result in the initialization of
-    # multiple wandb object when training in distribution mode
-    if (
-        args.gpus is None
-        or args.gpus == 1
-        or (args.gpus > 1 and cluster.local_rank() == 0)
-    ):
-        save_files_to_wandb(wandb_logger, __file__, ["sweep.py", "submit.sh"])
-
-    print("\nFinish training at:", datetime.now())
-
-
 if __name__ == "__main__":
 
     repo_path = "/Users/mjwen/Applications/rxnrep"
     latest_commit = get_repo_git_commit(repo_path)
     print("Git commit:\n", latest_commit)
 
-    main()
+    print("Start training at:", datetime.now())
+
+    pl.seed_everything(25)
+
+    # args
+    args = parse_args()
+
+    # dataset
+    train_loader, val_loader, test_loader = load_Green_dataset(args)
+
+    # model
+    model = RxnRepLightningModel(args)
+
+    project = "tmp-rxnrep"
+    main(args, model, train_loader, val_loader, test_loader, project)
+
+    print("Finish training at:", datetime.now())
