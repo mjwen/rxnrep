@@ -2,14 +2,12 @@
 Decoders:
 - reaction energy
 - activation energy
-- bep activation energy: for reactions without activation energy, we generate pseudo activation
-energy label using BEP.
+- bep activation energy: for reactions without activation energy, we generate pseudo
+  activation energy label using BEP.
 """
 
 import argparse
-import warnings
 from datetime import datetime
-from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
@@ -17,14 +15,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.green import GreenDataset
 from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts import argument
+from rxnrep.scripts.load_dataset import load_Green_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import TimeMeter, get_repo_git_commit
 
@@ -573,132 +569,21 @@ class RxnRepLightningModel(pl.LightningModule):
         return sum_f1
 
 
-def load_dataset(args):
-
-    # check dataset state dict if restore model
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
-    else:
-        state_dict_filename = None
-
-    atom_featurizer_kwargs = {
-        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
-        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
-        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
-    }
-
-    trainset = GreenDataset(
-        filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        init_state_dict=state_dict_filename,
-        num_processes=args.nprocs,
-        have_activation_energy_ratio=args.have_activation_energy_ratio,
-    )
-
-    state_dict = trainset.state_dict()
-
-    valset = GreenDataset(
-        filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-        have_activation_energy_ratio=1.0,
-    )
-
-    testset = GreenDataset(
-        filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-        have_activation_energy_ratio=1.0,
-    )
-
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
-
-    # Add info that will be used in the model to args for easy access
-    args.label_mean = trainset.label_mean
-    args.label_std = trainset.label_std
-
-    args.feature_size = trainset.feature_size
-
-    return train_loader, val_loader, test_loader
-
-
 if __name__ == "__main__":
 
     repo_path = "/Users/mjwen/Applications/rxnrep"
     latest_commit = get_repo_git_commit(repo_path)
     print("Git commit:\n", latest_commit)
 
-    pl.seed_everything(25)
-
     print("Start training at:", datetime.now())
+
+    pl.seed_everything(25)
 
     # args
     args = parse_args()
 
     # dataset
-    train_loader, val_loader, test_loader = load_dataset(args)
+    train_loader, val_loader, test_loader = load_Green_dataset(args)
 
     # model
     model = RxnRepLightningModel(args)
