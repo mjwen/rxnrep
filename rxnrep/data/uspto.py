@@ -52,7 +52,9 @@ class USPTODataset(BaseDataset):
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
+        #
         # args to control labels
+        #
         max_hop_distance: Optional[int] = None,
         atom_type_masker_ratio: Optional[float] = None,
         atom_type_masker_use_masker_value: Optional[bool] = None,
