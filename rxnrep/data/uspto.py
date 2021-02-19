@@ -283,7 +283,10 @@ class SchneiderDataset(USPTODataset):
                 the dataset
         """
         # class weight for atom hop and bond hop
-        weight = super().get_class_weight()
+        if self.max_hop_distance:
+            weight = super().get_class_weight()
+        else:
+            weight = {}
 
         if class_weight_as_1:
             w = torch.ones(num_reaction_classes)
