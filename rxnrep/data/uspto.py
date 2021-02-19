@@ -119,8 +119,6 @@ class USPTODataset(BaseDataset):
 
     def generate_labels(self):
 
-        logger.info("Start generating labels ...")
-
         for i, rxn in enumerate(self.reactions):
 
             # atom bond hop distance label
@@ -140,11 +138,7 @@ class USPTODataset(BaseDataset):
                     }
                 )
 
-        logger.info("Finish generating labels ...")
-
     def generate_metadata(self):
-
-        logger.info("Start generating metadata ...")
 
         for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
 
@@ -166,8 +160,6 @@ class USPTODataset(BaseDataset):
                 )
 
             self.medadata[i].update(meta)
-
-        logger.info("Finish generating metadata ...")
 
     def get_class_weight(self):
         """
