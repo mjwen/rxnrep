@@ -127,6 +127,7 @@ class RxnRepLightningModel(pl.LightningModule):
             activation_energy_decoder_activation=params.activation_energy_decoder_activation,
         )
 
+        #############################################
         self.classification_tasks = {
             "bond_hop_dist": {
                 "num_classes": params.bond_hop_dist_num_classes,
@@ -141,11 +142,16 @@ class RxnRepLightningModel(pl.LightningModule):
                 "to_sum_f1": ["f1"],
             },
         }
+
         self.regression_tasks = {
             "reaction_energy": {
                 "label_scaler": "reaction_energy",
                 "to_sum_f1": ["mae"],
             },
+            # "activation_energy": {
+            #     "label_scaler": "activation_energy",
+            #     "to_sum_f1": ["mae"],
+            # },
             "activation_energy_semi": {
                 "label_scaler": "activation_energy",
                 "to_sum_f1": ["mae"],
@@ -155,7 +161,12 @@ class RxnRepLightningModel(pl.LightningModule):
                 "to_sum_f1": ["mae"],
             },
         }
-        self.cluster_tasks = {"reaction_cluster": {}}
+
+        # set `use_loss` to False when only doing cluster to provide info for bep loss
+        self.cluster_tasks = {"reaction_cluster": {"use_loss": True}}
+        # self.cluster_tasks = None
+
+        #############################################
 
         # metrics
         self.metrics = self._init_metrics()
@@ -214,7 +225,6 @@ class RxnRepLightningModel(pl.LightningModule):
             )
             return diff_feats
         elif returns in ["reaction_energy", "activation_energy"]:
-
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.model.decode(feats, reaction_feats, metadata)
 
@@ -444,7 +454,10 @@ class RxnRepLightningModel(pl.LightningModule):
         #
         # clustering loss
         #
-        if self.cluster_tasks is not None:
+        if (
+            self.cluster_tasks is not None
+            and self.cluster_tasks["reaction_cluster"]["use_loss"]
+        ):
             loss_reaction_cluster = []
             for a, c in zip(self.assignments[mode], self.centroids):
                 a = a[indices].to(self.device)  # select for current batch from all
