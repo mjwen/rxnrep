@@ -21,7 +21,7 @@ from pytorch_lightning.loggers import WandbLogger
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data.electrolyte import ElectrolyteDataset, ElectrolyteDatasetNoAddedBond
+from rxnrep.data.electrolyte import ElectrolyteDataset
 from rxnrep.data.featurizer import (
     AtomFeaturizerMinimum,
     BondFeaturizerMinimum,
@@ -596,10 +596,10 @@ def parse_args():
 
     # ========== dataset ==========
     parser.add_argument(
-        "--has_added_bonds",
+        "--only_break_bond",
         type=int,
         default=0,
-        help="whether the dataset has added bonds (besides lost and unchanged bonds)",
+        help="whether the dataset has only breaking bond, i.e. no added bond",
     )
 
     prefix = "/Users/mjwen/Documents/Dataset/electrolyte/"
@@ -819,12 +819,7 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    if args.has_added_bonds:
-        DST = ElectrolyteDataset
-    else:
-        DST = ElectrolyteDatasetNoAddedBond
-
-    trainset = DST(
+    trainset = ElectrolyteDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizerMinimum(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -839,7 +834,7 @@ def load_dataset(args):
 
     state_dict = trainset.state_dict()
 
-    valset = DST(
+    valset = ElectrolyteDataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizerMinimum(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -852,7 +847,7 @@ def load_dataset(args):
         num_processes=args.nprocs,
     )
 
-    testset = DST(
+    testset = ElectrolyteDataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizerMinimum(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -907,7 +902,7 @@ def load_dataset(args):
     args.dataset_state_dict = state_dict
 
     # Add info that will be used in the model to args for easy access
-    class_weight = trainset.get_class_weight()
+    class_weight = trainset.get_class_weight(only_break_bond=args.only_break_bond)
     args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
     args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
     args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)

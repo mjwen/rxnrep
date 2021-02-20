@@ -17,7 +17,7 @@ from pytorch_lightning.loggers import WandbLogger
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data.electrolyte import ElectrolyteDataset, ElectrolyteDatasetNoAddedBond
+from rxnrep.data.electrolyte import ElectrolyteDataset
 from rxnrep.data.featurizer import (
     AtomFeaturizerMinimum2,
     BondFeaturizerMinimum,
@@ -330,10 +330,10 @@ def parse_args():
 
     # ========== dataset ==========
     parser.add_argument(
-        "--has_added_bonds",
+        "--only_break_bond",
         type=int,
         default=0,
-        help="whether the dataset has added bonds (besides lost and unchanged bonds)",
+        help="whether the dataset has only breaking bond, i.e. no added bond",
     )
 
     prefix = "/Users/mjwen/Documents/Dataset/electrolyte/"
@@ -526,12 +526,7 @@ def load_dataset(args):
     else:
         state_dict_filename = None
 
-    if args.has_added_bonds:
-        DST = ElectrolyteDataset
-    else:
-        DST = ElectrolyteDatasetNoAddedBond
-
-    trainset = DST(
+    trainset = ElectrolyteDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -543,7 +538,7 @@ def load_dataset(args):
 
     state_dict = trainset.state_dict()
 
-    valset = DST(
+    valset = ElectrolyteDataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
@@ -553,7 +548,7 @@ def load_dataset(args):
         num_processes=args.nprocs,
     )
 
-    testset = DST(
+    testset = ElectrolyteDataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
