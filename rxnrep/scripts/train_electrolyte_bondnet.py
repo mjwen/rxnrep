@@ -385,8 +385,8 @@ def parse_args():
     parser.add_argument(
         "--pooling_method",
         type=str,
-        default="set2set",
-        help="set2set or hop_distance",
+        default="global_only",
+        help="set2set, hop_distance, or global_only",
     )
 
     parser.add_argument(
@@ -494,7 +494,7 @@ def parse_args():
     ]
 
     # pooling
-    if args.pooling_method == "set2set":
+    if args.pooling_method in ["set2set", "global_only"]:
         args.pooling_kwargs = None
     elif args.pooling_method == "hop_distance":
         args.pooling_kwargs = {

@@ -154,6 +154,9 @@ class EncoderAndPooling(nn.Module):
 
             pooling_outsize = compressor_outsize * 3
 
+        elif pooling_method == "global_only":
+            pooling_outsize = compressor_outsize
+
         else:
             raise ValueError(f"Unsupported pooling method `{pooling_method}`")
 
@@ -194,6 +197,9 @@ class EncoderAndPooling(nn.Module):
                 "bond": metadata["bond_hop_dist"],
             }
             reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
+
+        elif self.pooling_method == "global_only":
+            reaction_feats = feats["global"]
 
         else:
             raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
