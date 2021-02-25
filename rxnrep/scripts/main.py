@@ -79,4 +79,6 @@ def main(args, model, train_loader, val_loader, test_loader, project="tmp-rxnrep
         or args.gpus == 1
         or (args.gpus > 1 and cluster.local_rank() == 0)
     ):
-        save_files_to_wandb(wandb_logger, __file__, ["sweep.py", "submit.sh"])
+        save_files_to_wandb(
+            wandb_logger, [__file__, "running_metadata.yaml", "sweep.py", "submit.sh"]
+        )

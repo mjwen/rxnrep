@@ -5,13 +5,15 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import dgl
 import numpy as np
 import pandas as pd
 import torch
 import torch.distributed as dist
+
+from rxnrep.utils import yaml_dump
 
 logger = logging.getLogger(__name__)
 
@@ -336,20 +338,40 @@ def get_repo_git_commit(repo_path: Path) -> str:
     return latest_commit
 
 
-def save_files_to_wandb(wandb_logger, script: Path, other_files: List[str] = None):
+def write_running_metadata(
+    filename: str = "running_metadata.yaml", git_repo: Optional[Path] = None
+):
+    """
+    Write additional running metadata to a file and then copy it to wandb.
+
+    Currently, we write:
+    - the running dir, i.e. cwd
+    - git repo commit, optional
+
+    Args:
+        filename: name of the file to write
+        git_repo: path to the git repo, if None, do not use this info.
+    """
+
+    d = {"running_dir": Path.cwd().as_posix()}
+    if git_repo is not None:
+        d["git_commit"] = get_repo_git_commit(git_repo)
+
+    yaml_dump(d, filename)
+
+
+def save_files_to_wandb(wandb_logger, files: List[str] = None):
     """
     Save files to wandb.
 
     Args:
         wandb_logger: lightning wandb logger
-        script: the python script running the training to save
-        other_files: name of other files in the same directory of the script. If the
-            file does not exist, it is not saved to wandb and silently ignored.
+        files: name of the files in the running directory to save. If a file does not
+            exist, it is silently ignored.
     """
     wandb = wandb_logger.experiment
 
-    wandb.save(script, policy="now")
-    parent = Path(script).resolve().parent
-    for f in other_files:
-        if parent.joinpath(f).exists():
-            wandb.save(str(parent.joinpath(f)), policy="now")
+    for f in files:
+        fname = Path.cwd().joinpath(f)
+        if fname.exists():
+            wandb.save(str(fname), policy="now")

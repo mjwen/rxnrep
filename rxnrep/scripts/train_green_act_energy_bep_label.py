@@ -21,7 +21,7 @@ from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts import argument
 from rxnrep.scripts.load_dataset import load_Green_dataset
 from rxnrep.scripts.main import main
-from rxnrep.scripts.utils import TimeMeter, get_repo_git_commit
+from rxnrep.scripts.utils import TimeMeter, write_running_metadata
 
 
 def parse_args():
@@ -702,11 +702,11 @@ class RxnRepLightningModel(pl.LightningModule):
 
 if __name__ == "__main__":
 
-    repo_path = "/Users/mjwen/Applications/rxnrep"
-    latest_commit = get_repo_git_commit(repo_path)
-    print("Git commit:\n", latest_commit)
-
     print("Start training at:", datetime.now())
+
+    filename = "running_metadata.yaml"
+    repo_path = "/Users/mjwen/Applications/rxnrep"
+    write_running_metadata(filename, repo_path)
 
     pl.seed_everything(25)
 

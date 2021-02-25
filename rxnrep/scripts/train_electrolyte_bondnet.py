@@ -27,9 +27,9 @@ from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import (
     TimeMeter,
-    get_repo_git_commit,
     load_checkpoint_wandb,
     save_files_to_wandb,
+    write_running_metadata,
 )
 
 
@@ -692,15 +692,17 @@ def main():
         or args.gpus == 1
         or (args.gpus > 1 and cluster.local_rank() == 0)
     ):
-        save_files_to_wandb(wandb_logger, __file__, ["sweep.py", "submit.sh"])
+        save_files_to_wandb(
+            wandb_logger, [__file__, "running_metadata.yaml", "sweep.py", "submit.sh"]
+        )
 
     print("\nFinish training at:", datetime.now())
 
 
 if __name__ == "__main__":
 
+    filename = "running_metadata.yaml"
     repo_path = "/Users/mjwen/Applications/rxnrep"
-    latest_commit = get_repo_git_commit(repo_path)
-    print("Git commit:\n", latest_commit)
+    write_running_metadata(filename, repo_path)
 
     main()
