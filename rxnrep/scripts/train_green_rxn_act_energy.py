@@ -117,15 +117,15 @@ class RxnRepLightningModel(pl.LightningModule):
         self.classification_tasks = {
             # "bond_hop_dist": {
             #     "num_classes": params.bond_hop_dist_num_classes,
-            #     "to_sum_f1": ["f1"],
+            #    "to_sum_f1": {"f1": 1},
             # },
             # "atom_hop_dist": {
             #     "num_classes": params.atom_hop_dist_num_classes,
-            #     "to_sum_f1": ["f1"],
+            #    "to_sum_f1": {"f1": 1},
             # },
             # "masked_atom_type": {
             #     "num_classes": params.masked_atom_type_num_classes,
-            #     "to_sum_f1": ["f1"],
+            #    "to_sum_f1": {"f1": 1},
             # },
         }
 
@@ -136,15 +136,15 @@ class RxnRepLightningModel(pl.LightningModule):
             },
             "activation_energy": {
                 "label_scaler": "activation_energy",
-                "to_sum_f1": ["mae"],
+                "to_sum_f1": {"mae": -1},
             },
             # "activation_energy_semi": {
             #    "label_scaler": "activation_energy",
-            #    "to_sum_f1": ["mae"],
+            #    "to_sum_f1": {"mae": -1},
             # },
             # "activation_energy_bep": {
             #    "label_scaler": "activation_energy",
-            #    "to_sum_f1": ["mae"],
+            #    "to_sum_f1": {"mae": -1},
             # },
         }
 
@@ -668,7 +668,8 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj.reset()
 
                 if name in task_setting["to_sum_f1"]:
-                    sum_f1 += out
+                    sign = task_setting["to_sum_f1"][name]
+                    sum_f1 += out * sign
 
         for key, task_setting in self.regression_tasks.items():
             for name in self.metrics[mode][key]:
@@ -690,7 +691,8 @@ class RxnRepLightningModel(pl.LightningModule):
                 metric_obj.reset()
 
                 if name in task_setting["to_sum_f1"]:
-                    sum_f1 += out
+                    sign = task_setting["to_sum_f1"][name]
+                    sum_f1 += out * sign
 
         return sum_f1
 

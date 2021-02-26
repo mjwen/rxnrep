@@ -41,7 +41,7 @@ def encoder_args(parser):
         "--pooling_method",
         type=str,
         default="set2set",
-        help="set2set or hop_distance",
+        help="set2set, hop_distance, or global_only",
     )
 
     parser.add_argument(
@@ -81,7 +81,7 @@ def encoder_adjuster(args):
         args.reaction_dropout = 0
 
     # pooling
-    if args.pooling_method == "set2set":
+    if args.pooling_method in ["set2set", "global_only"]:
         args.pooling_kwargs = None
     elif args.pooling_method == "hop_distance":
         args.pooling_kwargs = {
@@ -203,7 +203,13 @@ def energy_decoder_helper(parser):
 
 
 def reaction_energy_decoder_adjuster(args):
-    val = 2 * get_encoder_out_feats_size(args)
+    val = get_encoder_out_feats_size(args)
+
+    if args.pooling_method == "global_only":
+        val = val
+    else:
+        val = 2 * val
+
     args.reaction_energy_decoder_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
     ]
@@ -211,7 +217,13 @@ def reaction_energy_decoder_adjuster(args):
 
 
 def activation_energy_decoder_adjuster(args):
-    val = 2 * get_encoder_out_feats_size(args)
+    val = get_encoder_out_feats_size(args)
+
+    if args.pooling_method == "global_only":
+        val = val
+    else:
+        val = 2 * val
+
     args.activation_energy_decoder_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
     ]
