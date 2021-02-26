@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from rxnrep.data.dataset import Subset
+from rxnrep.data.dataset import BaseDatasetWithLabels
 
 logger = logging.getLogger(__name__)
 
@@ -160,3 +160,23 @@ def train_validation_test_split_selected_bond_in_train(
         Subset(dataset, val_idx),
         Subset(dataset, test_idx),
     ]
+
+
+class Subset(BaseDatasetWithLabels):
+    def __init__(self, dataset, indices):
+        self.dataset = dataset
+        self.indices = indices
+
+    @property
+    def feature_size(self):
+        return self.dataset.feature_size
+
+    @property
+    def feature_name(self):
+        return self.dataset.feature_name
+
+    def __getitem__(self, item):
+        return self.dataset[self.indices[item]]
+
+    def __len__(self):
+        return len(self.indices)

@@ -5,13 +5,13 @@ from typing import Callable, Dict, Optional, Union
 
 import torch
 
+from rxnrep.data.dataset import BaseDatasetWithLabels
 from rxnrep.data.io import read_smiles_tsv_dataset
-from rxnrep.data.uspto import USPTODataset
 
 logger = logging.getLogger(__name__)
 
 
-class GreenDataset(USPTODataset):
+class GreenDataset(BaseDatasetWithLabels):
     """
     Green reaction activation energy dataset.
 

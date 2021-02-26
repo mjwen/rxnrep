@@ -5,13 +5,14 @@ from typing import Dict
 
 import torch
 
+from rxnrep.data.dataset import get_atom_bond_hop_dist_class_weight
 from rxnrep.data.io import read_smiles_tsv_dataset
-from rxnrep.data.uspto import USPTODataset, get_atom_bond_hop_dist_class_weight
+from rxnrep.data.uspto import BaseDatasetWithLabels
 
 logger = logging.getLogger(__name__)
 
 
-class NRELDataset(USPTODataset):
+class NRELDataset(BaseDatasetWithLabels):
     """
     NREL BDE dataset.
     """
