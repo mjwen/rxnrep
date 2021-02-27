@@ -12,8 +12,8 @@ from sklearn.utils import class_weight
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
+from rxnrep.data.augmentation import AtomTypeFeatureMasker
 from rxnrep.data.grapher import (
-    AtomTypeFeatureMasker,
     combine_graphs,
     create_hetero_molecule_graph,
     create_reaction_graph,
@@ -609,11 +609,20 @@ class BaseDatasetWithLabels(BaseDataset):
 
             self.medadata[i].update(meta)
 
-    def get_class_weight(self):
+    def get_class_weight(self, only_break_bond: bool = False):
         """
         Create class weight to be used in cross entropy losses.
+
+        Args:
+            only_break_bond: whether the dataset only contains breaking bond, i.e.
+                does not have lost bond
         """
-        return get_atom_bond_hop_dist_class_weight(self.labels, self.max_hop_distance)
+        if self.max_hop_distance:
+            return get_atom_bond_hop_dist_class_weight(
+                self.labels, self.max_hop_distance, only_break_bond=only_break_bond
+            )
+        else:
+            return {}
 
     def __getitem__(self, item: int):
         """

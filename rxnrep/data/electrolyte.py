@@ -1,10 +1,8 @@
 import logging
 from collections import Counter
-from typing import Dict
 
 import torch
 
-from rxnrep.data.dataset import get_atom_bond_hop_dist_class_weight
 from rxnrep.data.io import read_mrnet_reaction_dataset
 from rxnrep.data.uspto import BaseDatasetWithLabels
 
@@ -56,17 +54,3 @@ class ElectrolyteDataset(BaseDatasetWithLabels):
             self.labels[i]["reaction_energy"] = torch.as_tensor(
                 [e], dtype=torch.float32
             )
-
-    def get_class_weight(
-        self, only_break_bond: bool = False
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Create class weight to be used in cross entropy losses.
-
-        Args:
-            only_break_bond: whether the dataset only contains breaking bond, i.e.
-                does not have lost bond
-        """
-        return get_atom_bond_hop_dist_class_weight(
-            self.labels, self.max_hop_distance, only_break_bond
-        )

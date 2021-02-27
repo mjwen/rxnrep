@@ -64,6 +64,4 @@ class NRELDataset(BaseDatasetWithLabels):
         """
         Create class weight to be used in cross entropy losses.
         """
-        return get_atom_bond_hop_dist_class_weight(
-            self.labels, self.max_hop_distance, only_break_bond=True
-        )
+        return super().get_class_weight(only_break_bond=True)

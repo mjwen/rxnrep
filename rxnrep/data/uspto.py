@@ -1,7 +1,7 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Dict
+from typing import Callable, Dict, Optional, Union
 
 import torch
 from sklearn.utils import class_weight
@@ -15,7 +15,46 @@ logger = logging.getLogger(__name__)
 class USPTODataset(BaseDatasetWithLabels):
     """
     USPTO dataset.
+
+    Args:
+        has_class_label: whether the dataset provides class label. The Schneider dataset
+            has.
     """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        atom_featurizer: Callable,
+        bond_featurizer: Callable,
+        global_featurizer: Callable,
+        *,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
+        transform_features: bool = True,
+        return_index: bool = True,
+        num_processes: int = 1,
+        #
+        # args to control labels
+        #
+        max_hop_distance: Optional[int] = None,
+        atom_type_masker_ratio: Optional[float] = None,
+        atom_type_masker_use_masker_value: Optional[bool] = None,
+        has_class_label: bool = False,
+    ):
+        self.has_class_label = has_class_label
+
+        super().__init__(
+            filename,
+            atom_featurizer,
+            bond_featurizer,
+            global_featurizer,
+            init_state_dict=init_state_dict,
+            transform_features=transform_features,
+            return_index=return_index,
+            num_processes=num_processes,
+            max_hop_distance=max_hop_distance,
+            atom_type_masker_ratio=atom_type_masker_ratio,
+            atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
+        )
 
     def read_file(self, filename: Path):
         logger.info("Start reading dataset ...")
@@ -32,16 +71,6 @@ class USPTODataset(BaseDatasetWithLabels):
 
         return succeed_reactions, failed
 
-
-class SchneiderDataset(USPTODataset):
-    """
-    Schneider 50k USPTO dataset with class labels for reactions.
-
-    The difference between this and the USPTO dataset is that there is class label in
-    this dataset and no class label in USPTO. This is added as the `reaction_class`
-    in the `labels`.
-    """
-
     def generate_labels(self):
         """
         Labels for all reactions.
@@ -50,11 +79,12 @@ class SchneiderDataset(USPTODataset):
         """
         super().generate_labels()
 
-        for i, rxn in enumerate(self.reactions):
-            rxn_class = rxn.get_property("label")
-            self.labels[i]["reaction_class"] = torch.as_tensor(
-                [int(rxn_class)], dtype=torch.int64
-            )
+        if self.has_class_label:
+            for i, rxn in enumerate(self.reactions):
+                rxn_class = rxn.get_property("label")
+                self.labels[i]["reaction_class"] = torch.as_tensor(
+                    [int(rxn_class)], dtype=torch.int64
+                )
 
     def get_class_weight(
         self, num_reaction_classes: int = 50, class_weight_as_1: bool = False
@@ -69,25 +99,22 @@ class SchneiderDataset(USPTODataset):
                 otherwise, it is inversely proportional to the number of data points in
                 the dataset
         """
-        # class weight for atom hop and bond hop
-        if self.max_hop_distance:
-            weight = super().get_class_weight()
-        else:
-            weight = {}
+        weight = super().get_class_weight(only_break_bond=False)
 
-        if class_weight_as_1:
-            w = torch.ones(num_reaction_classes)
-        else:
-            rxn_classes = [rxn.get_property("label") for rxn in self.reactions]
+        if self.has_class_label:
+            if class_weight_as_1:
+                w = torch.ones(num_reaction_classes)
+            else:
+                rxn_classes = [rxn.get_property("label") for rxn in self.reactions]
 
-            # class weight for reaction classes
-            w = class_weight.compute_class_weight(
-                "balanced",
-                classes=list(range(num_reaction_classes)),
-                y=rxn_classes,
-            )
-            w = torch.as_tensor(w, dtype=torch.float32)
+                # class weight for reaction classes
+                w = class_weight.compute_class_weight(
+                    "balanced",
+                    classes=list(range(num_reaction_classes)),
+                    y=rxn_classes,
+                )
+                w = torch.as_tensor(w, dtype=torch.float32)
 
-        weight["reaction_class"] = w
+            weight["reaction_class"] = w
 
         return weight
