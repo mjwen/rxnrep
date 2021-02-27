@@ -25,7 +25,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import SchneiderDataset
+from rxnrep.data.uspto import USPTODataset
 from rxnrep.model.decoder import FCNNDecoder
 from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.train_uspto import RxnRepLightningModel as PretrainedModel
@@ -408,7 +408,7 @@ def load_dataset(args):
     else:
         state_dict_filename = args.pretrained_dataset_state_dict_filename
 
-    trainset = SchneiderDataset(
+    trainset = USPTODataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -420,7 +420,7 @@ def load_dataset(args):
 
     state_dict = trainset.state_dict()
 
-    valset = SchneiderDataset(
+    valset = USPTODataset(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
@@ -430,7 +430,7 @@ def load_dataset(args):
         num_processes=args.nprocs,
     )
 
-    testset = SchneiderDataset(
+    testset = USPTODataset(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),

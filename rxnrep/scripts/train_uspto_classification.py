@@ -1,27 +1,16 @@
 import argparse
-import warnings
 from datetime import datetime
-from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import SchneiderDataset
 from rxnrep.model.model_clfn import ReactionRepresentation
-from rxnrep.scripts.launch_environment import PyTorchLaunch
-from rxnrep.scripts.utils import (
-    TimeMeter,
-    get_repo_git_commit,
-    load_checkpoint_wandb,
-    save_files_to_wandb,
-)
+from rxnrep.scripts.load_dataset import load_uspto_dataset
+from rxnrep.scripts.main import main
+from rxnrep.scripts.utils import TimeMeter, write_running_metadata
 
 
 class RxnRepLightningModel(pl.LightningModule):
@@ -250,6 +239,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Reaction Representation")
 
     # ========== dataset ==========
+    parser.add_argument("--has_class_label", type=int, default=1)
+
     prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
 
     fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
@@ -375,205 +366,26 @@ def parse_args():
     return args
 
 
-def load_dataset(args):
+if __name__ == "__main__":
 
-    # check dataset state dict if restore model
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
-    else:
-        state_dict_filename = None
+    print("Start training at:", datetime.now())
 
-    trainset = SchneiderDataset(
-        filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        max_hop_distance=args.max_hop_distance,
-        init_state_dict=state_dict_filename,
-        num_processes=args.nprocs,
-    )
-
-    state_dict = trainset.state_dict()
-
-    valset = SchneiderDataset(
-        filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        max_hop_distance=args.max_hop_distance,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-    )
-
-    testset = SchneiderDataset(
-        filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        transform_features=True,
-        max_hop_distance=args.max_hop_distance,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-    )
-
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
-
-    # Add info that will be used in the model to args for easy access
-    class_weight = trainset.get_class_weight(
-        num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
-    )
-    args.reaction_class_weight = class_weight["reaction_class"]
-    args.feature_size = trainset.feature_size
-
-    return train_loader, val_loader, test_loader
-
-
-def main():
-    print("\nStart training at:", datetime.now())
+    filename = "running_metadata.yaml"
+    repo_path = "/Users/mjwen/Applications/rxnrep"
+    write_running_metadata(filename, repo_path)
 
     pl.seed_everything(25)
 
+    # args
     args = parse_args()
 
-    # ========== dataset ==========
-    train_loader, val_loader, test_loader = load_dataset(args)
+    # dataset
+    train_loader, val_loader, test_loader = load_uspto_dataset(args)
 
-    # ========== model ==========
+    # model
     model = RxnRepLightningModel(args)
 
-    # ========== trainer ==========
-
-    # callbacks
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
-    )
-    early_stop_callback = EarlyStopping(
-        monitor="val/f1", min_delta=0.0, patience=50, mode="max", verbose=True
-    )
-
-    # logger
-    log_save_dir = Path("wandb").resolve()
     project = "tmp-rxnrep"
+    main(args, model, train_loader, val_loader, test_loader, project)
 
-    # restore model, epoch, shared_step, LR schedulers, apex, etc...
-    if args.restore and log_save_dir.exists():
-        # restore
-        checkpoint_path, identifier = load_checkpoint_wandb(log_save_dir, project)
-    else:
-        # create new
-        checkpoint_path = None
-        identifier = None
-
-    if not log_save_dir.exists():
-        # put in try except in case it throws errors in distributed training
-        try:
-            log_save_dir.mkdir()
-        except FileExistsError:
-            pass
-    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
-
-    # cluster environment to use torch.distributed.launch, e.g.
-    # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
-    cluster = PyTorchLaunch()
-
-    #
-    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
-    # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
-    # work, size of val (test) set should be larger than
-    # `--num_centroids*num_processes`; otherwise clustering will raise an error,
-    # but ddp_cpu cannot respond to it. As a result, it will stuck there.
-    #
-
-    trainer = pl.Trainer(
-        max_epochs=args.epochs,
-        num_nodes=args.num_nodes,
-        gpus=args.gpus,
-        accelerator=args.accelerator,
-        plugins=[cluster],
-        callbacks=[checkpoint_callback, early_stop_callback],
-        logger=wandb_logger,
-        resume_from_checkpoint=checkpoint_path,
-        progress_bar_refresh_rate=100,
-        flush_logs_every_n_steps=50,
-        weights_summary="top",
-        # profiler="simple",
-        # deterministic=True,
-    )
-
-    # ========== fit and test ==========
-    trainer.fit(model, train_loader, val_loader)
-    trainer.test(test_dataloaders=test_loader)
-
-    # ========== save files to wandb ==========
-    # Do not do this before trainer, since this might result in the initialization of
-    # multiple wandb object when training in distribution mode
-    if (
-        args.gpus is None
-        or args.gpus == 1
-        or (args.gpus > 1 and cluster.local_rank() == 0)
-    ):
-        save_files_to_wandb(wandb_logger, __file__, ["sweep.py", "submit.sh"])
-
-    print("\nFinish training at:", datetime.now())
-
-
-if __name__ == "__main__":
-
-    repo_path = "/Users/mjwen/Applications/rxnrep"
-    latest_commit = get_repo_git_commit(repo_path)
-    print("Git commit:\n", latest_commit)
-
-    main()
+    print("Finish training at:", datetime.now())
