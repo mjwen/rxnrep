@@ -271,8 +271,21 @@ def training_args(parser):
     # training algorithm
     parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
     parser.add_argument("--batch_size", type=int, default=100, help="batch size")
-    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
+
+    # learning rate
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        # default="reduce_on_plateau",
+        default="cosine",
+        help="`reduce_on_plateau` or cosine",
+    )
+    parser.add_argument("--lr_warmup_step", type=int, default=10)
+
+    # this is only for cosine scheduler
+    parser.add_argument("--lr_min", type=float, default=1e-6, help="min learning rate")
 
     return parser
 
