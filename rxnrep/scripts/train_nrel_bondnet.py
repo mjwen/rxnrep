@@ -12,21 +12,55 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim import lr_scheduler
 from torch.utils.data.dataloader import DataLoader
+from warmup_scheduler import GradualWarmupScheduler
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.nrel import NRELDataset
 from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts.launch_environment import PyTorchLaunch
-from rxnrep.scripts.utils import (
-    TimeMeter,
-    get_repo_git_commit,
-    load_checkpoint_wandb,
-    save_files_to_wandb,
-)
+from rxnrep.scripts import argument
+from rxnrep.scripts.main import main
+from rxnrep.scripts.utils import TimeMeter, write_running_metadata
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Reaction Representation")
+
+    # ========== dataset ==========
+    prefix = "/Users/mjwen/Documents/Dataset/NREL_BDE/"
+
+    fname_tr = prefix + "rdf_data_190531_n200_processed_train.tsv"
+    fname_val = fname_tr
+    fname_test = fname_tr
+
+    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
+    parser.add_argument("--valset_filename", type=str, default=fname_val)
+    parser.add_argument("--testset_filename", type=str, default=fname_test)
+    parser.add_argument(
+        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
+    )
+
+    # ========== model ==========
+    parser = argument.encoder_args(parser)
+    parser = argument.reaction_energy_decoder_args(parser)
+
+    # ========== training ==========
+    parser = argument.training_args(parser)
+
+    # ========== helper ==========
+    parser = argument.encoder_helper(parser)
+    parser = argument.energy_decoder_helper(parser)
+
+    ####################
+    args = parser.parse_args()
+    ####################
+
+    # ========== adjuster ==========
+    args = argument.encoder_adjuster(args)
+    args = argument.reaction_energy_decoder_adjuster(args)
+
+    return args
 
 
 class RxnRepLightningModel(pl.LightningModule):
@@ -226,9 +260,26 @@ class RxnRepLightningModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        scheduler = ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.4, patience=20, verbose=True
-        )
+        if self.hparams.lr_scheduler == "reduce_on_plateau":
+            base_scheduler = lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="max", factor=0.4, patience=50, verbose=True
+            )
+        elif self.hparams.lr_scheduler == "cosine":
+            base_scheduler = lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=self.hparams.epochs, eta_min=self.hparams.lr_min
+            )
+        else:
+            raise ValueError(f"Not supported lr scheduler: {self.hparams.lr_scheduler}")
+
+        if self.hparams.lr_warmup_step:
+            scheduler = GradualWarmupScheduler(
+                optimizer,
+                multiplier=1,
+                total_epoch=self.hparams.lr_warmup_step,
+                after_scheduler=base_scheduler,
+            )
+        else:
+            scheduler = base_scheduler
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
@@ -319,180 +370,6 @@ class RxnRepLightningModel(pl.LightningModule):
                     sum_f1 -= value
 
         return sum_f1
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Reaction Representation")
-
-    # ========== dataset ==========
-    prefix = "/Users/mjwen/Documents/Dataset/NREL_BDE/"
-
-    fname_tr = prefix + "rdf_data_190531_n200_processed_train.tsv"
-    fname_val = fname_tr
-    fname_test = fname_tr
-
-    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
-    parser.add_argument("--valset_filename", type=str, default=fname_val)
-    parser.add_argument("--testset_filename", type=str, default=fname_test)
-    parser.add_argument(
-        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
-    )
-
-    # ========== model ==========
-    # embedding
-    parser.add_argument("--embedding_size", type=int, default=24)
-
-    # encoder
-    parser.add_argument(
-        "--molecule_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
-    )
-    parser.add_argument("--molecule_num_fc_layers", type=int, default=2)
-    parser.add_argument("--molecule_batch_norm", type=int, default=1)
-    parser.add_argument("--molecule_activation", type=str, default="ReLU")
-    parser.add_argument("--molecule_residual", type=int, default=1)
-    parser.add_argument("--molecule_dropout", type=float, default="0.0")
-    parser.add_argument(
-        "--reaction_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
-    )
-    parser.add_argument("--reaction_num_fc_layers", type=int, default=2)
-    parser.add_argument("--reaction_batch_norm", type=int, default=1)
-    parser.add_argument("--reaction_activation", type=str, default="ReLU")
-    parser.add_argument("--reaction_residual", type=int, default=1)
-    parser.add_argument("--reaction_dropout", type=float, default="0.0")
-
-    # ========== compressor ==========
-    parser.add_argument(
-        "--compressing_layer_sizes",
-        type=int,
-        nargs="+",
-        default=None,
-        help="`None` to not use it",
-    )
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
-
-    # ========== pooling ==========
-    parser.add_argument(
-        "--pooling_method",
-        type=str,
-        default="set2set",
-        help="set2set or hop_distance",
-    )
-
-    parser.add_argument(
-        "--hop_distance_pooling_max_hop_distance",
-        type=int,
-        default=2,
-        help=(
-            "max hop distance when hop_distance pooling method is used. Ignored when "
-            "`set2set` pooling method is used. This is different from max_hop_distance "
-            "used for node decoder, which is used to create labels for the decoders. "
-            "Also, typically we can set the two to be the same."
-        ),
-    )
-
-    # ========== decoder ==========
-
-    # energy decoder
-    parser.add_argument(
-        "--reaction_energy_decoder_hidden_layer_sizes",
-        type=int,
-        nargs="+",
-        default=[64],
-    )
-    parser.add_argument(
-        "--reaction_energy_decoder_activation", type=str, default="ReLU"
-    )
-    # parser.add_argument(
-    #     "--activation_energy_decoder_hidden_layer_sizes",
-    #     type=int,
-    #     nargs="+",
-    #     default=[64],
-    # )
-    # parser.add_argument(
-    #     "--activation_energy_decoder_activation", type=str, default="ReLU"
-    # )
-
-    # ========== training ==========
-
-    # restore
-    parser.add_argument("--restore", type=int, default=0, help="restore training")
-
-    # accelerator
-    parser.add_argument("--num_nodes", type=int, default=1, help="number of nodes")
-    parser.add_argument(
-        "--gpus", type=int, default=None, help="number of gpus per node"
-    )
-    parser.add_argument(
-        "--accelerator", type=str, default=None, help="backend, e.g. `ddp`"
-    )
-    parser.add_argument(
-        "--num_workers", type=int, default=0, help="number of workers for dataloader"
-    )
-    parser.add_argument(
-        "--nprocs",
-        type=int,
-        default=1,
-        help="number of processes for constructing graphs in dataset",
-    )
-
-    # training algorithm
-    parser.add_argument("--epochs", type=int, default=10, help="number of epochs")
-    parser.add_argument("--batch_size", type=int, default=100, help="batch size")
-    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
-    parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay")
-
-    ####################
-    # helper args
-    ####################
-    # encoder
-    parser.add_argument(
-        "--conv_layer_size",
-        type=int,
-        default=64,
-        help="hidden layer size for mol and rxn conv",
-    )
-    parser.add_argument("--num_mol_conv_layers", type=int, default=2)
-    parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
-
-    # energy decoder
-    parser.add_argument("--num_energy_decoder_layers", type=int, default=2)
-
-    ####################
-    args = parser.parse_args()
-    ####################
-
-    ####################
-    # adjust args
-    ####################
-    # encoder
-    args.molecule_conv_layer_sizes = [args.conv_layer_size] * args.num_mol_conv_layers
-    args.reaction_conv_layer_sizes = [args.conv_layer_size] * args.num_rxn_conv_layers
-    if args.num_rxn_conv_layers == 0:
-        args.reaction_dropout = 0
-
-    # output atom/bond/global feature size, before pooling
-    if args.compressing_layer_sizes:
-        encoder_out_feats_size = args.compressing_layer_sizes[-1]
-    else:
-        encoder_out_feats_size = args.conv_layer_size
-
-    # energy decoder
-    val = 2 * encoder_out_feats_size
-    args.reaction_energy_decoder_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
-    ]
-
-    # pooling
-    if args.pooling_method == "set2set":
-        args.pooling_kwargs = None
-    elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {
-            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
-        }
-    else:
-        raise NotImplementedError
-
-    return args
 
 
 def load_dataset(args):
@@ -597,99 +474,26 @@ def load_dataset(args):
     return train_loader, val_loader, test_loader
 
 
-def main():
-    print("\nStart training at:", datetime.now())
+if __name__ == "__main__":
+
+    print("Start training at:", datetime.now())
+
+    filename = "running_metadata.yaml"
+    repo_path = "/Users/mjwen/Applications/rxnrep"
+    write_running_metadata(filename, repo_path)
 
     pl.seed_everything(25)
 
+    # args
     args = parse_args()
 
-    # ========== dataset ==========
+    # dataset
     train_loader, val_loader, test_loader = load_dataset(args)
 
-    # ========== model ==========
+    # model
     model = RxnRepLightningModel(args)
 
-    # ========== trainer ==========
-
-    # callbacks
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val/f1", mode="max", save_last=True, save_top_k=5, verbose=False
-    )
-    early_stop_callback = EarlyStopping(
-        monitor="val/f1", min_delta=0.0, patience=50, mode="max", verbose=True
-    )
-
-    # logger
-    log_save_dir = Path("wandb").resolve()
     project = "tmp-rxnrep"
+    main(args, model, train_loader, val_loader, test_loader, project)
 
-    # restore model, epoch, shared_step, LR schedulers, apex, etc...
-    if args.restore and log_save_dir.exists():
-        # restore
-        checkpoint_path, identifier = load_checkpoint_wandb(log_save_dir, project)
-    else:
-        # create new
-        checkpoint_path = None
-        identifier = None
-
-    if not log_save_dir.exists():
-        # put in try except in case it throws errors in distributed training
-        try:
-            log_save_dir.mkdir()
-        except FileExistsError:
-            pass
-    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
-
-    # cluster environment to use torch.distributed.launch, e.g.
-    # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
-    cluster = PyTorchLaunch()
-
-    #
-    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
-    # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
-    # work, size of val (test) set should be larger than
-    # `--num_centroids*num_processes`; otherwise clustering will raise an error,
-    # but ddp_cpu cannot respond to it. As a result, it will stuck there.
-    #
-
-    trainer = pl.Trainer(
-        max_epochs=args.epochs,
-        num_nodes=args.num_nodes,
-        gpus=args.gpus,
-        accelerator=args.accelerator,
-        plugins=[cluster],
-        callbacks=[checkpoint_callback, early_stop_callback],
-        logger=wandb_logger,
-        resume_from_checkpoint=checkpoint_path,
-        progress_bar_refresh_rate=100,
-        flush_logs_every_n_steps=50,
-        weights_summary="top",
-        # profiler="simple",
-        # deterministic=True,
-    )
-
-    # ========== fit and test ==========
-    trainer.fit(model, train_loader, val_loader)
-    trainer.test(test_dataloaders=test_loader)
-
-    # ========== save files to wandb ==========
-    # Do not do this before trainer, since this might result in the initialization of
-    # multiple wandb object when training in distribution mode
-    if (
-        args.gpus is None
-        or args.gpus == 1
-        or (args.gpus > 1 and cluster.local_rank() == 0)
-    ):
-        save_files_to_wandb(wandb_logger, __file__, ["sweep.py", "submit.sh"])
-
-    print("\nFinish training at:", datetime.now())
-
-
-if __name__ == "__main__":
-
-    repo_path = "/Users/mjwen/Applications/rxnrep"
-    latest_commit = get_repo_git_commit(repo_path)
-    print("Git commit:\n", latest_commit)
-
-    main()
+    print("Finish training at:", datetime.now())
