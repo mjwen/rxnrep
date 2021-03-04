@@ -11,9 +11,9 @@ def mol_to_graph(
     mol: Molecule, num_virtual_nodes: int = 0, self_loop: bool = False
 ) -> dgl.DGLGraph:
     """
-    Create molecule graph for an rdkit molecule.
+    Create dgl graph for a molecule.
 
-    Atoms will be nodes (with node type `atom`) of the graph; atom i be node i.
+    Atoms will be nodes (with node type `atom`) of the dgl graph; atom i be node i.
     Bonds will be edges (with edge type `a2a`, i.e. atom to atom). The is a bi-directed
     graph and each bond corresponds to two edges: bond j corresponds to edges 2j and
     2j+1.

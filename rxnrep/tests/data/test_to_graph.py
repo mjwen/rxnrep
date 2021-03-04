@@ -1,3 +1,4 @@
+import dgl
 import torch
 
 from rxnrep.core.molecule import Molecule
@@ -18,11 +19,13 @@ def create_graph(m, n_a, n_b, n_v, self_loop):
 
     g.nodes["atom"].data.update({"feat": torch.arange(n_a * 4).reshape(n_a, 4)})
 
+    # this create zero tensor (i.e. of shape (0, 3)) if n_b == 0
     bond_feats = torch.arange(n_b * 3).reshape(n_b, 3)
     bond_feats = torch.repeat_interleave(
         bond_feats, torch.tensor([2] * n_b).long(), dim=0
     )
     g.edges["a2a"].data.update({"feat": bond_feats})
+
     if n_v > 0:
         g.nodes["virtual"].data.update({"feat": torch.arange(n_v * 2).reshape(n_v, 2)})
 
@@ -108,3 +111,45 @@ def test_create_graph():
     for n_v in [1]:
         g = create_graph_CO2(num_virtual_nodes=n_v)
         assert_one(g, 3, 2, n_v)
+
+
+def test_batch_graph():
+
+    n_a_1 = 1
+    n_b_1 = 0
+    n_v_1 = 1
+    g1 = create_graph_C(num_virtual_nodes=n_v_1)
+
+    n_a_2 = 3
+    n_b_2 = 2
+    n_v_2 = 1
+    g2 = create_graph_CO2(num_virtual_nodes=n_v_2)
+
+    g = dgl.batch([g1, g2])
+
+    num_nodes = {"atom": n_a_1 + n_a_2, "virtual": n_v_1 + n_v_2}
+    num_edges = {
+        "a2a": 2 * (n_b_1 + n_b_2),
+        "v2a": n_a_1 * n_v_1 + n_a_2 * n_v_2,
+        "a2v": n_a_1 * n_v_1 + n_a_2 * n_v_2,
+    }
+
+    assert set(g.ntypes) == set(num_nodes.keys())
+    assert set(g.etypes) == set(num_edges.keys())
+    for k, n in num_nodes.items():
+        assert g.number_of_nodes(k) == n
+    for k, n in num_edges.items():
+        assert g.number_of_edges(k) == n
+
+    # assert features
+    for t in num_nodes.keys():
+        assert torch.equal(
+            g.nodes[t].data["feat"],
+            torch.cat([g1.nodes[t].data["feat"], g2.nodes[t].data["feat"]]),
+        )
+
+    for t in ["a2a"]:
+        assert torch.equal(
+            g.edges[t].data["feat"],
+            torch.cat([g1.edges[t].data["feat"], g2.edges[t].data["feat"]]),
+        )
