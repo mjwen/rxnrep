@@ -101,6 +101,33 @@ class TestReaction:
         # products
         bond_map_number = rxn.get_products_bond_map_number(for_changed=False)
         assert bond_map_number == [[], [None, 0]]
+        bond_map_number = rxn.get_products_bond_map_number(for_changed=True)
+        assert bond_map_number == [[], [1, 0]]
+
+    def test_get_bond_map_number_as_dict(self):
+        rxn, _ = create_reaction()
+
+        # reactants
+        bond_map_number = rxn.get_reactants_bond_map_number(
+            for_changed=False, as_dict=True
+        )
+        assert bond_map_number == [{(0, 2): None}, {(1, 3): 0}]
+
+        bond_map_number = rxn.get_reactants_bond_map_number(
+            for_changed=True, as_dict=True
+        )
+        assert bond_map_number == [{(0, 2): 1}, {(1, 3): 0}]
+
+        # products
+        bond_map_number = rxn.get_products_bond_map_number(
+            for_changed=False, as_dict=True
+        )
+        assert bond_map_number == [{}, {(0, 1): None, (1, 3): 0}]
+
+        bond_map_number = rxn.get_products_bond_map_number(
+            for_changed=True, as_dict=True
+        )
+        assert bond_map_number == [{}, {(0, 1): 1, (1, 3): 0}]
 
     def test_check_atom_map_number(self):
         rxn, mols = create_reaction(add_H=False)

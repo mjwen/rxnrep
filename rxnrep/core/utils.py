@@ -13,6 +13,11 @@ from rxnrep.core.molecule import Molecule
 def generate_atom_map_number_one_bond_break_reaction(
     smiles: str, *, broken_bond: int = None, add_H: bool = False
 ) -> str:
+    """
+    Add atom map number to a smiles reaction.
+
+    Used by NREL dataset.
+    """
 
     reactants, _, products = smiles.split(">")
 

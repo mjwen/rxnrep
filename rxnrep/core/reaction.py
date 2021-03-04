@@ -1,6 +1,6 @@
 import itertools
 import logging
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from itertools import chain
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -10,6 +10,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from rxnrep.core.molecule import Molecule
+from rxnrep.typing import BondIndex
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class Reaction:
         return self._id
 
     @property
-    def unchanged_bonds(self) -> List[Tuple[int, int]]:
+    def unchanged_bonds(self) -> List[BondIndex]:
         """
         Unchanged bonds, i.e. bonds exist in both the reactants and products.
         Each bond is indexed by atom map number of the two atoms forming the bond.
@@ -91,7 +92,7 @@ class Reaction:
         return self._unchanged_bonds
 
     @property
-    def lost_bonds(self) -> List[Tuple[int, int]]:
+    def lost_bonds(self) -> List[BondIndex]:
         """
         Lost bonds, i.e. bonds in reactants but not in products.
         Each bond is indexed by atom map number of the two atoms forming the bond.
@@ -106,7 +107,7 @@ class Reaction:
         return self._lost_bonds
 
     @property
-    def added_bonds(self) -> List[Tuple[int, int]]:
+    def added_bonds(self) -> List[BondIndex]:
         """
         Added bonds, i.e. bonds in products but not in reactants.
         Each bond is indexed by atom map number of the two atoms forming the bond.
@@ -137,37 +138,7 @@ class Reaction:
             self._species = specs_ordered
         return self._species
 
-    def get_property(self, name: str) -> Any:
-        """
-        Return the additional properties of the reaction.
-
-        Args:
-            name: property name
-        """
-        if self._properties is None:
-            raise ReactionError(f"Reaction does not have property {name}")
-        else:
-            try:
-                return self._properties[name]
-            except KeyError:
-                raise ReactionError(f"Reaction does not have property {name}")
-
-    def set_property(self, name: str, value: Any):
-        """
-        Add additional property to the reaction.
-
-        If the property is already there this will reset it.
-
-        Args:
-            name: name of the property
-            value: value of the property
-        """
-        if self._properties is None:
-            self._properties = {}
-
-        self._properties[name] = value
-
-    def get_reactants_atom_map_number(self, zero_based=False) -> List[List[int]]:
+    def get_reactants_atom_map_number(self, zero_based=True) -> List[List[int]]:
         """
         Get the atom map number of the reactant molecules.
 
@@ -180,7 +151,7 @@ class Reaction:
         """
         return self._get_atom_map_number(self.reactants, zero_based)
 
-    def get_products_atom_map_number(self, zero_based=False) -> List[List[int]]:
+    def get_products_atom_map_number(self, zero_based=True) -> List[List[int]]:
         """
         Get the atom map number of the product molecules.
 
@@ -193,45 +164,43 @@ class Reaction:
         """
         return self._get_atom_map_number(self.products, zero_based)
 
-    def get_reactants_bonds(
-        self, zero_based: bool = False
-    ) -> List[List[Tuple[int, int]]]:
+    def get_reactants_bonds(self, zero_based: bool = True) -> List[List[BondIndex]]:
         """
         Get the bonds of all the reactants.
 
+        Each bond is indexed by the atom map number of the two atoms forming the bond.
+
         Args:
-            zero_based: whether to convert the bond index (a pair of atom map number)
-                to start from 0.
+            zero_based: whether to convert the bond index (atom map number) to 0 based.
 
         Returns:
             Each inner list is the bonds for one reactant molecule. The bonds has the
             same order as that in the underlying rdkit molecule. Each bond is indexed as
-            (atom1, atom2), and atom1 and atom2 are the two atoms forming the bonds.
-
+            (amn1, amn2), where amn1 and amn2 are the atom map number of the two atoms
+            forming the bond.
         """
         return self._get_bonds(self.reactants, zero_based)
 
-    def get_products_bonds(
-        self, zero_based: bool = False
-    ) -> List[List[Tuple[int, int]]]:
+    def get_products_bonds(self, zero_based: bool = True) -> List[List[BondIndex]]:
         """
         Get the bonds of all the products.
 
+        Each bond is indexed by the atom map number of the two atoms forming the bond.
+
         Args:
-            zero_based: whether to convert the bond index (a pair of atom map number)
-                to start from 0.
+            zero_based: whether to convert the bond index (atom map number) to 0 based.
 
         Returns:
             Each inner list is the bonds for one product molecule. The bonds has the
             same order as that in the underlying rdkit molecule. Each bond is indexed as
-            (atom1, atom2), and atom1 and atom2 are the two atoms forming the bonds.
-
+            (amn1, amn2), where amn1 and amn2 are the atom map number of the two atoms
+            forming the bond.
         """
         return self._get_bonds(self.products, zero_based)
 
     def get_reactants_bond_map_number(
-        self, for_changed: bool = False
-    ) -> List[List[int]]:
+        self, for_changed: bool = False, as_dict: bool = False
+    ) -> Union[List[List[int]], Dict[BondIndex, int]]:
         """
         Get the bond map number of the reactant molecules.
 
@@ -251,17 +220,21 @@ class Reaction:
                 number of bonds. Note, although we assigned a bond map number to it,
                 it does not mean the bond corresponds to the bond in the products with
                 the same map number.
+            as_dict: determines the format of the return. see below.
 
         Returns:
-            Each inner list is the bond map number for a molecule. The bonds has the
-            same order as that in the underlying rdkit molecule (i.e. element 0 is bond
-            0 in the rdkit molecule).
+            If `as_dict = False`, each inner list is the bond map number for a molecule.
+            the bonds has the same order as that in the underlying rdkit molecule
+            (i.e. element 0 is bond 0 in the rdkit molecule).
+            If `as_dict = True`, each inner dict is the bond map number of a molecule:
+            {bond_index, map_number}, where bond_index is a tuple of the atom map
+            number of the two atoms forming the bond.
         """
-        return self._get_bond_map_number(for_changed, mode="reactants")
+        return self._get_bond_map_number("reactants", for_changed, as_dict)
 
     def get_products_bond_map_number(
-        self, for_changed: bool = False
-    ) -> List[List[int]]:
+        self, for_changed: bool = False, as_dict: bool = False
+    ) -> Union[List[List[int]], Dict[BondIndex, int]]:
         """
         Get the bond map number of the product molecules.
 
@@ -281,17 +254,21 @@ class Reaction:
                 number of bonds. Note, although we assigned a bond map number to it,
                 it does not mean the bond corresponds to the bond in the reactants with
                 the same map number.
+            as_dict: determines the format of the return. see below.
 
         Returns:
-            Each inner list is the bond map number for a molecule. The bonds has the
-            same order as that in the underlying rdkit molecule (i.e. element 0 is bond
-            0 in the rdkit molecule).
+            If `as_dict = False`, each inner list is the bond map number for a molecule.
+            the bonds has the same order as that in the underlying rdkit molecule
+            (i.e. element 0 is bond 0 in the rdkit molecule).
+            If `as_dict = True`, each inner dict is the bond map number of a molecule:
+            {bond_index, map_number}, where bond_index is a tuple of the atom map
+            number of the two atoms forming the bond.
         """
-        return self._get_bond_map_number(for_changed, mode="products")
+        return self._get_bond_map_number("products", for_changed, as_dict)
 
     def get_unchanged_lost_and_added_bonds(
-        self, zero_based: bool = False
-    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]], List[Tuple[int, int]]]:
+        self, zero_based: bool = True
+    ) -> Tuple[List[BondIndex], List[BondIndex], List[BondIndex]]:
         """
         Get the unchanged, lost, and added bonds in the reaction.
 
@@ -346,8 +323,38 @@ class Reaction:
 
         return altered_bonds
 
+    def set_property(self, name: str, value: Any):
+        """
+        Add additional property to the reaction.
+
+        If the property is already there this will reset it.
+
+        Args:
+            name: name of the property
+            value: value of the property
+        """
+        if self._properties is None:
+            self._properties = {}
+
+        self._properties[name] = value
+
+    def get_property(self, name: str) -> Any:
+        """
+        Return the additional properties of the reaction.
+
+        Args:
+            name: property name
+        """
+        if self._properties is None:
+            raise ReactionError(f"Reaction does not have property {name}")
+        else:
+            try:
+                return self._properties[name]
+            except KeyError:
+                raise ReactionError(f"Reaction does not have property {name}")
+
     @staticmethod
-    def _get_atom_map_number(molecules: List[Molecule], zero_based=False):
+    def _get_atom_map_number(molecules: List[Molecule], zero_based=True):
         """
         `molecules` typically should be all the reactants or products.
         """
@@ -360,8 +367,8 @@ class Reaction:
 
     @staticmethod
     def _get_bonds(
-        molecules: List[Molecule], zero_based: bool = False
-    ) -> List[List[Tuple[int, int]]]:
+        molecules: List[Molecule], zero_based: bool = True
+    ) -> List[List[BondIndex]]:
         """
         Get all the bonds in the molecules. Each bond is index as (atom1, atom2),
         where atom1 and atom2 are the atom map number for that atom.
@@ -398,20 +405,25 @@ class Reaction:
         return all_bonds
 
     def _get_bond_map_number(
-        self, for_changed=False, mode="reactants"
-    ) -> List[List[int]]:
+        self, mode="reactants", for_changed=False, as_dict: bool = False
+    ) -> List[Union[List[int], Dict[BondIndex, int]]]:
         """
         Args:
+            mode: [`reactants`|`products`]. Generate bond map for the reactant or
+                the product molecules.
             for_changed: whether to generate bond map for changed bonds (lost bonds
                 for reactants and added bonds for reactants). If `False`, the bond map
                 for changed bonds are set to `None`. If `True`, their values are set to
                 N_un, ..., N-1, where N_un is the number of unchanged bonds and N is the
                 number of bonds.
-            mode: [`reactants`|`products`]. Generate bond map for the reactant or
-                the product molecules.
+            as_dict: how is the bond indexed. If `False`, the map number of each
+                molecule is a list of int, with the same order of bond in the molecule.
+                If `True`, each bond is indexed by the two atoms from the bond,
+                and the returned value for each molecule is a dict with the index as
+                key and the map number as value.
         """
-        reactants_bonds = self.get_reactants_bonds()
-        products_bonds = self.get_products_bonds()
+        reactants_bonds = self.get_reactants_bonds(zero_based=True)
+        products_bonds = self.get_products_bonds(zero_based=True)
 
         reactant_bonds_set = set(itertools.chain.from_iterable(reactants_bonds))
         product_bonds_set = set(itertools.chain.from_iterable(products_bonds))
@@ -432,15 +444,19 @@ class Reaction:
 
         bond_map_number = []  # map number for all molecules
         for bonds in target_bonds:
-            number = []  # map number for a one molecule
+
+            number = OrderedDict()  # map number for a one molecule
             for b in bonds:
                 if b in unchanged_bonds:
-                    number.append(bonds_map[b])
+                    number[b] = bonds_map[b]
                 else:
                     if for_changed:
-                        number.append(bonds_map[b])
+                        number[b] = bonds_map[b]
                     else:
-                        number.append(None)
+                        number[b] = None
+
+            if not as_dict:
+                number = list(number.values())
             bond_map_number.append(number)
 
         return bond_map_number
