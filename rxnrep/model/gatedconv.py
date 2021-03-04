@@ -82,30 +82,31 @@ class GatedGCNConv(nn.Module):
             self.dropout = nn.Dropout(dropout)
 
     @staticmethod
-    def reduce_fn_a2b(nodes):
-        """
-        Do not reduce `Eh_j` from atom nodes to bond nodes, we need the full tensor later.
-        """
-        x = nodes.mailbox["Eh_j_tmp"]
-        return {"Eh_j": x}
-
-    @staticmethod
     def message_fn(edges):
-        return {"Eh_j": edges.src["Eh_j"], "e": edges.src["e"]}
+        return {
+            "Eh_sum": edges.src["Eh_sum"],
+            "sigma_eij": torch.sigmoid(edges.src["e"]),
+        }
 
     @staticmethod
     def reduce_fn(nodes):
         Eh_i = nodes.data["Eh"]
-        e = nodes.mailbox["e"]
-        Eh_j = nodes.mailbox["Eh_j"]
+        Eh_sum = nodes.mailbox["Eh_sum"]
+        sigma_eij = nodes.mailbox["sigma_eij"]
 
-        # TODO select_not_equal is time consuming; it might be improved by passing node
-        #  index along with Eh_j and compare the node index to select the different one
-        Eh_j = select_not_equal(Eh_j, Eh_i)
-        sigma_ij = torch.sigmoid(e)  # sigma_ij = sigmoid(e_ij)
+        # Eh_i is a 2D tensor (d0, d1)
+        # d0: node batch dim
+        # d1: feature dim
+        #
+        # Eh_sum and e are 3D tensors (d0, d1, d2).
+        # d0: node batch dim, i.e. the messages for different node
+        # d1: message dim, i.e. all messages for one node from other node
+        # d2: feature dim
+        shape = Eh_i.shape
+        Eh_j = Eh_sum - Eh_i.view(shape[0], 1, shape[1])
 
         # (sum_j eta_ij * Ehj)/(sum_j' eta_ij') <= dense attention
-        h = torch.sum(sigma_ij * Eh_j, dim=1) / (torch.sum(sigma_ij, dim=1) + 1e-6)
+        h = torch.sum(sigma_eij * Eh_j, dim=1) / (torch.sum(sigma_eij, dim=1) + 1e-6)
 
         return {"h": h}
 
@@ -164,15 +165,21 @@ class GatedGCNConv(nn.Module):
 
         # update atom feature h
 
-        # Copy Eh to bond nodes, without reduction.
-        # This is the first arrow in: Eh_j -> bond node -> atom i node
-        # The second arrow is done in self.message_fn and self.reduce_fn below
-        g.update_all(fn.copy_u("Eh", "Eh_j_tmp"), self.reduce_fn_a2b, etype="a2b")
+        # We do this in a two step fashion: Eh_j -> bond node -> atom i node
+        # To get e_ij [Had] Eh_j, we use the trick:
+        # e_ij [Had] Eh_j =
+        # e_ij [Had] (Eh_j + Eh_i)  (a)
+        # - e_ij [Had] Eh_i         (b)
+        #
+        # (a) is achieved in step 1 and (b) in step 2
+
+        # step 1
+        g.update_all(fn.copy_u("Eh", "m"), fn.sum("m", "Eh_sum"), etype="a2b")
 
         g.multi_update_all(
             {
                 "a2a": (fn.copy_u("Dh", "m"), fn.sum("m", "h")),  # D * h_i
-                "b2a": (self.message_fn, self.reduce_fn),  # e_ij [Had] (E * hj)
+                "b2a": (self.message_fn, self.reduce_fn),  # e_ij [Had] (Eh_sum - Eh_i)
                 "g2a": (fn.copy_u("Fu", "m"), fn.sum("m", "h")),  # F * u
             },
             "sum",
@@ -216,63 +223,3 @@ class GatedGCNConv(nn.Module):
         feats = {"atom": h, "bond": e, "global": u}
 
         return feats
-
-    def __repr__(self):
-        return "GatedConv ..."
-
-
-def select_not_equal(x, y):
-    """Subselect an array from x, which is not equal to the corresponding element
-    in y.
-
-    Args:
-        x (4D tensor): shape are d0: node batch dim, d1: number of edges dim,
-            d2: selection dim, d3: feature dim
-        y (2D tensor): shape are 0: nodes batch dim, 1: feature dim
-
-    For example:
-    >>> x =[[ [ [0,1,2],
-    ...         [3,4,5] ],
-    ...       [ [0,1,2],
-    ...         [6,7,8] ]
-    ...     ],
-    ...     [ [ [0,1,2],
-    ...         [3,4,5] ],
-    ...       [ [3,4,5],
-    ...         [6,7,8] ]
-    ...     ]
-    ...    ]
-    >>>
-    >>> y = [[0,1,2],
-    ...      [3,4,5]]
-    >>>
-    >>> select_no_equal(x,y)
-    ... [[[3,4,5],
-    ...   [6,7,8]],
-    ...  [[0,1,2],
-    ...   [6,7,8]]
-    Returns:
-        3D tensor: of shape (d0, d1, d3)
-
-    """
-    d0, d1, d2, d3 = x.shape
-    assert d2 == 2, f"Expect x.shape[2]==2, got {d2}"
-
-    ## method 1, slow
-    # rst = []
-    # for x1, y1 in zip(x, y):
-    #     xx = [x2[0] if not torch.equal(y1, x2[0]) else x2[1] for x2 in x1]
-    #     rst.append(torch.stack(xx))
-    # rst = torch.stack(rst)
-
-    # method 2, a much faster version
-    y = torch.repeat_interleave(y, d1 * d2, dim=0).view(x.shape)
-    any_not_equal = torch.any(x != y, dim=3)
-    # bool index
-    idx1 = any_not_equal[:, :, 0].view(d0, d1, 1)
-    idx2 = ~idx1
-    idx = torch.cat([idx1, idx2], dim=-1)
-    # select result
-    rst = x[idx].view(d0, d1, -1)
-
-    return rst
