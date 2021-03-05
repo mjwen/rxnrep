@@ -136,21 +136,19 @@ class GatedGCNConv(nn.Module):
         e_in = e
         u_in = u
 
-        g.nodes["atom"].data.update({"Ah": self.A(h), "Dh": self.D(h), "Eh": self.E(h)})
-        g.nodes["bond"].data.update({"Be": self.B(e)})
+        g.nodes["atom"].data.update({"Ah": self.A(h), "Eh": self.E(h)})
         g.nodes["global"].data.update({"Cu": self.C(u), "Fu": self.F(u)})
 
         # update bond feature e
         g.multi_update_all(
             {
                 "a2b": (fn.copy_u("Ah", "m"), fn.sum("m", "e")),  # A * (h_i + h_j)
-                "b2b": (fn.copy_u("Be", "m"), fn.sum("m", "e")),  # B * e_ij
                 "g2b": (fn.copy_u("Cu", "m"), fn.sum("m", "e")),  # C * u
             },
             "sum",
         )
+        e = g.nodes["bond"].data["e"] + self.B(e)  # B * e_ij
 
-        e = g.nodes["bond"].data["e"]
         if self.graph_norm:
             e = e * norm_bond
         if self.batch_norm:
@@ -173,14 +171,13 @@ class GatedGCNConv(nn.Module):
 
         g.multi_update_all(
             {
-                "a2a": (fn.copy_u("Dh", "m"), fn.sum("m", "h")),  # D * h_i
                 "b2a": (self.message_fn, self.reduce_fn),  # step 2
                 "g2a": (fn.copy_u("Fu", "m"), fn.sum("m", "h")),  # F * u
             },
             "sum",
         )
+        h = g.nodes["atom"].data["h"] + self.D(h)  # D * h_i
 
-        h = g.nodes["atom"].data["h"]
         if self.graph_norm:
             h = h * norm_atom
         if self.batch_norm:
@@ -191,18 +188,18 @@ class GatedGCNConv(nn.Module):
         g.nodes["atom"].data["h"] = h
 
         # update global feature u
+
         g.nodes["atom"].data.update({"Gh": self.G(h)})
         g.nodes["bond"].data.update({"He": self.H(e)})
-        g.nodes["global"].data.update({"Iu": self.I(u)})
         g.multi_update_all(
             {
                 "a2g": (fn.copy_u("Gh", "m"), fn.mean("m", "u")),  # G * (mean_i h_i)
                 "b2g": (fn.copy_u("He", "m"), fn.mean("m", "u")),  # H * (mean_ij e_ij)
-                "g2g": (fn.copy_u("Iu", "m"), fn.sum("m", "u")),  # I * u
             },
             "sum",
         )
-        u = g.nodes["global"].data["u"]
+        u = g.nodes["global"].data["u"] + self.I(u)  # I * u
+
         # do not apply batch norm if it there is only one graph
         if self.batch_norm and u.shape[0] > 1:
             u = self.bn_node_u(u)

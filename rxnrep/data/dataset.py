@@ -218,7 +218,6 @@ class BaseDataset:
                     atom_featurizer=atom_featurizer,
                     bond_featurizer=self.bond_featurizer,
                     global_featurizer=self.global_featurizer,
-                    self_loop=True,
                 )
                 for rxn in self.reactions
             ]
@@ -228,7 +227,6 @@ class BaseDataset:
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
-                self_loop=True,
             )
             with multiprocessing.Pool(self.nprocs) as p:
                 dgl_graphs = p.map(func, self.reactions)
@@ -242,7 +240,6 @@ class BaseDataset:
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
-                self_loop=True,
             )
 
         # log feature name and size
@@ -708,7 +705,6 @@ def build_hetero_graph_and_featurize_one_reaction(
     atom_featurizer: Callable,
     bond_featurizer: Callable,
     global_featurizer: Callable,
-    self_loop=False,
 ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
     """
     Build heterogeneous dgl graph for the reactants and products in a reaction and
@@ -719,7 +715,6 @@ def build_hetero_graph_and_featurize_one_reaction(
         atom_featurizer:
         bond_featurizer:
         global_featurizer:
-        self_loop:
 
     Returns:
         reactants_g: dgl graph for the reactants. One graph for all reactants; each
@@ -734,7 +729,7 @@ def build_hetero_graph_and_featurize_one_reaction(
 
         rdkit_mol = m.rdkit_mol
         # create graph
-        g = create_hetero_molecule_graph(rdkit_mol, self_loop)
+        g = create_hetero_molecule_graph(rdkit_mol)
 
         # featurize molecules
         atom_feats = atom_featurizer(rdkit_mol)
@@ -769,12 +764,7 @@ def build_hetero_graph_and_featurize_one_reaction(
         num_added = len(reaction.added_bonds)
 
         reaction_g = create_reaction_graph(
-            reactants_g,
-            products_g,
-            num_unchanged,
-            num_lost,
-            num_added,
-            self_loop,
+            reactants_g, products_g, num_unchanged, num_lost, num_added
         )
 
     except Exception as e:
