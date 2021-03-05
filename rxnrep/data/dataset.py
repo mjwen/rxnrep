@@ -5,21 +5,18 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import dgl
-import numpy as np
 import torch
 from rdkit import Chem
-from sklearn.utils import class_weight
 
 from rxnrep.core.molecule import Molecule
-from rxnrep.core.reaction import Reaction
-from rxnrep.data.augmentation import AtomTypeFeatureMasker
-from rxnrep.data.grapher import (
-    combine_graphs,
-    create_hetero_molecule_graph,
-    create_reaction_graph,
+from rxnrep.core.reaction import (
+    Reaction,
+    get_atom_bond_hop_dist_class_weight,
     get_atom_distance_to_reaction_center,
     get_bond_distance_to_reaction_center,
 )
+from rxnrep.data.augmentation import AtomTypeFeatureMasker
+from rxnrep.data.grapher import build_graph_and_featurize_reaction
 from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
 from rxnrep.utils import convert_tensor_to_list, to_path, yaml_dump, yaml_load
 
@@ -213,7 +210,7 @@ class BaseDataset:
         # build graph and featurize
         if self.nprocs == 1:
             dgl_graphs = [
-                build_hetero_graph_and_featurize_one_reaction(
+                build_graph_and_featurize_reaction(
                     rxn,
                     atom_featurizer=atom_featurizer,
                     bond_featurizer=self.bond_featurizer,
@@ -223,7 +220,7 @@ class BaseDataset:
             ]
         else:
             func = functools.partial(
-                build_hetero_graph_and_featurize_one_reaction,
+                build_graph_and_featurize_reaction,
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
@@ -235,7 +232,7 @@ class BaseDataset:
             # then pass them to the subprocess. As a result, feature_name and
             # feature_size in the featurizer will not be updated.
             # Here we simply call it on the first reaction to initialize it
-            build_hetero_graph_and_featurize_one_reaction(
+            build_graph_and_featurize_reaction(
                 self.reactions[0],
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
@@ -698,160 +695,3 @@ class BaseDatasetWithLabels(BaseDataset):
             batched_labels,
             batched_metadata,
         )
-
-
-def build_hetero_graph_and_featurize_one_reaction(
-    reaction: Reaction,
-    atom_featurizer: Callable,
-    bond_featurizer: Callable,
-    global_featurizer: Callable,
-) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
-    """
-    Build heterogeneous dgl graph for the reactants and products in a reaction and
-    featurize them.
-
-    Args:
-        reaction:
-        atom_featurizer:
-        bond_featurizer:
-        global_featurizer:
-
-    Returns:
-        reactants_g: dgl graph for the reactants. One graph for all reactants; each
-            disjoint subgraph for a molecule.
-        products_g: dgl graph for the products. One graph for all reactants; each
-            disjoint subgraph for a molecule.
-        reaction_g: dgl graph for the reaction. bond nodes is the union of reactants
-            bond nodes and products bond nodes.
-    """
-
-    def featurize_one_mol(m: Molecule):
-
-        rdkit_mol = m.rdkit_mol
-        # create graph
-        g = create_hetero_molecule_graph(rdkit_mol)
-
-        # featurize molecules
-        atom_feats = atom_featurizer(rdkit_mol)
-        bond_feats = bond_featurizer(rdkit_mol)
-        global_feats = global_featurizer(
-            rdkit_mol, charge=m.charge, environment=m.environment
-        )
-
-        # add feats to graph
-        g.nodes["atom"].data.update({"feat": atom_feats})
-        g.nodes["bond"].data.update({"feat": bond_feats})
-        g.nodes["global"].data.update({"feat": global_feats})
-
-        return g
-
-    try:
-        reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
-        product_graphs = [featurize_one_mol(m) for m in reaction.products]
-
-        # combine small graphs to form one big graph for reactants and products
-        atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
-        bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
-        reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
-
-        atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
-        bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
-        products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
-
-        # combine reaction graph from the combined reactant graph and product graph
-        num_unchanged = len(reaction.unchanged_bonds)
-        num_lost = len(reaction.lost_bonds)
-        num_added = len(reaction.added_bonds)
-
-        reaction_g = create_reaction_graph(
-            reactants_g, products_g, num_unchanged, num_lost, num_added
-        )
-
-    except Exception as e:
-        logger.error(f"Error build graph and featurize for reaction: {reaction.id}")
-        raise Exception(e)
-
-    return reactants_g, products_g, reaction_g
-
-
-def get_atom_bond_hop_dist_class_weight(
-    labels: List[Dict[str, torch.Tensor]],
-    max_hop_distance: int,
-    only_break_bond: bool = False,
-) -> Dict[str, torch.Tensor]:
-    """
-    Create class weight to be used in cross entropy losses.
-
-    Args:
-        labels: a list of dict that contains `atom_hop_dist` and `bond_hop_dist` labels.
-            See `get_atom_distance_to_reaction_center()` and
-            `get_bond_distance_to_reaction_center` in grapher.py for how these labels
-            are generated and what the mean.
-        max_hop_distance: max hop distance used to generate the labels.
-        only_break_bond: in all the reactions, there is only bond breaking, but not
-            bond forming. If there is no bond forming, allowed number of classes for atom
-            and bond hop distances are both different from reactions with bond forming.
-
-    Returns:
-        {name: weight}: class weight for atom/bond hop distance labels
-    """
-
-    if only_break_bond:
-        atom_hop_num_classes = [max_hop_distance + 1]
-        bond_hop_num_classes = max_hop_distance + 1
-    else:
-        atom_hop_num_classes = [max_hop_distance + 2, max_hop_distance + 3]
-        bond_hop_num_classes = max_hop_distance + 2
-
-    # Unique labels should be `list(range(atom_hop_num_classes))`.
-    # The labels are:
-    # atoms in lost bond: class 0
-    # atoms in unchanged bond: class 1 to max_hop_distance
-    # If there are added bonds
-    # atoms in added bonds: class max_hop_distance + 1
-    # If there are atoms associated with both lost and added bonds, the class label for
-    # them is: max_hop_distance + 2
-    all_atom_hop_labels = np.concatenate([lb["atom_hop_dist"] for lb in labels])
-
-    unique_labels = sorted(set(all_atom_hop_labels))
-    if unique_labels not in [list(range(a)) for a in atom_hop_num_classes]:
-        raise RuntimeError(
-            f"Unable to compute atom class weight; some classes do not have valid "
-            f"labels. num_classes: {atom_hop_num_classes} unique labels: "
-            f"{unique_labels}."
-        )
-
-    atom_hop_weight = class_weight.compute_class_weight(
-        "balanced",
-        classes=unique_labels,
-        y=all_atom_hop_labels,
-    )
-
-    # Unique labels should be `list(range(bond_hop_num_classes))`.
-    # The labels are:
-    # lost bond: class 0
-    # unchanged: class 1 to max_hop_distance
-    # If there are added bonds:
-    # add bonds: class max_hop_distance + 1
-    all_bond_hop_labels = np.concatenate([lb["bond_hop_dist"] for lb in labels])
-
-    unique_labels = sorted(set(all_bond_hop_labels))
-    if unique_labels != list(range(bond_hop_num_classes)):
-        raise RuntimeError(
-            f"Unable to compute bond class weight; some classes do not have valid "
-            f"labels. num_classes: {bond_hop_num_classes} unique labels: "
-            f"{unique_labels}"
-        )
-
-    bond_hop_weight = class_weight.compute_class_weight(
-        "balanced",
-        classes=unique_labels,
-        y=all_bond_hop_labels,
-    )
-
-    weight = {
-        "atom_hop_dist": torch.as_tensor(atom_hop_weight, dtype=torch.float32),
-        "bond_hop_dist": torch.as_tensor(bond_hop_weight, dtype=torch.float32),
-    }
-
-    return weight

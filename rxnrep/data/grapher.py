@@ -1,17 +1,19 @@
 """
 Build molecule graphs and labels.
 """
-import copy
 import itertools
+import logging
 from collections import defaultdict
-from typing import List, Optional
+from typing import Callable, List, Tuple
 
 import dgl
-import networkx as nx
 import torch
 from rdkit import Chem
 
+from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
+
+logger = logging.getLogger(__name__)
 
 
 def create_hetero_molecule_graph(
@@ -289,223 +291,75 @@ def create_reaction_graph(
     return g
 
 
-def get_atom_distance_to_reaction_center(
-    reaction: Reaction, max_hop: int = 3
-) -> List[int]:
+def build_graph_and_featurize_reaction(
+    reaction: Reaction,
+    atom_featurizer: Callable,
+    bond_featurizer: Callable,
+    global_featurizer: Callable,
+) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
     """
-    Get the atom hop distance (graph distance) from the reaction center.
-
-    Reaction center is defined as the atoms involved in broken and added bonds.
-    This is done by combining the reactants and products into a single graph,
-    retaining all bonds (unchanged, lost, and added).
-
-    Atoms in broken bond has hop distance 0;
-    Atoms connected to reaction center via 1 bond has a hop distance of `1`;
-    ...
-    Atoms connected to reaction center via max_hop or more bonds has a hop distance
-    of `max_hop`;
-    Atoms in added bond has a hop distance of `max_hop+1`;
-    It is possible an atom is in both broken bond and added bond. In such cases,
-    we assign it a hop distance of `max_hop+2`.
-
-
-    Note that, in fact, atoms in added bonds should also have a hop distance of 0.
-    But to distinguish such atom with atoms in broken bonds, we give it distance
-    `max_hop+1`. We will use the hop distance as a label for training the model,
-    so it does not matter whether it is the real distance or not as long as we can
-    distinguish them.
+    Build heterogeneous dgl graph for the reactants and products in a reaction and
+    featurize them.
 
     Args:
-        reaction: reaction object
-        max_hop: maximum number of hops allowed for atoms in unchanged bonds. Atoms
-            farther away than this will all have the same distance number.
+        reaction:
+        atom_featurizer:
+        bond_featurizer:
+        global_featurizer:
 
     Returns:
-        Hop distances of the atoms. A list of size N (number of atoms in the reaction)
-        and element i is the hop distance for atom i.
-
+        reactants_g: dgl graph for the reactants. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        products_g: dgl graph for the products. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        reaction_g: dgl graph for the reaction. bond nodes is the union of reactants
+            bond nodes and products bond nodes.
     """
-    atoms_in_lost_bonds = set(
-        [i for i in itertools.chain.from_iterable(reaction.lost_bonds)]
-    )
-    atoms_in_added_bonds = set(
-        [i for i in itertools.chain.from_iterable(reaction.added_bonds)]
-    )
-    atoms_in_reaction_center = atoms_in_lost_bonds.union(atoms_in_added_bonds)
-    all_bonds = reaction.unchanged_bonds + reaction.lost_bonds + reaction.added_bonds
 
-    # distance from center atoms to other atoms
-    nx_graph = nx.Graph(incoming_graph_data=all_bonds)
-    center_to_others_distance = {}
-    for center_atom in atoms_in_reaction_center:
-        distances = nx.single_source_shortest_path_length(nx_graph, center_atom)
-        center_to_others_distance[center_atom] = distances
+    def featurize_one_mol(m: Molecule):
 
-    # Atom nodes are ordered according to atom map number in `combine_graphs()`.
-    # Here, the atoms in the bonds are also atom map number. So we can directly use then,
-    # and the hop_distances will have the same order as the reaction graph,
-    # i.e. hop_distances[i] will be the hop distance for atom node i in the reaction
-    # graph.
-    hop_distances = []
-    num_atoms = sum([m.num_atoms for m in reaction.reactants])
-    for atom in range(num_atoms):
+        rdkit_mol = m.rdkit_mol
+        # create graph
+        g = create_hetero_molecule_graph(rdkit_mol)
 
-        # atoms involved with both lost and added bonds
-        if atom in atoms_in_lost_bonds and atom in atoms_in_added_bonds:
-            hop_distances.append(max_hop + 2)
+        # featurize molecules
+        atom_feats = atom_featurizer(rdkit_mol)
+        bond_feats = bond_featurizer(rdkit_mol)
+        global_feats = global_featurizer(
+            rdkit_mol, charge=m.charge, environment=m.environment
+        )
 
-        # atoms involved only in lost bonds
-        elif atom in atoms_in_lost_bonds:
-            hop_distances.append(0)
+        # add feats to graph
+        g.nodes["atom"].data.update({"feat": atom_feats})
+        g.nodes["bond"].data.update({"feat": bond_feats})
+        g.nodes["global"].data.update({"feat": global_feats})
 
-        # atoms involved only in added bonds
-        elif atom in atoms_in_added_bonds:
-            hop_distances.append(max_hop + 1)
+        return g
 
-        # atoms not in reaction center
-        else:
-            # shortest distance of atom to reaction center
-            distances = []
-            for center in atoms_in_reaction_center:
-                try:
-                    d = center_to_others_distance[center][atom]
-                    distances.append(d)
+    try:
+        reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
+        product_graphs = [featurize_one_mol(m) for m in reaction.products]
 
-                # If there are more than one reaction centers in disjoint graphs,
-                # there could be no path from an atom to the center. In this case,
-                # center_to_others_distance[center] does not exists for `atom`.
-                except KeyError:
-                    pass
+        # combine small graphs to form one big graph for reactants and products
+        atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
+        reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
 
-            assert distances != [], (
-                f"Cannot find path to reaction center for atom {atom}, this should not "
-                "happen. The reaction probably has atoms not connected to others in "
-                "both the reactants and the products. Please remove these atoms."
-                f"Bad reaction is: {reaction.id}"
-            )
+        atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
+        products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
 
-            dist = min(distances)
-            if dist > max_hop:
-                dist = max_hop
-            hop_distances.append(dist)
+        # combine reaction graph from the combined reactant graph and product graph
+        num_unchanged = len(reaction.unchanged_bonds)
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
 
-    return hop_distances
+        reaction_g = create_reaction_graph(
+            reactants_g, products_g, num_unchanged, num_lost, num_added
+        )
 
+    except Exception as e:
+        logger.error(f"Error build graph and featurize for reaction: {reaction.id}")
+        raise Exception(e)
 
-def get_bond_distance_to_reaction_center(
-    reaction: Reaction, atom_hop_distances: Optional[List[int]] = None, max_hop: int = 3
-) -> List[int]:
-    """
-    Get the bond hop distance (graph distance) from the reaction center.
-
-    Reaction center is defined as the broken and added bonds.
-    This is done by combining the reactants and products into a single graph,
-    retaining all bonds (unchanged, lost, and added).
-
-    A broken bond has hop distance 0;
-    A bond right next to the reaction center has a hop distance of `1`;
-    A bond connected to the reaction center via 1 other bond has a hop distance of `2`;
-    ...
-    A bond connected to the reaction center via max_hop-1 other bonds has a hop
-    distance of `max_hop`;
-    Added bonds has a hop distance of `max_hop+1`;
-
-    Note that, an added bond should also have a hop distance of 0.
-    But to distinguish from broken bonds, we give it a distance  of `max_hop+1`.
-    We will use the hop distance as a label for training the model,
-    so it does not matter whether it is the real distance or not as long as we can
-    distinguish them.
-
-    Args:
-        reaction: reaction object
-        atom_hop_distances: atom hop distances obtained by
-            `get_atom_distance_to_reaction_center()`. Note, this is this provided,
-            the max_hop distance used in `get_atom_distance_to_reaction_center()`
-            should be the same the the one used in this function.
-
-        max_hop: maximum number of hops allowed for unchanged bonds. Bonds farther
-        away than this will all have the same distance number.
-
-    Returns:
-        Hop distances of the bonds. A list of size N (number of bonds in the reaction)
-        and element i is the hop distance for bond i.
-
-    """
-    if atom_hop_distances is None:
-        atom_hop_distances = get_atom_distance_to_reaction_center(reaction, max_hop)
-    else:
-        atom_hop_distances = copy.copy(atom_hop_distances)
-
-    unchanged_bonds = reaction.unchanged_bonds
-    lost_bonds = reaction.lost_bonds
-    added_bonds = reaction.added_bonds
-
-    # For atoms in reaction center, explicitly set the hop distance to 0.
-    # This is needed since `atom_hop_distances` obtained from
-    # get_atom_distance_to_reaction_center() set atoms in added bond to max_hop+1.
-    atoms_in_reaction_center = set(
-        [i for i in itertools.chain.from_iterable(lost_bonds + added_bonds)]
-    )
-    atom_hop_distances = [
-        0 if atom in atoms_in_reaction_center else dist
-        for atom, dist in enumerate(atom_hop_distances)
-    ]
-
-    reactants_bonds = reaction.get_reactants_bonds(zero_based=True)
-    products_bonds = reaction.get_products_bonds(zero_based=True)
-    reactants_bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
-    products_bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
-
-    # correspondence between bond index (atom1, atom2) and bond map number
-    reactants_bond_index_to_map_number = {}
-    products_bond_index_to_map_number = {}
-    for bonds, map_number in zip(reactants_bonds, reactants_bond_map_number):
-        for b, mn in zip(bonds, map_number):
-            reactants_bond_index_to_map_number[b] = mn
-    for bonds, map_number in zip(products_bonds, products_bond_map_number):
-        for b, mn in zip(bonds, map_number):
-            products_bond_index_to_map_number[b] = mn
-
-    num_lost_bonds = len(lost_bonds)
-    num_bonds = len(unchanged_bonds + lost_bonds + added_bonds)
-
-    # In `combine_graphs()`, the bond node in the graph are reordered according to bond
-    # map number. In `create_reaction_graph()`, the unchanged bonds will have bond
-    # node number 0, 1, ... N_unchanged-1, the lost bonds in the reactants will have
-    # bond node number N_unchanged, ... N-1, where N is the number of bonds in the
-    # reactants, and the added bonds will have bond node number N, ... N+N_added-1.
-    # We shifted the indices of the added bonds right by `the number of lost bonds`
-    # to make a graph containing all bonds. Here we do the same shift for added bonds.
-
-    hop_distances = [None] * num_bonds
-
-    for bond in lost_bonds:
-        idx = reactants_bond_index_to_map_number[bond]
-        hop_distances[idx] = 0
-
-    for bond in added_bonds:
-        idx = products_bond_index_to_map_number[bond] + num_lost_bonds
-        hop_distances[idx] = max_hop + 1
-
-    for bond in unchanged_bonds:
-        atom1, atom2 = bond
-        atom1_hop_dist = atom_hop_distances[atom1]
-        atom2_hop_dist = atom_hop_distances[atom2]
-
-        if atom1_hop_dist == atom2_hop_dist:
-            dist = atom1_hop_dist + 1
-        else:
-            dist = max(atom1_hop_dist, atom2_hop_dist)
-
-        if dist > max_hop:
-            dist = max_hop
-
-        idx = reactants_bond_index_to_map_number[bond]
-        hop_distances[idx] = dist
-
-    assert None not in hop_distances, (
-        "Some bond has not hop distance, this should not happen. Bad reaction is: :"
-        f"{reaction.id}"
-    )
-
-    return hop_distances
+    return reactants_g, products_g, reaction_g

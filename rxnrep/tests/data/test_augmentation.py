@@ -4,8 +4,8 @@ import numpy as np
 
 from rxnrep.core.reaction import smiles_to_reaction
 from rxnrep.data.augmentation import AtomTypeFeatureMasker
-from rxnrep.data.dataset import build_hetero_graph_and_featurize_one_reaction
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.grapher import build_graph_and_featurize_reaction
 
 
 def test_atom_type_masker():
@@ -17,7 +17,7 @@ def test_atom_type_masker():
     bond_featurizer = BondFeaturizer()
     global_featurizer = GlobalFeaturizer()
 
-    reactants_g, products_g, _ = build_hetero_graph_and_featurize_one_reaction(
+    reactants_g, products_g, _ = build_graph_and_featurize_reaction(
         rxn,
         functools.partial(atom_featurizer, allowable_atom_type=species),
         bond_featurizer,

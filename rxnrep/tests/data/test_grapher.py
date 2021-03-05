@@ -3,13 +3,15 @@ from collections import defaultdict
 import torch
 from rdkit import Chem
 
-from rxnrep.core.reaction import smiles_to_reaction
+from rxnrep.core.reaction import (
+    get_atom_distance_to_reaction_center,
+    get_bond_distance_to_reaction_center,
+    smiles_to_reaction,
+)
 from rxnrep.data.grapher import (
     combine_graphs,
     create_hetero_molecule_graph,
     create_reaction_graph,
-    get_atom_distance_to_reaction_center,
-    get_bond_distance_to_reaction_center,
 )
 
 
