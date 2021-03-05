@@ -3,88 +3,7 @@ import numpy as np
 import torch
 
 from rxnrep.core.molecule import Molecule
-from rxnrep.data.to_graph import combine_graphs, mol_to_graph
-
-
-def create_graph(m, n_a, n_b, n_v, self_loop):
-    """
-
-    Args:
-        m: molecule
-        n_a:  number of atoms
-        n_b:  number of bonds
-        n_v:  number of virtual nodes
-    """
-
-    g = mol_to_graph(m, num_virtual_nodes=n_v, self_loop=self_loop)
-
-    g.nodes["atom"].data.update({"feat": torch.arange(n_a * 4).reshape(n_a, 4)})
-
-    # this create zero tensor (i.e. of shape (0, 3)) if n_b == 0
-    bond_feats = torch.arange(n_b * 3).reshape(n_b, 3)
-    bond_feats = torch.repeat_interleave(
-        bond_feats, torch.tensor([2] * n_b).long(), dim=0
-    )
-    g.edges["a2a"].data.update({"feat": bond_feats})
-
-    if n_v > 0:
-        g.nodes["virtual"].data.update({"feat": torch.arange(n_v * 2).reshape(n_v, 2)})
-
-    return g
-
-
-def create_graph_C(num_virtual_nodes, self_loop=False):
-    """
-    Create a single atom molecule C.
-
-    atom_feats:
-        [[0,1,2,3]]
-
-    bond_feats:
-        None
-
-    virtual_feats:
-        [[0,1],
-         [2,3],
-         ...]
-    """
-    smi = "[C]"
-    m = Molecule.from_smiles(smi)
-
-    return create_graph(m, 1, 0, num_virtual_nodes, self_loop)
-
-
-def create_graph_CO2(num_virtual_nodes, self_loop=False):
-    """
-    Create a CO2 and add features.
-
-    Molecule:
-          0        1
-    O(0) --- C(1) --- O(2)
-
-    atom_feat:
-        [[0,1,2,3],
-         [4,5,6,7],
-         [8,9,10,11]]
-
-    bond_feat:
-        [[0,1,2],
-         [0,1,2],
-         [3,4,5],
-         [3,4,5]]
-    Note [0,1,2] corresponds to two edges for the same bond.
-
-
-    global_feat:
-        [[0,1],
-         [2,3],
-         ... ]
-
-    """
-    smi = "O=C=O"
-    m = Molecule.from_smiles(smi)
-
-    return create_graph(m, 3, 2, num_virtual_nodes, self_loop)
+from rxnrep.data.to_graph import combine_graphs, create_reaction_graph, mol_to_graph
 
 
 def test_create_graph():
@@ -153,111 +72,6 @@ def test_batch_graph():
         assert torch.equal(
             g.edges[t].data["feat"],
             torch.cat([g1.edges[t].data["feat"], g2.edges[t].data["feat"]]),
-        )
-
-
-def assert_combine_graphs(
-    graphs,
-    na,
-    nb,
-    nv,
-    atom_map_number,
-    bond_map_number,
-    virtual_map_number,
-    bond_to_atom_map,
-):
-
-    ne_v = sum(i * j for i, j in zip(na, nv))  # number of atom-virtual edges
-    na = sum(na)
-    nb = sum(nb)
-    nv = sum(nv)
-    ne_a = 2 * nb  # num of atom-atom edges
-
-    g = combine_graphs(graphs, atom_map_number, bond_map_number)
-
-    nodes = ["atom"]
-    edges = ["a2a"]
-    ref_num_nodes = [na]
-    ref_num_edges = [ne_a]
-
-    if nv > 0:
-        nodes.append("virtual")
-        edges.extend(["a2v", "v2a"])
-        ref_num_nodes.append(nv)
-        ref_num_edges.extend([ne_v, ne_v])
-
-    num_nodes = [g.number_of_nodes(n) for n in nodes]
-    num_edges = [g.number_of_edges(e) for e in edges]
-
-    assert set(g.ntypes) == set(nodes)
-    assert set(g.etypes) == set(edges)
-    assert num_nodes == ref_num_nodes
-    assert num_edges == ref_num_edges
-
-    #
-    # test structure
-    #
-
-    # test atom to atom connection
-    etype = "a2a"
-    src, dst, eid = g.edges(form="all", order="eid", etype=etype)
-    pairs = [(s, d) for s, d in zip(src.numpy().tolist(), dst.numpy().tolist())]
-    for b, atoms in bond_to_atom_map.items():
-        x = {tuple(atoms), tuple(reversed(atoms))}
-        y = {pairs[2 * b], pairs[2 * b + 1]}
-        assert x == y
-
-    if nv > 0:
-        # test virtual to atom connection
-        etype = "v2a"
-        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
-        i = 0
-        for vv, aa in zip(virtual_map_number, atom_map_number):
-            for v in vv:
-                for a in aa:
-                    assert src[i] == v
-                    assert dst[i] == a
-                    i += 1
-
-        # test atom to virtual connection
-        etype = "a2v"
-        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
-        i = 0
-        for vv, aa in zip(virtual_map_number, atom_map_number):
-            for v in vv:
-                for a in aa:
-                    assert src[i] == a
-                    assert dst[i] == v
-                    i += 1
-
-    #
-    # test features
-    #
-
-    feats_atom = torch.cat([g.nodes["atom"].data["feat"] for g in graphs])
-    feats_bond = torch.cat([g.edges["a2a"].data["feat"] for g in graphs])
-
-    reorder_atom = np.concatenate(atom_map_number).tolist()
-    reorder_atom = [reorder_atom.index(i) for i in range(len(reorder_atom))]
-    reorder_bond = np.concatenate(bond_map_number).tolist()
-    if reorder_bond:
-        reorder_bond = np.concatenate(
-            [[2 * i, 2 * i + 1] for i in reorder_bond]
-        ).tolist()
-        reorder_bond = [reorder_bond.index(i) for i in range(len(reorder_bond))]
-
-    assert torch.equal(g.nodes["atom"].data["feat"], feats_atom[reorder_atom])
-    assert torch.equal(g.edges["a2a"].data["feat"], feats_bond[reorder_bond])
-
-    if nv > 0:
-        feats_virtual = torch.cat([g.nodes["virtual"].data["feat"] for g in graphs])
-        reorder_virtual = np.concatenate(virtual_map_number).tolist()
-        reorder_virtual = [
-            reorder_virtual.index(i) for i in range(len(reorder_virtual))
-        ]
-
-        assert torch.equal(
-            g.nodes["virtual"].data["feat"], feats_virtual[reorder_virtual]
         )
 
 
@@ -378,4 +192,292 @@ def test_combine_graphs_C_CO2():
             bond_map_number,
             virtual_map_number,
             bond_to_atom_map,
+        )
+
+
+def test_create_reaction_graph():
+    """Create a reaction: CH3CH2+ + CH3CH2CH2 --> CH3 + CH3CH2CH2CH2+
+
+    m1:
+        2
+    C2-----C0
+
+    m2:
+        0      1
+    C1-----C3-----C4
+
+    m3:
+
+    C2
+
+    m4:
+        0      1      2
+    C1-----C3-----C4-----C0
+
+    combined union graph (the bond index is assigned to mimic combine_graphs() function)
+
+              2
+          C2-----C0
+                  |
+                  |  3
+        0      1  |
+    C1-----C3-----C4
+    """
+
+    smiles = [
+        "[CH3:3][CH2+:1]",
+        "[CH3:2][CH2:4][CH2:5]",
+        "[CH3:3]",
+        "[CH3:2][CH2:4][CH2:5][CH2+:1]",
+    ]
+
+    reactant_atom_map = [[2, 0], [1, 3, 4]]
+    reactant_bond_map = [[2], [0, 1]]
+    product_atom_map = [[2], [1, 3, 4, 0]]
+    product_bond_map = [[], [0, 1, 2]]
+
+    for nv in [0, 1]:
+
+        graphs = [
+            mol_to_graph(Molecule.from_smiles(s), num_virtual_nodes=nv) for s in smiles
+        ]
+
+        reactant = combine_graphs(
+            [graphs[0], graphs[1]], reactant_atom_map, reactant_bond_map
+        )
+        product = combine_graphs(
+            [graphs[2], graphs[3]], product_atom_map, product_bond_map
+        )
+
+        g = create_reaction_graph(
+            reactant,
+            product,
+            num_unchanged_bonds=2,
+            num_lost_bonds=1,
+            num_added_bonds=1,
+            num_virtual_nodes=nv,
+        )
+
+        na = 5
+        nb = 4
+        assert_graph_quantity(
+            g,
+            num_atoms=na,
+            num_virtual_nodes=nv,
+            num_edges_aa=2 * nb,
+            num_edges_va=na * nv,
+        )
+
+        # reference bond to atom map
+
+        bond_to_atom_map = {0: [1, 3], 1: [3, 4], 2: [0, 2], 3: [0, 4]}
+
+        atom_map_number = [list(range(na))]
+        if nv == 0:
+            virtual_map_number = [[]]
+        elif nv == 1:
+            virtual_map_number = [[0]]
+        else:
+            raise ValueError
+
+        assert_graph_connectivity(
+            g,
+            num_virtual_nodes=nv,
+            bond_to_atom_map=bond_to_atom_map,
+            atom_map_number=atom_map_number,
+            virtual_map_number=virtual_map_number,
+        )
+
+
+def create_graph(m, n_a, n_b, n_v):
+    """
+
+    Args:
+        m: molecule
+        n_a:  number of atoms
+        n_b:  number of bonds
+        n_v:  number of virtual nodes
+    """
+
+    g = mol_to_graph(m, num_virtual_nodes=n_v)
+
+    g.nodes["atom"].data.update({"feat": torch.arange(n_a * 4).reshape(n_a, 4)})
+
+    # this create zero tensor (i.e. of shape (0, 3)) if n_b == 0
+    bond_feats = torch.arange(n_b * 3).reshape(n_b, 3)
+    bond_feats = torch.repeat_interleave(
+        bond_feats, torch.tensor([2] * n_b).long(), dim=0
+    )
+    g.edges["a2a"].data.update({"feat": bond_feats})
+
+    if n_v > 0:
+        g.nodes["virtual"].data.update({"feat": torch.arange(n_v * 2).reshape(n_v, 2)})
+
+    return g
+
+
+def create_graph_C(num_virtual_nodes):
+    """
+    Create a single atom molecule C.
+
+    atom_feats:
+        [[0,1,2,3]]
+
+    bond_feats:
+        None
+
+    virtual_feats:
+        [[0,1],
+         [2,3],
+         ...]
+    """
+    smi = "[C]"
+    m = Molecule.from_smiles(smi)
+
+    return create_graph(m, 1, 0, num_virtual_nodes)
+
+
+def create_graph_CO2(num_virtual_nodes):
+    """
+    Create a CO2 and add features.
+
+    Molecule:
+          0        1
+    O(0) --- C(1) --- O(2)
+
+    atom_feat:
+        [[0,1,2,3],
+         [4,5,6,7],
+         [8,9,10,11]]
+
+    bond_feat:
+        [[0,1,2],
+         [0,1,2],
+         [3,4,5],
+         [3,4,5]]
+    Note [0,1,2] corresponds to two edges for the same bond.
+
+
+    global_feat:
+        [[0,1],
+         [2,3],
+         ... ]
+
+    """
+    smi = "O=C=O"
+    m = Molecule.from_smiles(smi)
+
+    return create_graph(m, 3, 2, num_virtual_nodes)
+
+
+def assert_graph_quantity(g, num_atoms, num_virtual_nodes, num_edges_aa, num_edges_va):
+    nodes = ["atom"]
+    edges = ["a2a"]
+    ref_num_nodes = [num_atoms]
+    ref_num_edges = [num_edges_aa]
+
+    if num_virtual_nodes > 0:
+        nodes.append("virtual")
+        edges.extend(["a2v", "v2a"])
+        ref_num_nodes.append(num_virtual_nodes)
+        ref_num_edges.extend([num_edges_va, num_edges_va])
+
+    num_nodes = [g.number_of_nodes(n) for n in nodes]
+    num_edges = [g.number_of_edges(e) for e in edges]
+
+    assert set(g.ntypes) == set(nodes)
+    assert set(g.etypes) == set(edges)
+    assert num_nodes == ref_num_nodes
+    assert num_edges == ref_num_edges
+
+
+def assert_graph_connectivity(
+    g, num_virtual_nodes, bond_to_atom_map, atom_map_number, virtual_map_number
+):
+
+    # test atom to atom connection
+    etype = "a2a"
+    src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+    pairs = [(s, d) for s, d in zip(src.numpy().tolist(), dst.numpy().tolist())]
+    for b, atoms in bond_to_atom_map.items():
+        x = {tuple(atoms), tuple(reversed(atoms))}
+        y = {pairs[2 * b], pairs[2 * b + 1]}
+        assert x == y
+
+    # NOTE, unnecessary to check virtual node edges, since no feats will be assigned
+    if num_virtual_nodes > 0:
+        # test virtual to atom connection
+        etype = "v2a"
+        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+        i = 0
+        for vv, aa in zip(virtual_map_number, atom_map_number):
+            for v in vv:
+                for a in aa:
+                    assert src[i] == v
+                    assert dst[i] == a
+                    i += 1
+
+        # test atom to virtual connection
+        etype = "a2v"
+        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+        i = 0
+        for vv, aa in zip(virtual_map_number, atom_map_number):
+            for v in vv:
+                for a in aa:
+                    assert src[i] == a
+                    assert dst[i] == v
+                    i += 1
+
+
+def assert_combine_graphs(
+    graphs,
+    na,
+    nb,
+    nv,
+    atom_map_number,
+    bond_map_number,
+    virtual_map_number,
+    bond_to_atom_map,
+):
+
+    ne_v = sum(i * j for i, j in zip(na, nv))  # number of atom-virtual edges
+    na = sum(na)
+    nb = sum(nb)
+    nv = sum(nv)
+    ne_a = 2 * nb  # num of atom-atom edges
+
+    g = combine_graphs(graphs, atom_map_number, bond_map_number)
+
+    assert_graph_quantity(g, na, nv, ne_a, ne_v)
+    assert_graph_connectivity(
+        g, nv, bond_to_atom_map, atom_map_number, virtual_map_number
+    )
+
+    #
+    # test features
+    #
+    feats_atom = torch.cat([g.nodes["atom"].data["feat"] for g in graphs])
+    feats_bond = torch.cat([g.edges["a2a"].data["feat"] for g in graphs])
+
+    reorder_atom = np.concatenate(atom_map_number).tolist()
+    reorder_atom = [reorder_atom.index(i) for i in range(len(reorder_atom))]
+    reorder_bond = np.concatenate(bond_map_number).tolist()
+    if reorder_bond:
+        reorder_bond = np.concatenate(
+            [[2 * i, 2 * i + 1] for i in reorder_bond]
+        ).tolist()
+        reorder_bond = [reorder_bond.index(i) for i in range(len(reorder_bond))]
+
+    assert torch.equal(g.nodes["atom"].data["feat"], feats_atom[reorder_atom])
+    assert torch.equal(g.edges["a2a"].data["feat"], feats_bond[reorder_bond])
+
+    if nv > 0:
+        feats_virtual = torch.cat([g.nodes["virtual"].data["feat"] for g in graphs])
+        reorder_virtual = np.concatenate(virtual_map_number).tolist()
+        reorder_virtual = [
+            reorder_virtual.index(i) for i in range(len(reorder_virtual))
+        ]
+
+        assert torch.equal(
+            g.nodes["virtual"].data["feat"], feats_virtual[reorder_virtual]
         )

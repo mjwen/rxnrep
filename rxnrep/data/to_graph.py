@@ -12,9 +12,7 @@ import torch
 from rxnrep.core.molecule import Molecule
 
 
-def mol_to_graph(
-    mol: Molecule, num_virtual_nodes: int = 0, self_loop: bool = False
-) -> dgl.DGLGraph:
+def mol_to_graph(mol: Molecule, num_virtual_nodes: int = 0) -> dgl.DGLGraph:
     """
     Create dgl graph for a molecule.
 
@@ -31,8 +29,6 @@ def mol_to_graph(
         mol: molecule
         num_virtual_nodes: number of virtual nodes to add. e.g. node holding global
             features of molecules.
-        self_loop: whether to create self loop for atom nodes, i.e. add an edge for each
-            atom node connecting to it self.
 
     Returns:
         dgl graph for the molecule
@@ -44,10 +40,6 @@ def mol_to_graph(
     a2a = []
     for i, j in mol.bonds:
         a2a.extend([[i, j], [j, i]])
-
-    # atom self loop nodes
-    if self_loop:
-        a2a.extend([[i, i] for i in range(mol.num_atoms)])
 
     edges_dict[("atom", "a2a", "atom")] = a2a
     num_nodes_dict = {"atom": mol.num_atoms}
@@ -197,7 +189,7 @@ def create_reaction_graph(
     num_unchanged_bonds: int,
     num_lost_bonds: int,
     num_added_bonds: int,
-    self_loop: bool = False,
+    num_virtual_nodes: int = 0,
 ) -> dgl.DGLGraph:
     """
     Create a reaction graph from the reactants graph and the products graph.
@@ -210,10 +202,8 @@ def create_reaction_graph(
     2. the bonds (i.e. atom to atom edges) are the union of the bonds in the reactants
        and the products. i.e. unchanged bonds, lost bonds in reactants, and added bonds
        in products;
-    3. a single global virtual nodes if virtual nodes is present in the input graphs.
-       If the reactants (products) have multiple molecules, there will be multiple
-       global virtual nodes for them; then it is expected to aggregate the
-       global features of the reactants (products) and then use this graph.
+    3. we create `num_virtual_nodes` virtual nodes and each id bi-direct connected to
+       every atom node.
 
     This assumes the lost bonds in the reactants (or added bonds in the products) have
     larger node number than unchanged bonds. This is the case if
@@ -225,14 +215,17 @@ def create_reaction_graph(
     This also assumes the reactants_graph and products_graph are created by
     `combine_graphs()`.
 
-    The order of the atom nodes (and virtual nodes if present) is unchanged. The bonds
+    The order of the atom nodes is unchanged. The bonds
     (i.e. `a2a` edges between atoms) are reordered. Actually, The bonds in the
     reactants are intact and the added bonds in the products are updated to come after
     the bonds in the reactants.
-    More specifically, bond nodes 0, 1, ..., N_un-1 are the unchanged bonds,
-    N_un, ..., N-1 are the lost bonds, and N, ..., N+N_add-1 are the added bonds,
-    where N_un is the number of unchanged bonds, N is the number of bonds in the
-    reactants (i.e. unchanged plus lost), and N_add is the number if added bonds.
+    More specifically, according to :meth:`Reaction.get_reactants_bond_map_number()`
+    and :meth:`Reaction.get_products_bond_map_number()`, bond 0, 1, ..., N_un-1 are the
+    unchanged bonds, N_un, ..., N-1 are the lost bonds in the reactants, and N, ...,
+    N+N_add-1 are the added bonds in the products, where N_un is the number of unchanged
+    bonds, N is the number of bonds in the reactants (i.e. unchanged plus lost), and
+    N_add is the number if added bonds (i.e. total number of bonds in the products
+    minus unchanged bonds).
 
     Args:
         reactants_graph: the graph of the reactants, Note this should be the combined
@@ -242,76 +235,42 @@ def create_reaction_graph(
         num_unchanged_bonds: number of unchanged bonds in the reaction.
         num_lost_bonds: number of lost bonds in the reactants.
         num_added_bonds: number of added bonds in the products.
-        self_loop: whether to add self loop for each node.
+        num_virtual_nodes: number of virtual nodes to add. e.g. node holding global
+            features of molecules.
 
     Returns:
         A graph representing the reaction.
     """
 
-    # Construct edges between atoms and bonds
-
-    # Let bonds 0, 1, ..., N_un-1 be unchanged bonds, N_un, ..., N-1 be lost bonds, and
-    # N, ..., N+N_add-1 be the added bonds, where N_un is the number of unchanged bonds,
-    # N is the number of bonds in the reactants (i.e. unchanged plus lost), and N_add
-    # is the number if added bonds.
-
-    # first add unchanged bonds and lost bonds from reactants
-    rel = ("atom", "a2b", "bond")
+    # First add unchanged bonds and lost bonds from reactants
+    rel = ("atom", "a2a", "atom")
     src, dst = reactants_graph.edges(order="eid", etype=rel)
-    a2b = [(u, v) for u, v in zip(src, dst)]
+    a2a = [(u, v) for u, v in zip(src, dst)]
 
-    rel = ("bond", "b2a", "atom")
-    src, dst = reactants_graph.edges(order="eid", etype=rel)
-    b2a = [(u, v) for u, v in zip(src, dst)]
-
-    # then add added bonds
-    rel = ("atom", "a2b", "bond")
-    src, dst = products_graph.edges(order="eid", etype=rel)
-    for u, v in zip(src, dst):
-        if v >= num_unchanged_bonds:  # select added bonds
-            # NOTE, should not v += num_lost_bonds. doing this will alter dst.
-            v = v + num_lost_bonds  # shift bond nodes to be after lost bonds
-            a2b.append((u, v))
-
-    rel = ("bond", "b2a", "atom")
-    src, dst = products_graph.edges(order="eid", etype=rel)
-    for u, v in zip(src, dst):
-        if u >= num_unchanged_bonds:  # select added bonds
-            # NOTE, should not u += num_lost_bonds. doing this will alter src.
-            u = u + num_lost_bonds  # shift bond nodes to be after lost bonds
-            b2a.append((u, v))
-
-    # Construct edges between global and atoms (bonds)
+    # Then add added bonds from products
+    src, dst, eid = products_graph.edges(form="all", order="eid", etype=rel)
+    for u, v, e in zip(src, dst, eid):
+        # e // 2 because two edges for each bond
+        if e // 2 >= num_unchanged_bonds:
+            a2a.append((u, v))
 
     num_atoms = reactants_graph.num_nodes("atom")
-    num_bonds = num_unchanged_bonds + num_lost_bonds + num_added_bonds
+    edges_dict = {("atom", "a2a", "atom"): a2a}
+    num_nodes_dict = {"atom": num_atoms}
 
-    a2g = [(a, 0) for a in range(num_atoms)]
-    g2a = [(0, a) for a in range(num_atoms)]
-    b2g = [(b, 0) for b in range(num_bonds)]
-    g2b = [(0, b) for b in range(num_bonds)]
+    # virtual nodes
+    if num_virtual_nodes > 0:
+        a2v = []
+        v2a = []
+        for a in range(num_atoms):
+            for v in range(num_virtual_nodes):
+                a2v.append([a, v])
+                v2a.append([v, a])
 
-    edges_dict = {
-        ("atom", "a2b", "bond"): a2b,
-        ("bond", "b2a", "atom"): b2a,
-        ("atom", "a2g", "global"): a2g,
-        ("global", "g2a", "atom"): g2a,
-        ("bond", "b2g", "global"): b2g,
-        ("global", "g2b", "bond"): g2b,
-    }
+        edges_dict[("atom", "a2v", "virtual")] = a2v
+        edges_dict[("virtual", "v2a", "atom")] = v2a
+        num_nodes_dict["virtual"] = num_virtual_nodes
 
-    if self_loop:
-        a2a = [(i, i) for i in range(num_atoms)]
-        b2b = [(i, i) for i in range(num_bonds)]
-        g2g = [(0, 0)]
-        edges_dict.update(
-            {
-                ("atom", "a2a", "atom"): a2a,
-                ("bond", "b2b", "bond"): b2b,
-                ("global", "g2g", "global"): g2g,
-            }
-        )
-
-    g = dgl.heterograph(edges_dict)
+    g = dgl.heterograph(edges_dict, num_nodes_dict=num_nodes_dict)
 
     return g
