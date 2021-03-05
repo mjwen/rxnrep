@@ -1,4 +1,3 @@
-import logging
 from typing import Callable, Dict, Union
 
 import dgl
@@ -7,8 +6,6 @@ from dgl import function as fn
 from torch import nn
 
 from rxnrep.model.utils import FCNN
-
-logger = logging.getLogger(__name__)
 
 
 class GatedGCNConv(nn.Module):
@@ -167,19 +164,17 @@ class GatedGCNConv(nn.Module):
 
         # We do this in a two step fashion: Eh_j -> bond node -> atom i node
         # To get e_ij [Had] Eh_j, we use the trick:
-        # e_ij [Had] Eh_j =
-        # e_ij [Had] (Eh_j + Eh_i)  (a)
-        # - e_ij [Had] Eh_i         (b)
-        #
-        # (a) is achieved in step 1 and (b) in step 2
+        # e_ij [Had] Eh_j = e_ij [Had] [(Eh_j + Eh_i) - Eh_i]
+        # This is achieved in two steps:
+        # step 1: Eh_sum = Eh_j + Eh_i
+        # step 2: e_ij[Had] Eh_j = e_ij[Had][Eh_sum - Eh_i]
 
-        # step 1
-        g.update_all(fn.copy_u("Eh", "m"), fn.sum("m", "Eh_sum"), etype="a2b")
+        g.update_all(fn.copy_u("Eh", "m"), fn.sum("m", "Eh_sum"), etype="a2b")  # step 1
 
         g.multi_update_all(
             {
                 "a2a": (fn.copy_u("Dh", "m"), fn.sum("m", "h")),  # D * h_i
-                "b2a": (self.message_fn, self.reduce_fn),  # e_ij [Had] (Eh_sum - Eh_i)
+                "b2a": (self.message_fn, self.reduce_fn),  # step 2
                 "g2a": (fn.copy_u("Fu", "m"), fn.sum("m", "h")),  # F * u
             },
             "sum",
