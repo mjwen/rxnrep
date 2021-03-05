@@ -109,7 +109,7 @@ def test_create_graph():
         g = create_graph_C(num_virtual_nodes=n_v)
         assert_one(g, 1, 0, n_v)
 
-    for n_v in [1]:
+    for n_v in range(3):
         g = create_graph_CO2(num_virtual_nodes=n_v)
         assert_one(g, 3, 2, n_v)
 
@@ -175,13 +175,19 @@ def assert_combine_graphs(
 
     g = combine_graphs(graphs, atom_map_number, bond_map_number)
 
-    nodes = ["atom", "virtual"]
-    num_nodes = [g.number_of_nodes(n) for n in nodes]
-    ref_num_nodes = [na, nv]
+    nodes = ["atom"]
+    edges = ["a2a"]
+    ref_num_nodes = [na]
+    ref_num_edges = [ne_a]
 
-    edges = ["a2a", "a2v", "v2a"]
+    if nv > 0:
+        nodes.append("virtual")
+        edges.extend(["a2v", "v2a"])
+        ref_num_nodes.append(nv)
+        ref_num_edges.extend([ne_v, ne_v])
+
+    num_nodes = [g.number_of_nodes(n) for n in nodes]
     num_edges = [g.number_of_edges(e) for e in edges]
-    ref_num_edges = [ne_a, ne_v, ne_v]
 
     assert set(g.ntypes) == set(nodes)
     assert set(g.etypes) == set(edges)
@@ -201,40 +207,38 @@ def assert_combine_graphs(
         y = {pairs[2 * b], pairs[2 * b + 1]}
         assert x == y
 
-    # test virtual to atom connection
-    etype = "v2a"
-    src, dst, eid = g.edges(form="all", order="eid", etype=etype)
-    i = 0
-    for vv, aa in zip(virtual_map_number, atom_map_number):
-        for v in vv:
-            for a in aa:
-                assert src[i] == v
-                assert dst[i] == a
-                i += 1
+    if nv > 0:
+        # test virtual to atom connection
+        etype = "v2a"
+        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+        i = 0
+        for vv, aa in zip(virtual_map_number, atom_map_number):
+            for v in vv:
+                for a in aa:
+                    assert src[i] == v
+                    assert dst[i] == a
+                    i += 1
 
-    # test atom to virtual connection
-    etype = "a2v"
-    src, dst, eid = g.edges(form="all", order="eid", etype=etype)
-    i = 0
-    for vv, aa in zip(virtual_map_number, atom_map_number):
-        for v in vv:
-            for a in aa:
-                assert src[i] == a
-                assert dst[i] == v
-                i += 1
+        # test atom to virtual connection
+        etype = "a2v"
+        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+        i = 0
+        for vv, aa in zip(virtual_map_number, atom_map_number):
+            for v in vv:
+                for a in aa:
+                    assert src[i] == a
+                    assert dst[i] == v
+                    i += 1
 
     #
     # test features
     #
 
     feats_atom = torch.cat([g.nodes["atom"].data["feat"] for g in graphs])
-    feats_virtual = torch.cat([g.nodes["virtual"].data["feat"] for g in graphs])
     feats_bond = torch.cat([g.edges["a2a"].data["feat"] for g in graphs])
 
     reorder_atom = np.concatenate(atom_map_number).tolist()
     reorder_atom = [reorder_atom.index(i) for i in range(len(reorder_atom))]
-    reorder_virtual = np.concatenate(virtual_map_number).tolist()
-    reorder_virtual = [reorder_virtual.index(i) for i in range(len(reorder_virtual))]
     reorder_bond = np.concatenate(bond_map_number).tolist()
     if reorder_bond:
         reorder_bond = np.concatenate(
@@ -243,8 +247,18 @@ def assert_combine_graphs(
         reorder_bond = [reorder_bond.index(i) for i in range(len(reorder_bond))]
 
     assert torch.equal(g.nodes["atom"].data["feat"], feats_atom[reorder_atom])
-    assert torch.equal(g.nodes["virtual"].data["feat"], feats_virtual[reorder_virtual])
     assert torch.equal(g.edges["a2a"].data["feat"], feats_bond[reorder_bond])
+
+    if nv > 0:
+        feats_virtual = torch.cat([g.nodes["virtual"].data["feat"] for g in graphs])
+        reorder_virtual = np.concatenate(virtual_map_number).tolist()
+        reorder_virtual = [
+            reorder_virtual.index(i) for i in range(len(reorder_virtual))
+        ]
+
+        assert torch.equal(
+            g.nodes["virtual"].data["feat"], feats_virtual[reorder_virtual]
+        )
 
 
 def test_combine_graphs_CO2():
@@ -252,30 +266,38 @@ def test_combine_graphs_CO2():
     Three CO2 mols.
     """
 
-    g = create_graph_CO2(num_virtual_nodes=1)
+    for nv in [0, 1]:
+        g = create_graph_CO2(num_virtual_nodes=nv)
 
-    atom_map_number = [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
-    bond_map_number = [[1, 4], [0, 2], [3, 5]]
-    # bond 1 is between atoms (1, 4), bond 4 is the between atoms (4, 8) ...
-    bond_to_atom_map = {
-        1: (1, 4),
-        4: (4, 8),
-        0: (0, 2),
-        2: (2, 7),
-        3: (3, 5),
-        5: (5, 6),
-    }
-    virtual_map_number = [[0], [1], [2]]
-    assert_combine_graphs(
-        [g, g, g],
-        [3, 3, 3],
-        [2, 2, 2],
-        [1, 1, 1],
-        atom_map_number,
-        bond_map_number,
-        virtual_map_number,
-        bond_to_atom_map,
-    )
+        atom_map_number = [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
+        bond_map_number = [[1, 4], [0, 2], [3, 5]]
+        # bond 1 is between atoms (1, 4), bond 4 is the between atoms (4, 8) ...
+        bond_to_atom_map = {
+            1: (1, 4),
+            4: (4, 8),
+            0: (0, 2),
+            2: (2, 7),
+            3: (3, 5),
+            5: (5, 6),
+        }
+
+        if nv == 0:
+            virtual_map_number = [[], [], []]
+        elif nv == 1:
+            virtual_map_number = [[0], [1], [2]]
+        else:
+            raise ValueError
+
+        assert_combine_graphs(
+            [g, g, g],
+            [3, 3, 3],
+            [2, 2, 2],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            virtual_map_number,
+            bond_to_atom_map,
+        )
 
 
 def test_combine_graphs_C():
@@ -283,22 +305,30 @@ def test_combine_graphs_C():
     Three single atom molecule without bond.
     """
 
-    g = create_graph_C(num_virtual_nodes=1)
+    for nv in [0, 1]:
+        g = create_graph_C(num_virtual_nodes=nv)
 
-    atom_map_number = [[1], [2], [0]]
-    bond_map_number = [[], [], []]
-    bond_to_atom_map = {}
-    virtual_map_number = [[0], [1], [2]]
-    assert_combine_graphs(
-        [g, g, g],
-        [1, 1, 1],
-        [0, 0, 0],
-        [1, 1, 1],
-        atom_map_number,
-        bond_map_number,
-        virtual_map_number,
-        bond_to_atom_map,
-    )
+        atom_map_number = [[1], [2], [0]]
+        bond_map_number = [[], [], []]
+        bond_to_atom_map = {}
+
+        if nv == 0:
+            virtual_map_number = [[], [], []]
+        elif nv == 1:
+            virtual_map_number = [[0], [1], [2]]
+        else:
+            raise ValueError
+
+        assert_combine_graphs(
+            [g, g, g],
+            [1, 1, 1],
+            [0, 0, 0],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            virtual_map_number,
+            bond_to_atom_map,
+        )
 
 
 def test_combine_graphs_C_CO2():
@@ -306,38 +336,46 @@ def test_combine_graphs_C_CO2():
     CO2, C and CO2; and C, CO2 and C.
     """
 
-    g1 = create_graph_CO2(num_virtual_nodes=1)
-    g2 = create_graph_C(num_virtual_nodes=1)
+    for nv in [0, 1]:
+        g1 = create_graph_CO2(num_virtual_nodes=nv)
+        g2 = create_graph_C(num_virtual_nodes=nv)
 
-    # CO2, C and CO2
-    atom_map_number = [[1, 4, 5], [3], [0, 2, 6]]
-    bond_map_number = [[1, 3], [], [0, 2]]
-    # bond 1 is between atoms (1, 4), bond 3 is the between atoms (4, 5) ...
-    bond_to_atom_map = {1: (1, 4), 3: (4, 5), 0: (0, 2), 2: (2, 6)}
-    virtual_map_number = [[0], [1], [2]]
-    assert_combine_graphs(
-        [g1, g2, g1],
-        [3, 1, 3],
-        [2, 0, 2],
-        [1, 1, 1],
-        atom_map_number,
-        bond_map_number,
-        virtual_map_number,
-        bond_to_atom_map,
-    )
+        if nv == 0:
+            virtual_map_number = [[], [], []]
+        elif nv == 1:
+            virtual_map_number = [[0], [1], [2]]
+        else:
+            raise ValueError
 
-    # C, CO2 and C
-    atom_map_number = [[3], [4, 0, 2], [1]]
-    bond_map_number = [[], [1, 0], []]
-    bond_to_atom_map = {1: (4, 0), 0: (0, 2)}
-    virtual_map_number = [[0], [1], [2]]
-    assert_combine_graphs(
-        [g2, g1, g2],
-        [1, 3, 1],
-        [0, 2, 0],
-        [1, 1, 1],
-        atom_map_number,
-        bond_map_number,
-        virtual_map_number,
-        bond_to_atom_map,
-    )
+        # CO2, C and CO2
+        atom_map_number = [[1, 4, 5], [3], [0, 2, 6]]
+        bond_map_number = [[1, 3], [], [0, 2]]
+        # bond 1 is between atoms (1, 4), bond 3 is the between atoms (4, 5) ...
+        bond_to_atom_map = {1: (1, 4), 3: (4, 5), 0: (0, 2), 2: (2, 6)}
+
+        assert_combine_graphs(
+            [g1, g2, g1],
+            [3, 1, 3],
+            [2, 0, 2],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            virtual_map_number,
+            bond_to_atom_map,
+        )
+
+        # C, CO2 and C
+        atom_map_number = [[3], [4, 0, 2], [1]]
+        bond_map_number = [[], [1, 0], []]
+        bond_to_atom_map = {1: (4, 0), 0: (0, 2)}
+
+        assert_combine_graphs(
+            [g2, g1, g2],
+            [1, 3, 1],
+            [0, 2, 0],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            virtual_map_number,
+            bond_to_atom_map,
+        )
