@@ -3,13 +3,17 @@ Build dgl graphs from molecules.
 """
 
 import itertools
+import logging
 from collections import defaultdict
-from typing import List
+from typing import Callable, List, Optional, Tuple
 
 import dgl
 import torch
 
 from rxnrep.core.molecule import Molecule
+from rxnrep.core.reaction import Reaction
+
+logger = logging.getLogger(__name__)
 
 
 def mol_to_graph(mol: Molecule, num_virtual_nodes: int = 0) -> dgl.DGLGraph:
@@ -274,3 +278,86 @@ def create_reaction_graph(
     g = dgl.heterograph(edges_dict, num_nodes_dict=num_nodes_dict)
 
     return g
+
+
+def build_graph_and_featurize_reaction(
+    reaction: Reaction,
+    atom_featurizer: Callable,
+    bond_featurizer: Callable,
+    global_featurizer: Optional[Callable] = None,
+    num_virtual_nodes: int = 0,
+) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
+    """
+    Build dgl graphs for the reactants and products in a reaction and featurize them.
+
+    Args:
+        reaction:
+        atom_featurizer:
+        bond_featurizer:
+        global_featurizer: If `num_virutal_nodes > 0`, this featurizer generates
+            features for the virtual nodes.
+        num_virtual_nodes: Number of virtual nodes to create. Each virtual will be
+            bi-directionally connected to all atom nodes.
+
+    Returns:
+        reactants_g: dgl graph for the reactants. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        products_g: dgl graph for the products. One graph for all reactants; each
+            disjoint subgraph for a molecule.
+        reaction_g: dgl graph for the reaction. bond edges is the union of reactants
+            bonds and products bonds. See `create_reaction_graph()` for more.
+    """
+
+    def featurize_one_mol(m: Molecule):
+        g = mol_to_graph(m, num_virtual_nodes)
+
+        rdkit_mol = m.rdkit_mol
+
+        atom_feats = atom_featurizer(rdkit_mol)
+        bond_feats = bond_featurizer(rdkit_mol)
+        # each bond corresponds to two edges in the graph
+        bond_feats = torch.repeat_interleave(bond_feats, 2, dim=0)
+
+        g.nodes["atom"].data.update({"feat": atom_feats})
+        g.edges["bond"].data.update({"feat": bond_feats})
+
+        if num_virtual_nodes > 0:
+            global_feats = global_featurizer(
+                rdkit_mol, charge=m.charge, environment=m.environment
+            )
+            g.nodes["global"].data.update({"feat": global_feats})
+
+        return g
+
+    try:
+        reactant_graphs = [featurize_one_mol(m) for m in reaction.reactants]
+        product_graphs = [featurize_one_mol(m) for m in reaction.products]
+
+        # combine small graphs to form one big graph for reactants and products
+        atom_map_number = reaction.get_reactants_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
+        reactants_g = combine_graphs(reactant_graphs, atom_map_number, bond_map_number)
+
+        atom_map_number = reaction.get_products_atom_map_number(zero_based=True)
+        bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
+        products_g = combine_graphs(product_graphs, atom_map_number, bond_map_number)
+
+        # combine reaction graph from the combined reactant graph and product graph
+        num_unchanged = len(reaction.unchanged_bonds)
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
+
+        reaction_g = create_reaction_graph(
+            reactants_g,
+            products_g,
+            num_unchanged,
+            num_lost,
+            num_added,
+            num_virtual_nodes,
+        )
+
+    except Exception as e:
+        logger.error(f"Error build graph and featurize for reaction: {reaction.id}")
+        raise Exception(e)
+
+    return reactants_g, products_g, reaction_g
