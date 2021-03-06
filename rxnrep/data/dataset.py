@@ -17,8 +17,8 @@ from rxnrep.core.reaction import (
 )
 from rxnrep.data.augmentation import AtomTypeFeatureMasker
 from rxnrep.data.grapher import build_graph_and_featurize_reaction
-from rxnrep.data.transformer import HeteroGraphFeatureStandardScaler
-from rxnrep.utils import convert_tensor_to_list, to_path, yaml_dump, yaml_load
+from rxnrep.data.transformer import GraphFeatureTransformer, StandardScaler
+from rxnrep.utils import tensor_to_list, to_path, to_tensor, yaml_dump, yaml_load
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +72,7 @@ class BaseDataset:
         # ===== build graph and features =====
         # will recover from state dict if it is not None
         self._species = None
-        self._feature_mean = None
-        self._feature_std = None
+        self._feature_scaler_state_dict = None
         self._label_mean = None
         self._label_std = None
 
@@ -257,33 +256,23 @@ class BaseDataset:
         """
         logger.info(f"Start scaling features...")
 
-        # create new scaler
-        if self.init_state_dict is None:
-            feature_scaler = HeteroGraphFeatureStandardScaler(mean=None, std=None)
+        feature_scaler = GraphFeatureTransformer()
 
-        # recover feature scaler mean and stdev
-        else:
+        if self.init_state_dict is not None:
             assert (
-                self._feature_mean is not None
-            ), "Corrupted state_dict. Expect `feature_mean` to be a dict, got `None`."
-            assert (
-                self._feature_std is not None
-            ), "Corrupted state_dict. Expect `feature_std` to be a dict, got `None`."
-
-            feature_scaler = HeteroGraphFeatureStandardScaler(
-                mean=self._feature_mean, std=self._feature_std
-            )
+                self._feature_scaler_state_dict is not None
+            ), "Corrupted state_dict. `feature_scaler_state_dict is `None`."
+            feature_scaler.load_state_dict(self._feature_scaler_state_dict)
 
         graphs = self.get_molecule_graphs()
-        feature_scaler(graphs)  # graph features are updated inplace
+        # graph features are updated inplace
+        feature_scaler.transform(graphs)
 
-        # save the mean and stdev of the feature scaler (should set after calling scaler)
         if self.init_state_dict is None:
-            self._feature_mean = feature_scaler.mean
-            self._feature_std = feature_scaler.std
+            self._feature_scaler_state_dict = feature_scaler.state_dict()
 
-        logger.info(f"Feature mean: {self._feature_mean}")
-        logger.info(f"Feature std: {self._feature_std}")
+        logger.info(f"Feature mean: {self._feature_scaler_state_dict['mean']}")
+        logger.info(f"Feature std: {self._feature_scaler_state_dict['std']}")
         logger.info(f"Finish scaling features...")
 
     def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
@@ -335,8 +324,7 @@ class BaseDataset:
             "species": self._species,
             "feature_name": self.feature_name,
             "feature_size": self.feature_size,
-            "feature_mean": self._feature_mean,
-            "feature_std": self._feature_std,
+            "feature_scaler_state_dict": self._feature_scaler_state_dict,
             "label_mean": self._label_mean,
             "label_std": self._label_std,
         }
@@ -353,8 +341,7 @@ class BaseDataset:
 
         try:
             self._species = d["species"]
-            self._feature_mean = d["feature_mean"]
-            self._feature_std = d["feature_std"]
+            self._feature_scaler_state_dict = d["feature_scaler_state_dict"]
             self._label_mean = d["label_mean"]
             self._label_std = d["label_std"]
 
@@ -374,44 +361,27 @@ class BaseDataset:
             filename: path of the file to load the data
         """
 
-        def to_tensor(d: Dict[str, torch.Tensor], dtype: str = "float32"):
-            dtype = getattr(torch, dtype)
-            new_d = {k: torch.as_tensor(v, dtype=dtype) for k, v in d.items()}
-            return new_d
-
         filename = to_path(filename)
         d = yaml_load(filename)
 
         try:
             species = d["species"]
-            feature_mean = d["feature_mean"]
-            feature_std = d["feature_std"]
+            feature_scaler_state_dict = d["feature_scaler_state_dict"]
             label_mean = d["label_mean"]
             label_std = d["label_std"]
-            dtype = d["dtype"]
-
-            # convert to tensors
-            if feature_mean is not None and feature_std is not None:
-                feature_mean = to_tensor(feature_mean, dtype)
-                feature_std = to_tensor(feature_std, dtype)
-
-            if label_mean is not None and label_std is not None:
-                label_mean = to_tensor(label_mean, dtype)
-                label_std = to_tensor(label_std, dtype)
-
-            self._species = species
-            self._feature_mean = feature_mean
-            self._feature_std = feature_std
-            self._label_mean = label_mean
-            self._label_std = label_std
 
         except KeyError as e:
             raise ValueError(f"Corrupted state_dict (file): {str(e)}")
 
         # sanity check: species should not be None
         assert (
-            self._species is not None
+            species is not None
         ), "Corrupted state_dict file. Expect `species` to be a list, got `None`."
+
+        self._species = species
+        self._feature_scaler_state_dict = to_tensor(feature_scaler_state_dict)
+        self._label_mean = to_tensor(label_mean)
+        self._label_std = to_tensor(label_std)
 
     def save_state_dict_file(self, filename: Optional[Union[str, Path]] = None):
         """
@@ -424,30 +394,17 @@ class BaseDataset:
             filename: path to save the file
         """
 
-        def get_dtype(d: Dict[str, torch.Tensor]):
-            key = list(d.keys())[0]
-            dtype = d[key].dtype
-            return dtype
-
         filename = self.init_state_dict if filename is None else filename
         filename = to_path(filename)
 
         # convert tensors to list if they exists
-        tensor_fields = ["feature_mean", "feature_std", "label_mean", "label_std"]
+        tensor_fields = ["feature_scaler_state_dict", "label_mean", "label_std"]
 
         d = {}
-        dtype = None
         for k, v in self.state_dict().items():
-            if k in tensor_fields and v is not None:
-                dtype = get_dtype(v)
-                v = convert_tensor_to_list(v)
+            if k in tensor_fields:
+                v = tensor_to_list(v)
             d[k] = v
-
-        # get a string representation of the later part of a dtype, e.g. torch.float32
-        if dtype is not None:
-            dtype = str(dtype).split(".")[1]
-
-        d["dtype"] = dtype
 
         yaml_dump(d, filename)
 
@@ -541,8 +498,8 @@ class BaseDatasetWithLabels(BaseDataset):
             self.atom_type_masker = AtomTypeFeatureMasker(
                 allowable_types=self._species,
                 feature_name=self.feature_name["atom"],
-                feature_mean=self._feature_mean["atom"],
-                feature_std=self._feature_std["atom"],
+                feature_mean=self._feature_scaler_state_dict["mean"]["node"]["atom"],
+                feature_std=self._feature_scaler_state_dict["mean"]["node"]["atom"],
                 ratio=atom_type_masker_ratio,
                 use_masker_value=atom_type_masker_use_masker_value,
             )

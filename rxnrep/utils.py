@@ -4,6 +4,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Union
 
+import numpy as np
 import torch
 import yaml
 
@@ -48,7 +49,7 @@ def pickle_load(filename):
     return obj
 
 
-def convert_tensor_to_list(data: Any) -> Any:
+def tensor_to_list(data: Any) -> Any:
     """
     Convert a tensor field in a data structure to list (list of list of ...).
 
@@ -62,10 +63,36 @@ def convert_tensor_to_list(data: Any) -> Any:
     if isinstance(data, torch.Tensor):
         return data.numpy().tolist()
     elif isinstance(data, tuple):
-        return (convert_tensor_to_list(v) for v in data)
+        return (tensor_to_list(v) for v in data)
     elif isinstance(data, list):
-        return [convert_tensor_to_list(v) for v in data]
+        return [tensor_to_list(v) for v in data]
     elif isinstance(data, dict):
-        return {k: convert_tensor_to_list(v) for k, v in data.items()}
+        return {k: tensor_to_list(v) for k, v in data.items()}
+    else:
+        return data
+
+
+def to_tensor(data: Any, dtype="float32") -> Any:
+    """
+    Convert list of floats or numpy array to tensors. The list and array can be placed
+    in dictionaries.
+
+    Args:
+        data: data to convert
+        dtype: data type of the tensor to convert
+
+    Returns:
+        The same data structure, but with list and array converted to tensor.
+    """
+
+    if isinstance(dtype, str):
+        dtype = getattr(torch, dtype)
+
+    if isinstance(data, list):
+        return torch.as_tensor(data, dtype=dtype)
+    elif isinstance(data, np.ndarray):
+        return torch.as_tensor(data, dtype=dtype)
+    elif isinstance(data, dict):
+        return {k: to_tensor(v) for k, v in data.items()}
     else:
         return data
