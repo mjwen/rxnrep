@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Tuple
 
 import dgl
 import numpy as np
@@ -10,130 +10,160 @@ from sklearn.preprocessing import StandardScaler as sk_StandardScaler
 logger = logging.getLogger(__name__)
 
 
-class StandardScaler:
+class Transformer:
     """
-    Standardize features using `sklearn.preprocessing.StandardScaler`.
-
-    Args:
-        mean: 1D array of the mean
-        std: 1D array of the standard deviation
+    Base class for normalize the dataset, either the features for the labels.
     """
 
-    def __init__(
-        self, mean: Optional[np.ndarray] = None, std: Optional[np.ndarray] = None
-    ):
-        self._mean = mean
-        self._std = std
+    def __init__(self):
+        self._mean = None
+        self._std = None
 
-    @property
-    def mean(self):
-        return self._mean
+    def transform(self, data):
+        """
+        Transform the data, i.e. subtract mean and divide by standard deviation.
+        """
+        raise NotImplementedError
 
-    @property
-    def std(self):
-        return self._std
+    def inverse_transform(self, data):
+        """
+        Inverse transform the data, i.e. multiply standard deviation and and add mean.
+        """
+        raise NotImplementedError
 
-    def __call__(self, X: np.ndarray) -> np.ndarray:
+    def state_dict(self):
+        d = {"mean": self._mean, "std": self._std}
+        return d
+
+    def load_state_dict(self, d: Dict[str, Any]):
+        self._mean = d["mean"]
+        self._std = d["std"]
+
+
+class StandardScaler(Transformer):
+    """
+    A wrapper over `sklearn.preprocessing.StandardScaler`.
+    """
+
+    def transform(self, data: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            X: 2D array each column is standardized.
+            data: 2D tensor (n_samples, n_features) where each feature is standardized.
 
         Returns:
-            2D array with each column standardized.
+            2D tensor with each feature standardized.
         """
 
-        if self._mean is not None and self._std is not None:
-            X = (X - self._mean) / self._std
-        else:
-            X, self._mean, self._std = _transform(X, copy=True)
+        if self._mean is None or self._std is None:
 
-        return X
+            _, mean, std = _transform(data.numpy())
+
+            # We do not use the returned standardrized data (_) because _transform
+            # internally uses float64. We normalize it manually below to ensure the
+            # same precision for training, validation, and test sets, because we may
+            # use the mean and std obtained from training set and use it for validation
+            # and tests sets.
+            self._mean = torch.from_numpy(mean)
+            self._std = torch.from_numpy(std)
+
+        data = (data - self._mean) / self._std
+
+        return data
+
+    def inverse_transform(self, data: np.ndarray) -> np.ndarray:
+        assert (
+            self._mean is not None and self._std is not None
+        ), "Cannot do inverse transform; mean or std is `None`."
+
+        data = data * self._std + self._mean
+
+        return data
 
 
-class HeteroGraphFeatureStandardScaler:
+class GraphFeatureTransformer(Transformer):
     """
-    Standardize hetero graph features by centering and normalization.
-    Only node features are standardized.
-
-    The mean and std can be provided for standardization. If `None` they are computed
-    from the features of the graphs.
+    Standardize graph features (both node and edge features) and place them back to
+    the graph feature dict.
 
     Args:
-        mean: with node type as key and the mean value as the value
-        std: with node type as key and the std value as the value
-        key: key of the feature in the graph nodes to scale.
-
-    Returns:
-        Graphs with their node features standardized. Note, these graphs are the same
-        as the input graphs. That means the features of the graphs are updated inplace.
+        key: name of the feature in the graph features dict to transform.
     """
 
-    def __init__(
-        self,
-        mean: Optional[Dict[str, torch.Tensor]] = None,
-        std: Optional[Dict[str, torch.Tensor]] = None,
-        key: Optional[str] = "feat",
-    ):
-        self._mean = mean
-        self._std = std
+    def __init__(self, key: str = "feat"):
+        super().__init__()
         self.key = key
 
-    @property
-    def mean(self):
-        return self._mean
-
-    @property
-    def std(self):
-        return self._std
-
-    def __call__(self, graphs) -> List[dgl.DGLGraph]:
+    def transform(self, graphs: List[dgl.DGLGraph]) -> List[dgl.DGLGraph]:
         g = graphs[0]
         node_types = g.ntypes
-        node_feats = defaultdict(list)
-        node_feats_size = defaultdict(list)
+        edge_types = g.etypes
+
+        all_feats = {"node": defaultdict(list), "edge": defaultdict(list)}
+        all_feats_size = {"node": defaultdict(list), "edge": defaultdict(list)}
 
         # obtain feats from graphs
         for g in graphs:
-            for nt in node_types:
-                data = g.nodes[nt].data[self.key]
-                node_feats[nt].append(data)
-                node_feats_size[nt].append(len(data))
+            for t in node_types:
+                data = g.nodes[t].data.get(self.key, None)
+                if data is not None:
+                    all_feats["node"][t].append(data)
+                    all_feats_size["node"][t].append(len(data))
 
-        dtype = node_feats[node_types[0]][0].dtype
+            for t in edge_types:
+                data = g.edges[t].data.get(self.key, None)
+                if data is not None:
+                    all_feats["edge"][t].append(data)
+                    all_feats_size["edge"][t].append(len(data))
 
         # standardize
-        if self._mean is not None and self._std is not None:
-            for nt in node_types:
-                feats = (torch.cat(node_feats[nt]) - self._mean[nt]) / self._std[nt]
-                node_feats[nt] = feats
-        else:
-            self._std = {}
-            self._mean = {}
-            for nt in node_types:
-                X = torch.cat(node_feats[nt]).numpy()
-                feats, mean, std = _transform(X, copy=False)
-                node_feats[nt] = torch.as_tensor(feats, dtype=dtype)
-                self._mean[nt] = torch.as_tensor(mean, dtype=dtype)
-                self._std[nt] = torch.as_tensor(std, dtype=dtype)
+        if self._mean is None or self._std is None:
+
+            self._std = {"node": {}, "edge": {}}
+            self._mean = {"node": {}, "edge": {}}
+
+            # We do not use the returned standardrized data (_) because _transform
+            # internally uses float64. We normalize it manually below to ensure the
+            # same precision for training, validation, and test sets, because we may
+            # use the mean and std obtained from training set and use it for validation
+            # and tests sets.
+            for name in all_feats:
+                for t, feats in all_feats[name].items():
+                    _, mean, std = _transform(torch.cat(feats).numpy(), copy=False)
+                    self._mean[name][t] = torch.from_numpy(mean)
+                    self._std[name][t] = torch.from_numpy(std)
+
+        # normalize
+        for name in all_feats:
+            for t, feats in all_feats[name].items():
+                m = self._mean[name][t]
+                s = self._std[name][t]
+                feats = (torch.cat(feats) - m) / s
+                all_feats[name][t] = feats
 
         # assign data back to graph
-        for nt in node_types:
-            feats = torch.split(node_feats[nt], node_feats_size[nt])
+        name = "node"
+        for t, feats in all_feats[name].items():
+            feats = torch.split(feats, all_feats_size[name][t])
             for g, ft in zip(graphs, feats):
-                g.nodes[nt].data[self.key] = ft
+                g.nodes[t].data[self.key] = ft
+
+        name = "edge"
+        for t, feats in all_feats[name].items():
+            feats = torch.split(feats, all_feats_size[name][t])
+            for g, ft in zip(graphs, feats):
+                g.edges[t].data[self.key] = ft
 
         return graphs
 
 
 def _transform(
-    X: np.ndarray, copy: bool, with_mean=True, with_std=True, threshold=1.0e-3
-):
+    data: np.ndarray, copy: bool = True, with_mean=True, with_std=True, threshold=1.0e-3
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Standardize X (subtract mean and divide by standard deviation) using
-    `sklearn.preprocessing.StandardScaler`.
+    Standardize data using `sklearn.preprocessing.StandardScaler`.
 
     Args:
-        X: array to standardize
+        data: array to standardize
         copy: whether to copy the array
 
     Returns:
@@ -142,7 +172,7 @@ def _transform(
         std: 1D array
     """
     scaler = sk_StandardScaler(copy=copy, with_mean=with_mean, with_std=with_std)
-    rst = scaler.fit_transform(X)
+    rst = scaler.fit_transform(data)
     mean = scaler.mean_
     std = scaler.scale_
 
@@ -155,5 +185,11 @@ def _transform(
                 "Standard deviation for feature {} is {}, smaller than {}. "
                 "You may want to exclude this feature.".format(i, v, threshold)
             )
+
+    # mean and std can be of different dtype as data, manually convert it back
+    dtype = data.dtype
+    rst = rst.astype(dtype, copy=False)
+    mean = mean.astype(dtype, copy=False)
+    std = std.astype(dtype, copy=False)
 
     return rst, mean, std
