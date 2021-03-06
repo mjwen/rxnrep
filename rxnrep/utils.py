@@ -74,8 +74,8 @@ def tensor_to_list(data: Any) -> Any:
 
 def to_tensor(data: Any, dtype="float32") -> Any:
     """
-    Convert list of floats or numpy array to tensors. The list and array can be placed
-    in dictionaries.
+    Convert floats, list of floats, or numpy array to tensors. The list and array can be
+    placed in dictionaries.
 
     Args:
         data: data to convert
@@ -88,9 +88,7 @@ def to_tensor(data: Any, dtype="float32") -> Any:
     if isinstance(dtype, str):
         dtype = getattr(torch, dtype)
 
-    if isinstance(data, list):
-        return torch.as_tensor(data, dtype=dtype)
-    elif isinstance(data, np.ndarray):
+    if isinstance(data, (float, list, np.ndarray)):
         return torch.as_tensor(data, dtype=dtype)
     elif isinstance(data, dict):
         return {k: to_tensor(v) for k, v in data.items()}

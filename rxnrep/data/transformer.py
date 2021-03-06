@@ -80,6 +80,22 @@ class StandardScaler(Transformer):
         return data
 
 
+class StandardScaler1D(StandardScaler):
+    """
+    StandardScaler for 1D tensors.
+    """
+
+    def transform(self, data: torch.Tensor) -> torch.Tensor:
+        data = data.reshape(-1, 1)
+        data = super().transform(data)
+        data = data.reshape(-1)
+
+        self._mean = self._mean.squeeze()
+        self._std = self._std.squeeze()
+
+        return data
+
+
 class GraphFeatureTransformer(Transformer):
     """
     Standardize graph features (both node and edge features) and place them back to

@@ -126,8 +126,7 @@ def load_Green_dataset(args):
 
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
-    args.label_mean = trainset.label_mean
-    args.label_std = trainset.label_std
+    args.label_scaler = trainset.get_label_scaler()
 
     if max_hop_distance is not None:
         class_weight = trainset.get_class_weight()

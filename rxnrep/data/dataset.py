@@ -17,7 +17,7 @@ from rxnrep.core.reaction import (
 )
 from rxnrep.data.augmentation import AtomTypeFeatureMasker
 from rxnrep.data.grapher import build_graph_and_featurize_reaction
-from rxnrep.data.transformer import GraphFeatureTransformer, StandardScaler
+from rxnrep.data.transformer import GraphFeatureTransformer, StandardScaler1D
 from rxnrep.utils import tensor_to_list, to_path, to_tensor, yaml_dump, yaml_load
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,8 @@ class BaseDataset:
         # will recover from state dict if it is not None
         self._species = None
         self._feature_scaler_state_dict = None
-        self._label_mean = None
-        self._label_std = None
+        self._label_scaler = None
+        self._label_scaler_state_dict = None
 
         # recovery state info
         if init_state_dict is not None:
@@ -91,8 +91,6 @@ class BaseDataset:
 
         if transform_features:
             self.scale_features()
-
-        # ===== generate labels =====
 
     @property
     def feature_size(self) -> Dict[str, int]:
@@ -120,13 +118,15 @@ class BaseDataset:
 
         return name
 
-    @property
-    def label_mean(self) -> Dict[str, torch.Tensor]:
-        return self._label_mean
+    def get_label_scaler(self) -> Dict[str, StandardScaler1D]:
+        """
+        Return the transformer used to scale the labels.
 
-    @property
-    def label_std(self) -> Dict[str, torch.Tensor]:
-        return self._label_std
+        Returns:
+            {property: scaler}, where property is the name of the label to which the
+                transformer is applied.
+        """
+        return self._label_scaler
 
     def get_failed(self) -> List[bool]:
         """
@@ -268,8 +268,8 @@ class BaseDataset:
         # graph features are updated inplace
         feature_scaler.transform(graphs)
 
-        if self.init_state_dict is None:
-            self._feature_scaler_state_dict = feature_scaler.state_dict()
+        # keep it to saved to dataset state dict
+        self._feature_scaler_state_dict = feature_scaler.state_dict()
 
         logger.info(f"Feature mean: {self._feature_scaler_state_dict['mean']}")
         logger.info(f"Feature std: {self._feature_scaler_state_dict['std']}")
@@ -286,47 +286,44 @@ class BaseDataset:
         Returns:
             1D tensor Scaled label values.
         """
+        assert (
+            len(values.shape) == 1
+        ), f"Expect 1D tensor as input; got {len(values.shape)}."
 
-        if self.init_state_dict is None:
-            # compute from data
-            mean = torch.mean(values)
-            std = torch.std(values)
+        label_scaler = StandardScaler1D()
 
-            if self._label_mean is None:
-                self._label_mean = {name: mean}
-            else:
-                self._label_mean[name] = mean
-            if self._label_std is None:
-                self._label_std = {name: std}
-            else:
-                self._label_std[name] = std
+        if self.init_state_dict is not None:
+            assert self._label_scaler_state_dict is not None, (
+                "Corrupted state_dict. Expect `label_scaler_state_dict` to be a dict, "
+                "got `None`."
+            )
 
-        else:
-            # recover from state dict
-            assert (
-                self.label_mean is not None
-            ), "Corrupted state_dict. Expect `label_mean` to be a dict, got `None`."
-            assert (
-                self.label_std is not None
-            ), "Corrupted state_dict. Expect `label_std` to be a dict, got `None`."
-            mean = self.label_mean[name]
-            std = self.label_std[name]
+            label_scaler.load_state_dict(self._label_scaler_state_dict[name])
 
-        values = (values - mean) / std
+        values = label_scaler.transform(values)
 
-        logger.info(f"Label `{name}` mean: {mean}")
-        logger.info(f"Label `{name}` std: {std}")
+        if self._label_scaler is None:
+            self._label_scaler = {}
+        self._label_scaler[name] = label_scaler
+
+        state_dict = label_scaler.state_dict()
+        logger.info(f"Label `{name}` mean: {state_dict['mean']}")
+        logger.info(f"Label `{name}` std: {state_dict['std']}")
 
         return values
 
     def state_dict(self):
+        if self._label_scaler is not None:
+            self._label_scaler_state_dict = {
+                name: scaler.state_dict() for name, scaler in self._label_scaler.items()
+            }
+
         d = {
             "species": self._species,
             "feature_name": self.feature_name,
             "feature_size": self.feature_size,
             "feature_scaler_state_dict": self._feature_scaler_state_dict,
-            "label_mean": self._label_mean,
-            "label_std": self._label_std,
+            "label_scaler_state_dict": self._label_scaler_state_dict,
         }
 
         return d
@@ -342,8 +339,7 @@ class BaseDataset:
         try:
             self._species = d["species"]
             self._feature_scaler_state_dict = d["feature_scaler_state_dict"]
-            self._label_mean = d["label_mean"]
-            self._label_std = d["label_std"]
+            self._label_scaler_state_dict = d["label_scaler_state_dict"]
 
         except KeyError as e:
             raise ValueError(f"Corrupted state dict: {str(e)}")
@@ -352,36 +348,6 @@ class BaseDataset:
         assert (
             self._species is not None
         ), "Corrupted state_dict. Expect `species` to be a list, got `None`."
-
-    def load_state_dict_file(self, filename: Path):
-        """
-        Load state dict from a yaml file.
-
-        Args:
-            filename: path of the file to load the data
-        """
-
-        filename = to_path(filename)
-        d = yaml_load(filename)
-
-        try:
-            species = d["species"]
-            feature_scaler_state_dict = d["feature_scaler_state_dict"]
-            label_mean = d["label_mean"]
-            label_std = d["label_std"]
-
-        except KeyError as e:
-            raise ValueError(f"Corrupted state_dict (file): {str(e)}")
-
-        # sanity check: species should not be None
-        assert (
-            species is not None
-        ), "Corrupted state_dict file. Expect `species` to be a list, got `None`."
-
-        self._species = species
-        self._feature_scaler_state_dict = to_tensor(feature_scaler_state_dict)
-        self._label_mean = to_tensor(label_mean)
-        self._label_std = to_tensor(label_std)
 
     def save_state_dict_file(self, filename: Optional[Union[str, Path]] = None):
         """
@@ -398,7 +364,7 @@ class BaseDataset:
         filename = to_path(filename)
 
         # convert tensors to list if they exists
-        tensor_fields = ["feature_scaler_state_dict", "label_mean", "label_std"]
+        tensor_fields = ["feature_scaler_state_dict", "label_scaler_state_dict"]
 
         d = {}
         for k, v in self.state_dict().items():
@@ -407,6 +373,34 @@ class BaseDataset:
             d[k] = v
 
         yaml_dump(d, filename)
+
+    def load_state_dict_file(self, filename: Path):
+        """
+        Load state dict from a yaml file.
+
+        Args:
+            filename: path of the file to load the data
+        """
+
+        filename = to_path(filename)
+        d = yaml_load(filename)
+
+        try:
+            species = d["species"]
+            feature_scaler_state_dict = d["feature_scaler_state_dict"]
+            label_scaler_state_dict = d["label_scaler_state_dict"]
+
+        except KeyError as e:
+            raise ValueError(f"Corrupted state_dict (file): {str(e)}")
+
+        # sanity check: species should not be None
+        assert (
+            species is not None
+        ), "Corrupted state_dict file. Expect `species` to be a list, got `None`."
+
+        self._species = species
+        self._feature_scaler_state_dict = to_tensor(feature_scaler_state_dict)
+        self._label_scaler_state_dict = to_tensor(label_scaler_state_dict)
 
     def read_file(self, filename: Path) -> Tuple[List[Reaction], List[bool]]:
         """
