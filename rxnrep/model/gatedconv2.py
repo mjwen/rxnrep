@@ -86,7 +86,7 @@ class GatedGCNConv(nn.Module):
         # update bond feature e
         #
         g.nodes["atom"].data.update({"Ah": self.A(h)})
-        g.edges["a2a"].data.update({"Be": self.B(e)})
+        g.edges["bond"].data.update({"Be": self.B(e)})
         g.nodes["global"].data.update({"Cu": self.C(u)})
 
         # step 1
@@ -106,13 +106,13 @@ class GatedGCNConv(nn.Module):
                 + edges.data["Be"]
                 + edges.src["Cu"],
             },
-            etype="a2a",
+            etype="bond",
         )
-        e = g.edges["a2a"].data["e"]
+        e = g.edges["bond"].data["e"]
 
         # del for memory efficiency
         del g.nodes["atom"].data["Ah"]
-        del g.edges["a2a"].data["Be"]
+        del g.edges["bond"].data["Be"]
         del g.nodes["global"].data["Cu"]
 
         if self.batch_norm:
@@ -128,8 +128,8 @@ class GatedGCNConv(nn.Module):
         # step 1
         # edge feats to atom nodes: sum_j e_ij [Had] Eh_j
         g.nodes["atom"].data.update({"Eh": self.E(h)})
-        g.edges["a2a"].data["e"] = e
-        g.update_all(atom_message_fn, atom_reduce_fn, etype="a2a")
+        g.edges["bond"].data["e"] = e
+        g.update_all(atom_message_fn, atom_reduce_fn, etype="bond")
 
         # step 2
         # global feats to atom node (a simpy copy, sum operates on 1 tensor,
@@ -155,14 +155,14 @@ class GatedGCNConv(nn.Module):
         #
 
         g.nodes["atom"].data.update(
-            {"Gh": self.G(h), "degrees": g.in_degrees(etype="a2a").reshape(-1, 1)}
+            {"Gh": self.G(h), "degrees": g.in_degrees(etype="bond").reshape(-1, 1)}
         )
-        g.edges["a2a"].data.update({"He": self.H(e)})
+        g.edges["bond"].data.update({"He": self.H(e)})
         g.nodes["global"].data.update({"Iu": self.I(u)})
 
         # step 1
         # edge feats to atom nodes
-        g.update_all(fn.copy_e("He", "m"), fn.sum("m", "He_sum"), etype="a2a")
+        g.update_all(fn.copy_e("He", "m"), fn.sum("m", "He_sum"), etype="bond")
 
         # step 2
         # aggregate global feats

@@ -24,7 +24,7 @@ def test_stadard_scaler():
 def test_graph_feature_transformer():
     def get_feats(graphs, nv):
         atom_feats = [g.nodes["atom"].data["feat"] for g in graphs]
-        bond_feats = [g.edges["a2a"].data["feat"] for g in graphs]
+        bond_feats = [g.edges["bond"].data["feat"] for g in graphs]
         if nv > 0:
             global_feats = [g.nodes["global"].data["feat"] for g in graphs]
         else:
@@ -66,8 +66,8 @@ def test_graph_feature_transformer():
     state_dict = transformer.state_dict()
     assert torch.equal(state_dict["mean"]["node"]["atom"], mean["atom"])
     assert torch.equal(state_dict["std"]["node"]["atom"], std["atom"])
-    assert torch.equal(state_dict["mean"]["edge"]["a2a"], mean["bond"])
-    assert torch.equal(state_dict["std"]["edge"]["a2a"], std["bond"])
+    assert torch.equal(state_dict["mean"]["edge"]["bond"], mean["bond"])
+    assert torch.equal(state_dict["std"]["edge"]["bond"], std["bond"])
     if nv > 0:
         assert torch.equal(state_dict["mean"]["node"]["global"], mean["global"])
         # Transformer set std to 1 if it is actually 0

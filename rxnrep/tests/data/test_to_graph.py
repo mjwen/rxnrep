@@ -11,7 +11,7 @@ def test_create_graph():
     def assert_one(g, n_a, n_b, n_v):
 
         num_nodes = {"atom": n_a}
-        num_edges = {"a2a": 2 * n_b}
+        num_edges = {"bond": 2 * n_b}
 
         if n_v > 0:
             num_nodes["global"] = n_v
@@ -50,7 +50,7 @@ def test_batch_graph():
 
     num_nodes = {"atom": n_a_1 + n_a_2, "global": n_v_1 + n_v_2}
     num_edges = {
-        "a2a": 2 * (n_b_1 + n_b_2),
+        "bond": 2 * (n_b_1 + n_b_2),
         "g2a": n_a_1 * n_v_1 + n_a_2 * n_v_2,
         "a2g": n_a_1 * n_v_1 + n_a_2 * n_v_2,
     }
@@ -69,7 +69,7 @@ def test_batch_graph():
             torch.cat([g1.nodes[t].data["feat"], g2.nodes[t].data["feat"]]),
         )
 
-    for t in ["a2a"]:
+    for t in ["bond"]:
         assert torch.equal(
             g.edges[t].data["feat"],
             torch.cat([g1.edges[t].data["feat"], g2.edges[t].data["feat"]]),
@@ -292,7 +292,7 @@ def test_create_reaction_graph():
 
 def assert_graph_quantity(g, num_atoms, num_global_nodes, num_edges_aa, num_edges_va):
     nodes = ["atom"]
-    edges = ["a2a"]
+    edges = ["bond"]
     ref_num_nodes = [num_atoms]
     ref_num_edges = [num_edges_aa]
 
@@ -316,7 +316,7 @@ def assert_graph_connectivity(
 ):
 
     # test atom to atom connection
-    etype = "a2a"
+    etype = "bond"
     src, dst, eid = g.edges(form="all", order="eid", etype=etype)
     pairs = [(s, d) for s, d in zip(src.numpy().tolist(), dst.numpy().tolist())]
     for b, atoms in bond_to_atom_map.items():
@@ -377,7 +377,7 @@ def assert_combine_graphs(
     # test features
     #
     feats_atom = torch.cat([g.nodes["atom"].data["feat"] for g in graphs])
-    feats_bond = torch.cat([g.edges["a2a"].data["feat"] for g in graphs])
+    feats_bond = torch.cat([g.edges["bond"].data["feat"] for g in graphs])
 
     reorder_atom = np.concatenate(atom_map_number).tolist()
     reorder_atom = [reorder_atom.index(i) for i in range(len(reorder_atom))]
@@ -389,7 +389,7 @@ def assert_combine_graphs(
         reorder_bond = [reorder_bond.index(i) for i in range(len(reorder_bond))]
 
     assert torch.equal(g.nodes["atom"].data["feat"], feats_atom[reorder_atom])
-    assert torch.equal(g.edges["a2a"].data["feat"], feats_bond[reorder_bond])
+    assert torch.equal(g.edges["bond"].data["feat"], feats_bond[reorder_bond])
 
     if nv > 0:
         feats_global = torch.cat([g.nodes["global"].data["feat"] for g in graphs])

@@ -21,7 +21,7 @@ def mol_to_graph(mol: Molecule, num_global_nodes: int = 0) -> dgl.DGLGraph:
     Create dgl graph for a molecule.
 
     Atoms will be nodes (with node type `atom`) of the dgl graph; atom i be node i.
-    Bonds will be edges (with edge type `a2a`, i.e. atom to atom). The is a bi-directed
+    Bonds will be edges (with edge type `bond`, i.e. atom to atom). The is a bi-directed
     graph and each bond corresponds to two edges: bond j corresponds to edges 2j and
     2j+1.
 
@@ -46,7 +46,7 @@ def mol_to_graph(mol: Molecule, num_global_nodes: int = 0) -> dgl.DGLGraph:
     for i, j in mol.bonds:
         a2a.extend([[i, j], [j, i]])
 
-    edges_dict[("atom", "a2a", "atom")] = a2a
+    edges_dict[("atom", "bond", "atom")] = a2a
     num_nodes_dict = {"atom": mol.num_atoms}
 
     # global nodes
@@ -79,7 +79,7 @@ def combine_graphs(
 
     This is different from batching where the nodes and features are concatenated.
     Here we reorder atom nodes according the atom map number, and reorder bond edges
-    i.e. `a2a` edges according to bond map numbers. The global nodes (if any) is
+    i.e. `bond` edges according to bond map numbers. The global nodes (if any) is
     simply batched.
 
     This assumes the graphs are created with `mol_to_graph()` in this file.
@@ -133,7 +133,7 @@ def combine_graphs(
         for ntype in ntypes:
             num_nodes_dict[ntype] += g.number_of_nodes(ntype)
 
-    # reorder bond edges (a2a edges)
+    # reorder bond edges (bond edges)
     bond_map_number_list = []
     for i in itertools.chain.from_iterable(bond_map_number):
         bond_map_number_list.extend([2 * i, 2 * i + 1])
@@ -141,7 +141,7 @@ def combine_graphs(
         bond_map_number_list.index(i) for i in range(len(bond_map_number_list))
     ]
 
-    rel = ("atom", "a2a", "atom")
+    rel = ("atom", "bond", "atom")
     a2a_edges = edges_dict.pop(rel)
     a2a_edges = [a2a_edges[i] for i in bond_reorder]
 
@@ -180,7 +180,7 @@ def combine_graphs(
         keys = feat_dicts[0].keys()
         new_feats = {k: torch.cat([fd[k] for fd in feat_dicts], 0) for k in keys}
 
-        if etype == "a2a":
+        if etype == "bond":
             new_feats = {k: v[bond_reorder] for k, v in new_feats.items()}
 
         new_g.edges[etype].data.update(new_feats)
@@ -221,7 +221,7 @@ def create_reaction_graph(
     `combine_graphs()`.
 
     The order of the atom nodes is unchanged. The bonds
-    (i.e. `a2a` edges between atoms) are reordered. Actually, The bonds in the
+    (i.e. `bond` edges between atoms) are reordered. Actually, The bonds in the
     reactants are intact and the added bonds in the products are updated to come after
     the bonds in the reactants.
     More specifically, according to :meth:`Reaction.get_reactants_bond_map_number()`
@@ -248,7 +248,7 @@ def create_reaction_graph(
     """
 
     # First add unchanged bonds and lost bonds from reactants
-    rel = ("atom", "a2a", "atom")
+    rel = ("atom", "bond", "atom")
     src, dst = reactants_graph.edges(order="eid", etype=rel)
     a2a = [(u, v) for u, v in zip(src, dst)]
 
@@ -260,7 +260,7 @@ def create_reaction_graph(
             a2a.append((u, v))
 
     num_atoms = reactants_graph.num_nodes("atom")
-    edges_dict = {("atom", "a2a", "atom"): a2a}
+    edges_dict = {("atom", "bond", "atom"): a2a}
     num_nodes_dict = {"atom": num_atoms}
 
     # global nodes
@@ -286,7 +286,7 @@ def build_graph_and_featurize_reaction(
     atom_featurizer: Callable,
     bond_featurizer: Callable,
     global_featurizer: Optional[Callable] = None,
-    num_global_nodes: int = 0,
+    num_global_nodes: int = 1,
 ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
     """
     Build dgl graphs for the reactants and products in a reaction and featurize them.

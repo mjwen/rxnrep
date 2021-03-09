@@ -49,7 +49,7 @@ def create_graph_CO2():
     # this create zero tensor (i.e. of shape (0, 3)) if n_b == 0
     bond_feats = torch.arange(n_b * feat_size).float().reshape(n_b, feat_size)
     bond_feats = torch.repeat_interleave(bond_feats, 2, dim=0)
-    g.edges["a2a"].data.update({"feat": bond_feats})
+    g.edges["bond"].data.update({"feat": bond_feats})
 
     g.nodes["global"].data.update(
         {"feat": torch.arange(n_v * feat_size).float().reshape(n_v, feat_size)}
@@ -95,7 +95,7 @@ def test_gated_gcn_conv():
 
     feats = {
         "atom": g.nodes["atom"].data["feat"],
-        "bond": g.edges["a2a"].data["feat"],
+        "bond": g.edges["bond"].data["feat"],
         "global": g.nodes["global"].data["feat"],
     }
 

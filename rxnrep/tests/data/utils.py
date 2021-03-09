@@ -21,7 +21,7 @@ def create_graph(m, n_a, n_b, n_v):
     # this create zero tensor (i.e. of shape (0, 3)) if n_b == 0
     bond_feats = torch.arange(n_b * 3).float().reshape(n_b, 3)
     bond_feats = torch.repeat_interleave(bond_feats, 2, dim=0)
-    g.edges["a2a"].data.update({"feat": bond_feats})
+    g.edges["bond"].data.update({"feat": bond_feats})
 
     if n_v > 0:
         g.nodes["global"].data.update(
