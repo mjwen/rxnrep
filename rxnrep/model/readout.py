@@ -258,7 +258,7 @@ class Set2SetThenCat(nn.Module):
         """
         rst = []
         for nt in self.ntypes:
-            ft = self.node_layers[nt](feats[nt], graph.batch_num_nodes("nt"))
+            ft = self.node_layers[nt](feats[nt], graph.batch_num_nodes(nt))
             rst.append(ft)
 
         if self.ntypes_direct_cat is not None:
