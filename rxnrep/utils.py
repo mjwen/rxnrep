@@ -1,9 +1,11 @@
 import logging
 import os
 import pickle
+import random
 from pathlib import Path
 from typing import Any, Union
 
+import dgl
 import numpy as np
 import torch
 import yaml
@@ -94,3 +96,22 @@ def to_tensor(data: Any, dtype="float32") -> Any:
         return {k: to_tensor(v) for k, v in data.items()}
     else:
         return data
+
+
+def seed_all(seed=35, cudnn_benchmark=False, cudnn_deterministic=False):
+    """
+    Seed Python, numpy, torch, and dgl.
+
+    """
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if using multi-GPU
+    torch.backends.cudnn.benchmark = cudnn_benchmark
+    torch.backends.cudnn.deterministic = cudnn_deterministic
+
+    dgl.random.seed(seed)

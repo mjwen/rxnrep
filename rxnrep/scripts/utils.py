@@ -1,14 +1,11 @@
 import logging
 import os
-import random
 import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import dgl
-import numpy as np
 import pandas as pd
 import torch
 import torch.distributed as dist
@@ -41,18 +38,6 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.early_stop = True
         return self.early_stop
-
-
-def seed_all(seed=35, cudnn_benchmark=False, cudnn_deterministic=False):
-    random.seed(seed)
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if using multi-GPU
-    torch.backends.cudnn.benchmark = cudnn_benchmark
-    torch.backends.cudnn.deterministic = cudnn_deterministic
-    dgl.random.seed(seed)
 
 
 def save_checkpoints(

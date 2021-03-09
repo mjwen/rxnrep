@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 from rxnrep.data.transformer import GraphFeatureTransformer, StandardScaler
-from rxnrep.tests.data.utils import create_graph_C, create_graph_CO2
+from rxnrep.tests.utils import create_graph_C, create_graph_CO2
 
 
 def test_stadard_scaler():
@@ -72,7 +72,7 @@ def test_graph_feature_transformer():
         assert torch.equal(state_dict["mean"]["node"]["global"], mean["global"])
         # Transformer set std to 1 if it is actually 0
         assert torch.equal(
-            state_dict["std"]["node"]["global"], torch.tensor([1.0, 1.0])
+            state_dict["std"]["node"]["global"], torch.tensor([1.0, 1.0, 1.0])
         )
 
     for k, ft in feats.items():
