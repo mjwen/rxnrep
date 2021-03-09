@@ -215,8 +215,9 @@ class RxnRepLightningModel(pl.LightningModule):
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.model.decode(feats, reaction_feats, metadata)
 
-            mean = self.hparams.label_mean[returns]
-            std = self.hparams.label_std[returns]
+            state_dict = self.hparams.label_scaler["returns"].state_dict()
+            mean = state_dict["mean"]
+            std = state_dict["std"]
             preds = preds[returns] * std + mean
 
             return preds
@@ -696,7 +697,8 @@ class RxnRepLightningModel(pl.LightningModule):
 
                 # scale labels
                 label_scaler = task_setting["label_scaler"]
-                out *= self.hparams.label_std[label_scaler].to(self.device)
+                state_dict = self.hparams.label_scaler[label_scaler].state_dict()
+                out *= state_dict["std"].to(self.device)
 
                 self.log(
                     f"{mode}/{name}/{key}",

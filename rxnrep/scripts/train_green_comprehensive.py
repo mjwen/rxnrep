@@ -19,7 +19,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim import lr_scheduler
+from warmup_scheduler import GradualWarmupScheduler
 
 from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
@@ -571,9 +572,26 @@ class RxnRepLightningModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        scheduler = ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.4, patience=50, verbose=True
-        )
+        if self.hparams.lr_scheduler == "reduce_on_plateau":
+            base_scheduler = lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="max", factor=0.4, patience=50, verbose=True
+            )
+        elif self.hparams.lr_scheduler == "cosine":
+            base_scheduler = lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=self.hparams.epochs, eta_min=self.hparams.lr_min
+            )
+        else:
+            raise ValueError(f"Not supported lr scheduler: {self.hparams.lr_scheduler}")
+
+        if self.hparams.lr_warmup_step:
+            scheduler = GradualWarmupScheduler(
+                optimizer,
+                multiplier=1,
+                total_epoch=self.hparams.lr_warmup_step,
+                after_scheduler=base_scheduler,
+            )
+        else:
+            scheduler = base_scheduler
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 
