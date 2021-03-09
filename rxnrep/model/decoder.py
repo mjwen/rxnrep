@@ -3,7 +3,7 @@ from typing import List
 import torch
 import torch.nn as nn
 
-from rxnrep.model.utils import FCNN
+from rxnrep.model.utils import MLP
 
 
 class BaseDecoder(nn.Module):
@@ -40,7 +40,7 @@ class BaseDecoder(nn.Module):
         use_bias = [True] * len(out_sizes)
         acts = [activation] * len(hidden_layer_sizes) + [None]
 
-        self.fc_layers = FCNN(in_size, out_sizes, acts, use_bias)
+        self.fc_layers = MLP(in_size, out_sizes, acts, use_bias)
 
     def forward(self, feats: torch.Tensor) -> torch.Tensor:
         """

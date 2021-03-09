@@ -9,7 +9,7 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-from rxnrep.model.utils import FCNN
+from rxnrep.model.utils import MLP
 
 
 class ConcatenateMeanMax(nn.Module):
@@ -364,7 +364,7 @@ class CompressingNN(nn.Module):
         acts = [activation] * len(hidden_sizes)
         use_bias = [True] * len(hidden_sizes)
 
-        self.layers = FCNN(in_size, hidden_sizes, acts, use_bias)
+        self.layers = MLP(in_size, hidden_sizes, acts, use_bias)
 
     def forward(self, feats):
         return self.layers(feats)

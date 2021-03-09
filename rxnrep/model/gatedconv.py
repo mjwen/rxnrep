@@ -5,7 +5,7 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-from rxnrep.model.utils import FCNN
+from rxnrep.model.utils import MLP
 
 
 class GatedGCNConv(nn.Module):
@@ -57,15 +57,15 @@ class GatedGCNConv(nn.Module):
         use_bias = [True] * num_fc_layers
 
         # A, B, ... I are phi_1, phi_2, ..., phi_9 in the BonDNet paper
-        self.A = FCNN(input_dim, out_sizes, acts, use_bias)
-        self.B = FCNN(input_dim, out_sizes, acts, use_bias)
-        self.C = FCNN(input_dim, out_sizes, acts, use_bias)
-        self.D = FCNN(input_dim, out_sizes, acts, use_bias)
-        self.E = FCNN(input_dim, out_sizes, acts, use_bias)
-        self.F = FCNN(input_dim, out_sizes, acts, use_bias)
-        self.G = FCNN(output_dim, out_sizes, acts, use_bias)
-        self.H = FCNN(output_dim, out_sizes, acts, use_bias)
-        self.I = FCNN(input_dim, out_sizes, acts, use_bias)
+        self.A = MLP(input_dim, out_sizes, acts, use_bias)
+        self.B = MLP(input_dim, out_sizes, acts, use_bias)
+        self.C = MLP(input_dim, out_sizes, acts, use_bias)
+        self.D = MLP(input_dim, out_sizes, acts, use_bias)
+        self.E = MLP(input_dim, out_sizes, acts, use_bias)
+        self.F = MLP(input_dim, out_sizes, acts, use_bias)
+        self.G = MLP(output_dim, out_sizes, acts, use_bias)
+        self.H = MLP(output_dim, out_sizes, acts, use_bias)
+        self.I = MLP(input_dim, out_sizes, acts, use_bias)
 
         if self.batch_norm:
             self.bn_node_h = nn.BatchNorm1d(output_dim)

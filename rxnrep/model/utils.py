@@ -39,7 +39,7 @@ class UnifySize(nn.Module):
         return {k: self.linears[k](x) for k, x in feats.items()}
 
 
-class FCNN(nn.Module):
+class MLP(nn.Module):
     """
     A fully connected neural network.
 
@@ -59,7 +59,7 @@ class FCNN(nn.Module):
         activations: List[Union[Callable, str]],
         use_bias: List[bool],
     ):
-        super(FCNN, self).__init__()
+        super(MLP, self).__init__()
 
         self.layers = nn.ModuleList()
         for out, act, b in zip(out_sizes, activations, use_bias):
@@ -78,4 +78,4 @@ class FCNN(nn.Module):
         return x
 
     def __repr__(self):
-        return f"FCNN, num layers={self.num_layers}"
+        return f"MLP, num layers={self.num_layers}"
