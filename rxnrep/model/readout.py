@@ -7,6 +7,7 @@ import dgl
 import numpy as np
 import torch
 from dgl import function as fn
+from dgl.ops import segment_reduce, segment_softmax
 from torch import nn
 
 from rxnrep.model.utils import MLP
@@ -131,7 +132,9 @@ class ConcatenateMeanAbsDiff(nn.Module):
 
 class Set2Set(nn.Module):
     r"""
-    Compared to the Official dgl implementation, we allowed node type.
+    Compute set2set for features (either node or edge features) of a batch of graph
+    without requiring the batched graph.
+
 
     For each individual graph in the batch, set2set computes
 
@@ -150,16 +153,14 @@ class Set2Set(nn.Module):
         input_dim: The size of each input sample.
         n_iters: The number of iterations.
         n_layers: The number of recurrent layers.
-        ntype: Type of the node to apply Set2Set.
     """
 
-    def __init__(self, input_dim: int, n_iters: int, n_layers: int, ntype: str):
-        super(Set2Set, self).__init__()
+    def __init__(self, input_dim: int, n_iters: int, n_layers: int):
+        super().__init__()
         self.input_dim = input_dim
         self.output_dim = 2 * input_dim
         self.n_iters = n_iters
         self.n_layers = n_layers
-        self.ntype = ntype
         self.lstm = torch.nn.LSTM(self.output_dim, self.input_dim, n_layers)
         self.reset_parameters()
 
@@ -167,50 +168,41 @@ class Set2Set(nn.Module):
         """Reinitialize learnable parameters."""
         self.lstm.reset_parameters()
 
-    def forward(self, graph: dgl.DGLGraph, feat: torch.Tensor) -> torch.Tensor:
+    def forward(self, feat: torch.Tensor, sizes=torch.Tensor) -> torch.Tensor:
         """
         Compute set2set pooling.
 
         Args:
-            graph: the input graph
-            feat: The input feature with shape :math:`(N, D)` where  :math:`N` is the
-                number of nodes in the graph, and :math:`D` means the size of features.
+            feat: feature tensor of shape (N, D) where N is the total number of features,
+                and D is the feature dimension.
+            sizes: 1D tensor (shape (B,)) of the size of the features for each graph.
+                sum(sizes) should be equal to D.
 
         Returns:
-            The output feature with shape :math:`(B, D)`, where :math:`B` refers to
-            the batch size, and :math:`D` means the size of features.
+            Aggregated output feature with shape (B, D), where B is the batch size
+            (i.e. number of graphs) and D means the size of features.
         """
-        with graph.local_scope():
-            batch_size = graph.batch_size
+        batch_size = len(sizes)
 
-            h = (
-                feat.new_zeros((self.n_layers, batch_size, self.input_dim)),
-                feat.new_zeros((self.n_layers, batch_size, self.input_dim)),
+        h = (
+            feat.new_zeros((self.n_layers, batch_size, self.input_dim)),
+            feat.new_zeros((self.n_layers, batch_size, self.input_dim)),
+        )
+
+        q_star = feat.new_zeros(batch_size, self.output_dim)
+
+        for _ in range(self.n_iters):
+            q, h = self.lstm(q_star.unsqueeze(0), h)
+            q = q.view(batch_size, self.input_dim)
+            e = (feat * torch.repeat_interleave(q, sizes, dim=0)).sum(
+                dim=-1, keepdim=True
             )
+            alpha = segment_softmax(sizes, e)
+            r = feat * alpha
+            readout = segment_reduce(sizes, r, reducer="sum")
+            q_star = torch.cat([q, readout], dim=-1)
 
-            q_star = feat.new_zeros(batch_size, self.output_dim)
-
-            for _ in range(self.n_iters):
-                q, h = self.lstm(q_star.unsqueeze(0), h)
-                q = q.view(batch_size, self.input_dim)
-                e = (feat * dgl.broadcast_nodes(graph, q, ntype=self.ntype)).sum(
-                    dim=-1, keepdim=True
-                )
-                graph.nodes[self.ntype].data["e"] = e
-                alpha = dgl.softmax_nodes(graph, "e", ntype=self.ntype)
-                graph.nodes[self.ntype].data["r"] = feat * alpha
-                readout = dgl.sum_nodes(graph, "r", ntype=self.ntype)
-                q_star = torch.cat([q, readout], dim=-1)
-
-            return q_star
-
-    def extra_repr(self):
-        """
-        Set the extra representation of the module.
-        which will come into effect when printing the model.
-        """
-        summary = "n_iters={n_iters}"
-        return summary.format(**self.__dict__)
+        return q_star
 
 
 class Set2SetThenCat(nn.Module):
@@ -239,10 +231,10 @@ class Set2SetThenCat(nn.Module):
         self.ntypes = ntypes
         self.ntypes_direct_cat = ntypes_direct_cat
 
-        self.layers = nn.ModuleDict()
+        self.node_layers = nn.ModuleDict()
         for nt, sz in zip(ntypes, in_feats):
-            self.layers[nt] = Set2Set(
-                input_dim=sz, n_iters=num_iters, n_layers=num_layers, ntype=nt
+            self.node_layers[nt] = Set2Set(
+                input_dim=sz, n_iters=num_iters, n_layers=num_layers
             )
 
     def forward(
@@ -266,7 +258,7 @@ class Set2SetThenCat(nn.Module):
         """
         rst = []
         for nt in self.ntypes:
-            ft = self.layers[nt](graph, feats[nt])
+            ft = self.node_layers[nt](feats[nt], graph.batch_num_nodes("nt"))
             rst.append(ft)
 
         if self.ntypes_direct_cat is not None:
