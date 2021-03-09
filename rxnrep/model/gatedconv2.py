@@ -65,7 +65,7 @@ class GatedGCNConv(nn.Module):
         """
         Args:
             g: the graphm bond as edges
-            feats: {name, feats}. Atom, bond, and virtual features.
+            feats: {name, feats}. Atom, bond, and global features.
 
         Returns:
             updated features.
@@ -75,7 +75,7 @@ class GatedGCNConv(nn.Module):
 
         h = feats["atom"]
         e = feats["bond"]
-        u = feats["virtual"]
+        u = feats["global"]
 
         # for residual connection
         h_in = h
@@ -87,12 +87,12 @@ class GatedGCNConv(nn.Module):
         #
         g.nodes["atom"].data.update({"Ah": self.A(h)})
         g.edges["a2a"].data.update({"Be": self.B(e)})
-        g.nodes["virtual"].data.update({"Cu": self.C(u)})
+        g.nodes["global"].data.update({"Cu": self.C(u)})
 
         # step 1
         # global feats to atom node (a simpy copy, sum operates on 1 tensor,
-        # since we have only one virtual nodes connected to each atom node)
-        g.update_all(fn.copy_u("Cu", "m"), fn.sum("m", "Cu"), etype="v2a")
+        # since we have only one global nodes connected to each atom node)
+        g.update_all(fn.copy_u("Cu", "m"), fn.sum("m", "Cu"), etype="g2a")
 
         # step 2, aggregate edge features
         # sum of:
@@ -113,7 +113,7 @@ class GatedGCNConv(nn.Module):
         # del for memory efficiency
         del g.nodes["atom"].data["Ah"]
         del g.edges["a2a"].data["Be"]
-        del g.nodes["virtual"].data["Cu"]
+        del g.nodes["global"].data["Cu"]
 
         if self.batch_norm:
             e = self.bn_node_e(e)
@@ -133,9 +133,9 @@ class GatedGCNConv(nn.Module):
 
         # step 2
         # global feats to atom node (a simpy copy, sum operates on 1 tensor,
-        # since we have only one virtual nodes connected to each atom node)
-        g.nodes["virtual"].data.update({"Fu": self.F(u)})
-        g.update_all(fn.copy_u("Fu", "m"), fn.sum("m", "Fu"), etype="v2a")
+        # since we have only one global nodes connected to each atom node)
+        g.nodes["global"].data.update({"Fu": self.F(u)})
+        g.update_all(fn.copy_u("Fu", "m"), fn.sum("m", "Fu"), etype="g2a")
 
         # step 3
         #        D(h)   + sum_j e_ij [Had] Eh_j      + F(u)
@@ -158,7 +158,7 @@ class GatedGCNConv(nn.Module):
             {"Gh": self.G(h), "degrees": g.in_degrees(etype="a2a").reshape(-1, 1)}
         )
         g.edges["a2a"].data.update({"He": self.H(e)})
-        g.nodes["virtual"].data.update({"Iu": self.I(u)})
+        g.nodes["global"].data.update({"Iu": self.I(u)})
 
         # step 1
         # edge feats to atom nodes
@@ -166,8 +166,8 @@ class GatedGCNConv(nn.Module):
 
         # step 2
         # aggregate global feats
-        g.update_all(global_message_fn, global_reduce_fn, etype="a2v")
-        u = g.nodes["virtual"].data.pop("u")
+        g.update_all(global_message_fn, global_reduce_fn, etype="a2g")
+        u = g.nodes["global"].data.pop("u")
 
         # do not apply batch norm if it there is only one graph
         if self.batch_norm and u.shape[0] > 1:
@@ -181,7 +181,7 @@ class GatedGCNConv(nn.Module):
         e = self.dropout(e)
         u = self.dropout(u)
 
-        feats = {"atom": h, "bond": e, "virtual": u}
+        feats = {"atom": h, "bond": e, "global": u}
 
         return feats
 
@@ -218,7 +218,7 @@ def global_reduce_fn(nodes):
     degrees = nodes.mailbox["degrees"]  # in degrees: number of bonds of each atom
 
     # mean of edge features
-    # He_sum is the sum of bond feats placed on atom nodes. We aggregating to virtual
+    # He_sum is the sum of bond feats placed on atom nodes. We aggregating to global
     # nodes, each bond feature will be presented twice. However, we do NOT need to
     # divide it by 2, since here we use mean aggregation and the double counting is
     # already taken care of by the `torch.sum(degrees, dim=1)`.

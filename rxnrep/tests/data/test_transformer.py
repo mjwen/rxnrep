@@ -26,19 +26,19 @@ def test_graph_feature_transformer():
         atom_feats = [g.nodes["atom"].data["feat"] for g in graphs]
         bond_feats = [g.edges["a2a"].data["feat"] for g in graphs]
         if nv > 0:
-            virtual_feats = [g.nodes["virtual"].data["feat"] for g in graphs]
+            global_feats = [g.nodes["global"].data["feat"] for g in graphs]
         else:
-            virtual_feats = None
+            global_feats = None
 
-        feats = {"atom": atom_feats, "bond": bond_feats, "virtual": virtual_feats}
+        feats = {"atom": atom_feats, "bond": bond_feats, "global": global_feats}
 
         return feats
 
     nv = 1
 
     graphs = [
-        create_graph_C(num_virtual_nodes=nv),
-        create_graph_CO2(num_virtual_nodes=nv),
+        create_graph_C(num_global_nodes=nv),
+        create_graph_CO2(num_global_nodes=nv),
     ]
 
     feats = get_feats(graphs, nv)
@@ -69,14 +69,14 @@ def test_graph_feature_transformer():
     assert torch.equal(state_dict["mean"]["edge"]["a2a"], mean["bond"])
     assert torch.equal(state_dict["std"]["edge"]["a2a"], std["bond"])
     if nv > 0:
-        assert torch.equal(state_dict["mean"]["node"]["virtual"], mean["virtual"])
+        assert torch.equal(state_dict["mean"]["node"]["global"], mean["global"])
         # Transformer set std to 1 if it is actually 0
         assert torch.equal(
-            state_dict["std"]["node"]["virtual"], torch.tensor([1.0, 1.0])
+            state_dict["std"]["node"]["global"], torch.tensor([1.0, 1.0])
         )
 
     for k, ft in feats.items():
-        if k != "virtual":
+        if k != "global":
             ref = ref_value[k]
             for f, r in zip(ft, ref):
                 assert torch.equal(f, r)

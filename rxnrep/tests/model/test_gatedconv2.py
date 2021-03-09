@@ -8,7 +8,7 @@ from rxnrep.model.gatedconv2 import GatedGCNConv
 
 def create_graph_CO2():
     """
-    CO2 with 3 atoms, 2 bonds, 1 virtual nodes and features:
+    CO2 with 3 atoms, 2 bonds, 1 global nodes and features:
 
      atom_feat:
         [[0,1,2,3],
@@ -23,7 +23,7 @@ def create_graph_CO2():
     Note [0,1,2,3] corresponds to two edges for the same bond.
 
 
-    virtual_feat:
+    global_feat:
         [[0,1,2,3]]
 
 
@@ -40,7 +40,7 @@ def create_graph_CO2():
 
     smi = "O=C=O"
     m = Molecule.from_smiles(smi)
-    g = mol_to_graph(m, num_virtual_nodes=n_v)
+    g = mol_to_graph(m, num_global_nodes=n_v)
 
     g.nodes["atom"].data.update(
         {"feat": torch.arange(n_a * feat_size).float().reshape(n_a, feat_size)}
@@ -51,7 +51,7 @@ def create_graph_CO2():
     bond_feats = torch.repeat_interleave(bond_feats, 2, dim=0)
     g.edges["a2a"].data.update({"feat": bond_feats})
 
-    g.nodes["virtual"].data.update(
+    g.nodes["global"].data.update(
         {"feat": torch.arange(n_v * feat_size).float().reshape(n_v, feat_size)}
     )
 
@@ -96,20 +96,20 @@ def test_gated_gcn_conv():
     feats = {
         "atom": g.nodes["atom"].data["feat"],
         "bond": g.edges["a2a"].data["feat"],
-        "virtual": g.nodes["virtual"].data["feat"],
+        "global": g.nodes["global"].data["feat"],
     }
 
     updated_feats = conv(g, feats)
 
     a = feats["atom"]
     b = feats["bond"]
-    v = feats["virtual"]
+    v = feats["global"]
 
     # bond feats
     ref_bond = (
         torch.stack([a[0] + a[1], a[1] + a[2]])  # atom
         + torch.stack([b[0], b[2]])  # bond
-        + v[0]  # virtual
+        + v[0]  # global
     )
     ref_bond = torch.repeat_interleave(ref_bond, 2, dim=0)
     assert torch.equal(updated_feats["bond"], ref_bond)
@@ -117,7 +117,7 @@ def test_gated_gcn_conv():
     # atom feats
     a = feats["atom"]
     b = updated_feats["bond"]
-    v = feats["virtual"]
+    v = feats["global"]
 
     sigma = torch.sigmoid(b)
     sigma = [sigma[0], sigma[2]]  # sigma for bond 0 and 1
@@ -132,10 +132,10 @@ def test_gated_gcn_conv():
     ref_atom = a + sigma_times_h + v
     assert torch.equal(updated_feats["atom"], ref_atom)
 
-    # virtual feats
+    # global feats
     a = updated_feats["atom"]
     b = updated_feats["bond"]
-    v = feats["virtual"]
+    v = feats["global"]
 
-    ref_virtual = torch.mean(a, dim=0) + torch.mean(b, dim=0) + v
-    assert torch.equal(updated_feats["virtual"], ref_virtual)
+    ref_global = torch.mean(a, dim=0) + torch.mean(b, dim=0) + v
+    assert torch.equal(updated_feats["global"], ref_global)

@@ -14,9 +14,9 @@ def test_create_graph():
         num_edges = {"a2a": 2 * n_b}
 
         if n_v > 0:
-            num_nodes["virtual"] = n_v
-            num_edges["v2a"] = n_a * n_v
-            num_edges["a2v"] = n_a * n_v
+            num_nodes["global"] = n_v
+            num_edges["g2a"] = n_a * n_v
+            num_edges["a2g"] = n_a * n_v
 
         assert set(g.ntypes) == set(num_nodes.keys())
         assert set(g.etypes) == set(num_edges.keys())
@@ -26,11 +26,11 @@ def test_create_graph():
             assert g.number_of_edges(k) == n
 
     for n_v in range(3):
-        g = create_graph_C(num_virtual_nodes=n_v)
+        g = create_graph_C(num_global_nodes=n_v)
         assert_one(g, 1, 0, n_v)
 
     for n_v in range(3):
-        g = create_graph_CO2(num_virtual_nodes=n_v)
+        g = create_graph_CO2(num_global_nodes=n_v)
         assert_one(g, 3, 2, n_v)
 
 
@@ -39,20 +39,20 @@ def test_batch_graph():
     n_a_1 = 1
     n_b_1 = 0
     n_v_1 = 1
-    g1 = create_graph_C(num_virtual_nodes=n_v_1)
+    g1 = create_graph_C(num_global_nodes=n_v_1)
 
     n_a_2 = 3
     n_b_2 = 2
     n_v_2 = 1
-    g2 = create_graph_CO2(num_virtual_nodes=n_v_2)
+    g2 = create_graph_CO2(num_global_nodes=n_v_2)
 
     g = dgl.batch([g1, g2])
 
-    num_nodes = {"atom": n_a_1 + n_a_2, "virtual": n_v_1 + n_v_2}
+    num_nodes = {"atom": n_a_1 + n_a_2, "global": n_v_1 + n_v_2}
     num_edges = {
         "a2a": 2 * (n_b_1 + n_b_2),
-        "v2a": n_a_1 * n_v_1 + n_a_2 * n_v_2,
-        "a2v": n_a_1 * n_v_1 + n_a_2 * n_v_2,
+        "g2a": n_a_1 * n_v_1 + n_a_2 * n_v_2,
+        "a2g": n_a_1 * n_v_1 + n_a_2 * n_v_2,
     }
 
     assert set(g.ntypes) == set(num_nodes.keys())
@@ -82,7 +82,7 @@ def test_combine_graphs_CO2():
     """
 
     for nv in [0, 1]:
-        g = create_graph_CO2(num_virtual_nodes=nv)
+        g = create_graph_CO2(num_global_nodes=nv)
 
         atom_map_number = [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
         bond_map_number = [[1, 4], [0, 2], [3, 5]]
@@ -97,9 +97,9 @@ def test_combine_graphs_CO2():
         }
 
         if nv == 0:
-            virtual_map_number = [[], [], []]
+            global_map_number = [[], [], []]
         elif nv == 1:
-            virtual_map_number = [[0], [1], [2]]
+            global_map_number = [[0], [1], [2]]
         else:
             raise ValueError
 
@@ -110,7 +110,7 @@ def test_combine_graphs_CO2():
             [nv, nv, nv],
             atom_map_number,
             bond_map_number,
-            virtual_map_number,
+            global_map_number,
             bond_to_atom_map,
         )
 
@@ -121,16 +121,16 @@ def test_combine_graphs_C():
     """
 
     for nv in [0, 1]:
-        g = create_graph_C(num_virtual_nodes=nv)
+        g = create_graph_C(num_global_nodes=nv)
 
         atom_map_number = [[1], [2], [0]]
         bond_map_number = [[], [], []]
         bond_to_atom_map = {}
 
         if nv == 0:
-            virtual_map_number = [[], [], []]
+            global_map_number = [[], [], []]
         elif nv == 1:
-            virtual_map_number = [[0], [1], [2]]
+            global_map_number = [[0], [1], [2]]
         else:
             raise ValueError
 
@@ -141,7 +141,7 @@ def test_combine_graphs_C():
             [nv, nv, nv],
             atom_map_number,
             bond_map_number,
-            virtual_map_number,
+            global_map_number,
             bond_to_atom_map,
         )
 
@@ -152,13 +152,13 @@ def test_combine_graphs_C_CO2():
     """
 
     for nv in [0, 1]:
-        g1 = create_graph_CO2(num_virtual_nodes=nv)
-        g2 = create_graph_C(num_virtual_nodes=nv)
+        g1 = create_graph_CO2(num_global_nodes=nv)
+        g2 = create_graph_C(num_global_nodes=nv)
 
         if nv == 0:
-            virtual_map_number = [[], [], []]
+            global_map_number = [[], [], []]
         elif nv == 1:
-            virtual_map_number = [[0], [1], [2]]
+            global_map_number = [[0], [1], [2]]
         else:
             raise ValueError
 
@@ -175,7 +175,7 @@ def test_combine_graphs_C_CO2():
             [nv, nv, nv],
             atom_map_number,
             bond_map_number,
-            virtual_map_number,
+            global_map_number,
             bond_to_atom_map,
         )
 
@@ -191,7 +191,7 @@ def test_combine_graphs_C_CO2():
             [nv, nv, nv],
             atom_map_number,
             bond_map_number,
-            virtual_map_number,
+            global_map_number,
             bond_to_atom_map,
         )
 
@@ -240,7 +240,7 @@ def test_create_reaction_graph():
     for nv in [0, 1]:
 
         graphs = [
-            mol_to_graph(Molecule.from_smiles(s), num_virtual_nodes=nv) for s in smiles
+            mol_to_graph(Molecule.from_smiles(s), num_global_nodes=nv) for s in smiles
         ]
 
         reactant = combine_graphs(
@@ -256,7 +256,7 @@ def test_create_reaction_graph():
             num_unchanged_bonds=2,
             num_lost_bonds=1,
             num_added_bonds=1,
-            num_virtual_nodes=nv,
+            num_global_nodes=nv,
         )
 
         na = 5
@@ -264,7 +264,7 @@ def test_create_reaction_graph():
         assert_graph_quantity(
             g,
             num_atoms=na,
-            num_virtual_nodes=nv,
+            num_global_nodes=nv,
             num_edges_aa=2 * nb,
             num_edges_va=na * nv,
         )
@@ -275,31 +275,31 @@ def test_create_reaction_graph():
 
         atom_map_number = [list(range(na))]
         if nv == 0:
-            virtual_map_number = [[]]
+            global_map_number = [[]]
         elif nv == 1:
-            virtual_map_number = [[0]]
+            global_map_number = [[0]]
         else:
             raise ValueError
 
         assert_graph_connectivity(
             g,
-            num_virtual_nodes=nv,
+            num_global_nodes=nv,
             bond_to_atom_map=bond_to_atom_map,
             atom_map_number=atom_map_number,
-            virtual_map_number=virtual_map_number,
+            global_map_number=global_map_number,
         )
 
 
-def assert_graph_quantity(g, num_atoms, num_virtual_nodes, num_edges_aa, num_edges_va):
+def assert_graph_quantity(g, num_atoms, num_global_nodes, num_edges_aa, num_edges_va):
     nodes = ["atom"]
     edges = ["a2a"]
     ref_num_nodes = [num_atoms]
     ref_num_edges = [num_edges_aa]
 
-    if num_virtual_nodes > 0:
-        nodes.append("virtual")
-        edges.extend(["a2v", "v2a"])
-        ref_num_nodes.append(num_virtual_nodes)
+    if num_global_nodes > 0:
+        nodes.append("global")
+        edges.extend(["a2g", "g2a"])
+        ref_num_nodes.append(num_global_nodes)
         ref_num_edges.extend([num_edges_va, num_edges_va])
 
     num_nodes = [g.number_of_nodes(n) for n in nodes]
@@ -312,7 +312,7 @@ def assert_graph_quantity(g, num_atoms, num_virtual_nodes, num_edges_aa, num_edg
 
 
 def assert_graph_connectivity(
-    g, num_virtual_nodes, bond_to_atom_map, atom_map_number, virtual_map_number
+    g, num_global_nodes, bond_to_atom_map, atom_map_number, global_map_number
 ):
 
     # test atom to atom connection
@@ -324,24 +324,24 @@ def assert_graph_connectivity(
         y = {pairs[2 * b], pairs[2 * b + 1]}
         assert x == y
 
-    # NOTE, unnecessary to check virtual node edges, since no feats will be assigned
-    if num_virtual_nodes > 0:
-        # test virtual to atom connection
-        etype = "v2a"
+    # NOTE, unnecessary to check global node edges, since no feats will be assigned
+    if num_global_nodes > 0:
+        # test global to atom connection
+        etype = "g2a"
         src, dst, eid = g.edges(form="all", order="eid", etype=etype)
         i = 0
-        for vv, aa in zip(virtual_map_number, atom_map_number):
+        for vv, aa in zip(global_map_number, atom_map_number):
             for v in vv:
                 for a in aa:
                     assert src[i] == v
                     assert dst[i] == a
                     i += 1
 
-        # test atom to virtual connection
-        etype = "a2v"
+        # test atom to global connection
+        etype = "a2g"
         src, dst, eid = g.edges(form="all", order="eid", etype=etype)
         i = 0
-        for vv, aa in zip(virtual_map_number, atom_map_number):
+        for vv, aa in zip(global_map_number, atom_map_number):
             for v in vv:
                 for a in aa:
                     assert src[i] == a
@@ -356,11 +356,11 @@ def assert_combine_graphs(
     nv,
     atom_map_number,
     bond_map_number,
-    virtual_map_number,
+    global_map_number,
     bond_to_atom_map,
 ):
 
-    ne_v = sum(i * j for i, j in zip(na, nv))  # number of atom-virtual edges
+    ne_v = sum(i * j for i, j in zip(na, nv))  # number of atom-global edges
     na = sum(na)
     nb = sum(nb)
     nv = sum(nv)
@@ -370,7 +370,7 @@ def assert_combine_graphs(
 
     assert_graph_quantity(g, na, nv, ne_a, ne_v)
     assert_graph_connectivity(
-        g, nv, bond_to_atom_map, atom_map_number, virtual_map_number
+        g, nv, bond_to_atom_map, atom_map_number, global_map_number
     )
 
     #
@@ -392,12 +392,8 @@ def assert_combine_graphs(
     assert torch.equal(g.edges["a2a"].data["feat"], feats_bond[reorder_bond])
 
     if nv > 0:
-        feats_virtual = torch.cat([g.nodes["virtual"].data["feat"] for g in graphs])
-        reorder_virtual = np.concatenate(virtual_map_number).tolist()
-        reorder_virtual = [
-            reorder_virtual.index(i) for i in range(len(reorder_virtual))
-        ]
+        feats_global = torch.cat([g.nodes["global"].data["feat"] for g in graphs])
+        reorder_global = np.concatenate(global_map_number).tolist()
+        reorder_global = [reorder_global.index(i) for i in range(len(reorder_global))]
 
-        assert torch.equal(
-            g.nodes["virtual"].data["feat"], feats_virtual[reorder_virtual]
-        )
+        assert torch.equal(g.nodes["global"].data["feat"], feats_global[reorder_global])

@@ -16,7 +16,7 @@ from rxnrep.core.reaction import Reaction
 logger = logging.getLogger(__name__)
 
 
-def mol_to_graph(mol: Molecule, num_virtual_nodes: int = 0) -> dgl.DGLGraph:
+def mol_to_graph(mol: Molecule, num_global_nodes: int = 0) -> dgl.DGLGraph:
     """
     Create dgl graph for a molecule.
 
@@ -25,14 +25,15 @@ def mol_to_graph(mol: Molecule, num_virtual_nodes: int = 0) -> dgl.DGLGraph:
     graph and each bond corresponds to two edges: bond j corresponds to edges 2j and
     2j+1.
 
-    if `num_virtual_node > 0`, the corresponding number of virtual nodes
-    are created (with node type 'virtual'). Each virtual node is connected to all
-    the atom nodes via virtual edges (with edge type `a2v` and `v2a`).
+    if `num_global_node > 0`, the corresponding number of global nodes are created
+    (with node type 'global'). Each global node is connected to all the atom nodes via
+    edges of type `a2g` and `g2a`).
 
     Args:
         mol: molecule
-        num_virtual_nodes: number of virtual nodes to add. e.g. node holding global
-            features of molecules.
+        num_global_nodes: number of global nodes to add. e.g. node holding global
+            features of molecules. In the literature (e.g. MPNN), global nodes is called
+            virtual nodes.
 
     Returns:
         dgl graph for the molecule
@@ -48,18 +49,18 @@ def mol_to_graph(mol: Molecule, num_virtual_nodes: int = 0) -> dgl.DGLGraph:
     edges_dict[("atom", "a2a", "atom")] = a2a
     num_nodes_dict = {"atom": mol.num_atoms}
 
-    # virtual nodes
-    if num_virtual_nodes > 0:
+    # global nodes
+    if num_global_nodes > 0:
         a2v = []
         v2a = []
         for a in range(mol.num_atoms):
-            for v in range(num_virtual_nodes):
+            for v in range(num_global_nodes):
                 a2v.append([a, v])
                 v2a.append([v, a])
 
-        edges_dict[("atom", "a2v", "virtual")] = a2v
-        edges_dict[("virtual", "v2a", "atom")] = v2a
-        num_nodes_dict["virtual"] = num_virtual_nodes
+        edges_dict[("atom", "a2g", "global")] = a2v
+        edges_dict[("global", "g2a", "atom")] = v2a
+        num_nodes_dict["global"] = num_global_nodes
 
     g = dgl.heterograph(edges_dict, num_nodes_dict=num_nodes_dict)
 
@@ -78,7 +79,7 @@ def combine_graphs(
 
     This is different from batching where the nodes and features are concatenated.
     Here we reorder atom nodes according the atom map number, and reorder bond edges
-    i.e. `a2a` edges according to bond map numbers. The virtual nodes (if any) is
+    i.e. `a2a` edges according to bond map numbers. The global nodes (if any) is
     simply batched.
 
     This assumes the graphs are created with `mol_to_graph()` in this file.
@@ -112,18 +113,18 @@ def combine_graphs(
             srctype, etype, dsttype = rel
             u, v, eid = g.edges(form="all", order="eid", etype=rel)
 
-            # deal with nodes (i.e. atom and optionally virtual)
+            # deal with nodes (i.e. atom and optionally global)
             if srctype == "atom":
                 src = [atom_map_number[i][j] for j in u]
             else:
-                # virtual nodes
+                # glboal nodes
                 src = u + num_nodes_dict[srctype]
                 src = src.numpy().tolist()
 
             if dsttype == "atom":
                 dst = [atom_map_number[i][j] for j in v]
             else:
-                # virtual nodes
+                # global nodes
                 dst = v + num_nodes_dict[dsttype]
                 dst = dst.numpy().tolist()
 
@@ -151,7 +152,7 @@ def combine_graphs(
 
     # Batch features
 
-    # reorder node features (atom and virtual)
+    # reorder node features (atom and global)
     atom_map_number_list = list(itertools.chain.from_iterable(atom_map_number))
     atom_reorder = [
         atom_map_number_list.index(i) for i in range(len(atom_map_number_list))
@@ -193,7 +194,7 @@ def create_reaction_graph(
     num_unchanged_bonds: int,
     num_lost_bonds: int,
     num_added_bonds: int,
-    num_virtual_nodes: int = 0,
+    num_global_nodes: int = 0,
 ) -> dgl.DGLGraph:
     """
     Create a reaction graph from the reactants graph and the products graph.
@@ -206,7 +207,7 @@ def create_reaction_graph(
     2. the bonds (i.e. atom to atom edges) are the union of the bonds in the reactants
        and the products. i.e. unchanged bonds, lost bonds in reactants, and added bonds
        in products;
-    3. we create `num_virtual_nodes` virtual nodes and each id bi-direct connected to
+    3. we create `num_global_nodes` global nodes and each id bi-direct connected to
        every atom node.
 
     This assumes the lost bonds in the reactants (or added bonds in the products) have
@@ -239,7 +240,7 @@ def create_reaction_graph(
         num_unchanged_bonds: number of unchanged bonds in the reaction.
         num_lost_bonds: number of lost bonds in the reactants.
         num_added_bonds: number of added bonds in the products.
-        num_virtual_nodes: number of virtual nodes to add. e.g. node holding global
+        num_global_nodes: number of global nodes to add. e.g. node holding global
             features of molecules.
 
     Returns:
@@ -262,18 +263,18 @@ def create_reaction_graph(
     edges_dict = {("atom", "a2a", "atom"): a2a}
     num_nodes_dict = {"atom": num_atoms}
 
-    # virtual nodes
-    if num_virtual_nodes > 0:
+    # global nodes
+    if num_global_nodes > 0:
         a2v = []
         v2a = []
         for a in range(num_atoms):
-            for v in range(num_virtual_nodes):
+            for v in range(num_global_nodes):
                 a2v.append([a, v])
                 v2a.append([v, a])
 
-        edges_dict[("atom", "a2v", "virtual")] = a2v
-        edges_dict[("virtual", "v2a", "atom")] = v2a
-        num_nodes_dict["virtual"] = num_virtual_nodes
+        edges_dict[("atom", "a2g", "global")] = a2v
+        edges_dict[("global", "g2a", "atom")] = v2a
+        num_nodes_dict["global"] = num_global_nodes
 
     g = dgl.heterograph(edges_dict, num_nodes_dict=num_nodes_dict)
 
@@ -285,7 +286,7 @@ def build_graph_and_featurize_reaction(
     atom_featurizer: Callable,
     bond_featurizer: Callable,
     global_featurizer: Optional[Callable] = None,
-    num_virtual_nodes: int = 0,
+    num_global_nodes: int = 0,
 ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
     """
     Build dgl graphs for the reactants and products in a reaction and featurize them.
@@ -294,9 +295,9 @@ def build_graph_and_featurize_reaction(
         reaction:
         atom_featurizer:
         bond_featurizer:
-        global_featurizer: If `num_virutal_nodes > 0`, this featurizer generates
-            features for the virtual nodes.
-        num_virtual_nodes: Number of virtual nodes to create. Each virtual will be
+        global_featurizer: If `num_global_nodes > 0`, this featurizer generates
+            features for the global nodes.
+        num_global_nodes: Number of global nodes to create. Each global will be
             bi-directionally connected to all atom nodes.
 
     Returns:
@@ -309,7 +310,7 @@ def build_graph_and_featurize_reaction(
     """
 
     def featurize_one_mol(m: Molecule):
-        g = mol_to_graph(m, num_virtual_nodes)
+        g = mol_to_graph(m, num_global_nodes)
 
         rdkit_mol = m.rdkit_mol
 
@@ -321,7 +322,7 @@ def build_graph_and_featurize_reaction(
         g.nodes["atom"].data.update({"feat": atom_feats})
         g.edges["bond"].data.update({"feat": bond_feats})
 
-        if num_virtual_nodes > 0:
+        if num_global_nodes > 0:
             global_feats = global_featurizer(
                 rdkit_mol, charge=m.charge, environment=m.environment
             )
@@ -353,7 +354,7 @@ def build_graph_and_featurize_reaction(
             num_unchanged,
             num_lost,
             num_added,
-            num_virtual_nodes,
+            num_global_nodes,
         )
 
     except Exception as e:
