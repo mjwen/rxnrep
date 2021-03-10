@@ -188,15 +188,20 @@ class RxnRepLightningModel(pl.LightningModule):
             If returns = `activation_energy` (`reaction_energy`), return the activation
             (reaction) energy predicted by the decoder.
         """
-        nodes = ["atom", "bond", "global"]
-
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs = mol_graphs.to(self.device)
         rxn_graphs = rxn_graphs.to(self.device)
 
+        # @@@
+        # nodes = ["atom", "bond", "global"]
+        # feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        # @@@
+        nodes = ["atom", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
+        # @@@
 
         if returns == "reaction_feature":
             _, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
@@ -402,8 +407,14 @@ class RxnRepLightningModel(pl.LightningModule):
         mol_graphs = mol_graphs.to(self.device)
         rxn_graphs = rxn_graphs.to(self.device)
 
-        nodes = ["atom", "bond", "global"]
+        # @@@
+        # nodes = ["atom", "bond", "global"]
+        # feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        # @@@
+        nodes = ["atom", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
+        # @@@
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
         preds = self.model.decode(feats, reaction_feats, metadata)

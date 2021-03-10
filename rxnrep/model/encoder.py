@@ -4,8 +4,10 @@ from typing import Dict, List, Optional
 import dgl
 import torch
 import torch.nn as nn
+from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv import GatedGCNConv
+from rxnrep.model.gatedconv2 import GatedGCNConv as GatedGCNConv2
 from rxnrep.model.utils import UnifySize
 
 logger = logging.getLogger(__name__)
@@ -38,21 +40,20 @@ class ReactionEncoder(nn.Module):
         embedding_size: Optional[int] = None,
         molecule_conv_layer_sizes: Optional[List[int]] = (64, 64),
         molecule_num_fc_layers: Optional[int] = 2,
-        molecule_graph_norm: Optional[bool] = False,
         molecule_batch_norm: Optional[bool] = True,
         molecule_activation: Optional[str] = "ReLU",
         molecule_residual: Optional[bool] = True,
         molecule_dropout: Optional[float] = 0.0,
         reaction_conv_layer_sizes: Optional[List[int]] = (64, 64),
         reaction_num_fc_layers: Optional[int] = 2,
-        reaction_graph_norm: Optional[bool] = False,
         reaction_batch_norm: Optional[bool] = True,
         reaction_activation: Optional[str] = "ReLU",
         reaction_residual: Optional[bool] = True,
         reaction_dropout: Optional[float] = 0.0,
-        conv="GatedGCNConv",
+        conv="GatedGCNConv2",
     ):
         super(ReactionEncoder, self).__init__()
+        self.conv = conv
 
         # set default values
         if isinstance(molecule_activation, str):
@@ -75,7 +76,9 @@ class ReactionEncoder(nn.Module):
 
         # graph conv layer type
         if conv == "GatedGCNConv":
-            conv_fn = GatedGCNConv
+            conv_class = GatedGCNConv
+        elif conv == "GatedGCNConv2":
+            conv_class = GatedGCNConv2
         else:
             raise ValueError()
 
@@ -83,11 +86,10 @@ class ReactionEncoder(nn.Module):
         self.molecule_conv_layers = nn.ModuleList()
         for layer_size in molecule_conv_layer_sizes:
             self.molecule_conv_layers.append(
-                conv_fn(
+                conv_class(
                     input_dim=in_size,
                     output_dim=layer_size,
                     num_fc_layers=molecule_num_fc_layers,
-                    graph_norm=molecule_graph_norm,
                     batch_norm=molecule_batch_norm,
                     activation=molecule_activation,
                     residual=molecule_residual,
@@ -100,11 +102,10 @@ class ReactionEncoder(nn.Module):
         self.reaction_conv_layers = nn.ModuleList()
         for layer_size in reaction_conv_layer_sizes:
             self.reaction_conv_layers.append(
-                conv_fn(
+                conv_class(
                     input_dim=in_size,
                     output_dim=layer_size,
                     num_fc_layers=reaction_num_fc_layers,
-                    graph_norm=reaction_graph_norm,
                     batch_norm=reaction_batch_norm,
                     activation=reaction_activation,
                     residual=reaction_residual,
@@ -119,8 +120,6 @@ class ReactionEncoder(nn.Module):
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
-        norm_atom=None,
-        norm_bond=None,
     ) -> Dict[str, torch.Tensor]:
         """
         Args:
@@ -137,8 +136,6 @@ class ReactionEncoder(nn.Module):
             metadata: holds the number of nodes for all reactions. The size of each
                 list is equal to the number of reactions, and element `i` gives the info
                 for reaction `i`.
-            norm_atom: (2D tensor or None) graph norm for atom
-            norm_bond: (2D tensor or None) graph norm for bond
 
         Returns:
             Atom, bond, and global features for the reaction, of shape (Na, D'), (Nb', D')
@@ -155,15 +152,24 @@ class ReactionEncoder(nn.Module):
 
         # molecule graph conv layer
         for layer in self.molecule_conv_layers:
-            feats = layer(molecule_graphs, feats, norm_atom, norm_bond)
+            feats = layer(molecule_graphs, feats)
+
+        # node as edge graph
+        # each bond represented by two edges; select one feat for each bond
+        if self.conv == "GatedGCNConv2":
+            feats["bond"] = feats["bond"][::2]
 
         # create difference reaction features from molecule features
         diff_feats = create_reaction_features(feats, metadata)
 
+        # node as edge graph; make two edge feats for each bond
+        if self.conv == "GatedGCNConv2":
+            diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
+
         # reaction graph conv layer
         feats = diff_feats
         for layer in self.reaction_conv_layers:
-            feats = layer(reaction_graphs, feats, norm_atom, norm_bond)
+            feats = layer(reaction_graphs, feats)
 
         return feats
 
@@ -173,8 +179,6 @@ class ReactionEncoder(nn.Module):
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
-        norm_atom=None,
-        norm_bond=None,
     ) -> Dict[str, torch.Tensor]:
         """
         Get the difference features before applying reaction conv layers.
@@ -190,10 +194,19 @@ class ReactionEncoder(nn.Module):
 
         # molecule graph conv layer
         for layer in self.molecule_conv_layers:
-            feats = layer(molecule_graphs, feats, norm_atom, norm_bond)
+            feats = layer(molecule_graphs, feats)
+
+        # node as edge graph
+        # each bond represented by two edges; select one feat for each bond
+        if self.conv == "GatedGCNConv2":
+            feats["bond"] = feats["bond"][::2]
 
         # create difference reaction features from molecule features
         diff_feats = create_reaction_features(feats, metadata)
+
+        # node as edge graph; make two edge feats for each bond
+        if self.conv == "GatedGCNConv2":
+            diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
 
         return diff_feats
 
@@ -276,21 +289,18 @@ def create_reaction_features(
     # Note, each reactant (product) graph holds all the molecules in the
     # reactant (products), and thus has multiple global features.
 
-    # The below commented one does not work on GPU since it creates a graph on CPU. If
-    # we want to make it work, we can modify dgl.ops.segment.segment_reduce
-    # TODO benchmark segment_reduce and torch.split one. report bug to dgl
+    device = reactant_global_feats.device
+    mean_reactant_global_feats = segment_reduce(
+        torch.tensor(reactant_num_molecules, device=device),
+        reactant_global_feats,
+        reducer="sum",
+    )
+    mean_product_global_feats = segment_reduce(
+        torch.tensor(product_num_molecules, device=device),
+        product_global_feats,
+        reducer="sum",
+    )
 
-    # mean_reactant_global_feats = dgl.ops.segment.segment_reduce(
-    # torch.tensor(reactant_num_molecules), reactant_global_feats, reducer="sum",
-    # )
-    # mean_product_global_feats = dgl.ops.segment.segment_reduce(
-    # torch.tensor(product_num_molecules), product_global_feats, reducer="sum",
-    # )
-
-    split = torch.split(reactant_global_feats, reactant_num_molecules)
-    mean_reactant_global_feats = torch.stack([torch.sum(x, dim=0) for x in split])
-    split = torch.split(product_global_feats, product_num_molecules)
-    mean_product_global_feats = torch.stack([torch.sum(x, dim=0) for x in split])
     diff_global_feats = mean_product_global_feats - mean_reactant_global_feats
 
     diff_feats = {
