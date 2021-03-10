@@ -210,11 +210,16 @@ class Set2SetThenCat(nn.Module):
     Set2Set for nodes (separate for different node type) and then concatenate the
     features of different node types to create a representation of the graph.
 
+    Note, this assume the the bond edge is bidirectionally, i.e. two bond edge features
+    for one bond; thus, we only select one of the two exactly the same feature for a
+    bond.
+
      Args:
         num_iters: number of LSTM iteration
         num_layers: number of LSTM layers
-        ntypes: node types to perform Set2Set, e.g. ['atom', 'bond'].
-        in_feats: node feature sizes. The order should be the same as `ntypes`.
+        in_feats: size of input features
+        ntypes: node types to perform Set2Set, e.g. ['atom`].
+        etypes: edge types to perform Set2Set, e.g. ['bond`].
         ntypes_direct_cat: node types to which not perform Set2Set, whose features are
             directly concatenated. e.g. ['global']
     """
@@ -223,18 +228,26 @@ class Set2SetThenCat(nn.Module):
         self,
         num_iters: int,
         num_layers: int,
+        in_feats: int,
         ntypes: List[str],
-        in_feats: List[int],
+        etypes: List[str],
         ntypes_direct_cat: Optional[List[str]] = None,
     ):
         super(Set2SetThenCat, self).__init__()
         self.ntypes = ntypes
+        self.etypes = etypes
         self.ntypes_direct_cat = ntypes_direct_cat
 
         self.node_layers = nn.ModuleDict()
-        for nt, sz in zip(ntypes, in_feats):
-            self.node_layers[nt] = Set2Set(
-                input_dim=sz, n_iters=num_iters, n_layers=num_layers
+        for t in ntypes:
+            self.node_layers[t] = Set2Set(
+                input_dim=in_feats, n_iters=num_iters, n_layers=num_layers
+            )
+
+        self.edge_layers = nn.ModuleDict()
+        for t in etypes:
+            self.edge_layers[t] = Set2Set(
+                input_dim=in_feats, n_iters=num_iters, n_layers=num_layers
             )
 
     def forward(
@@ -257,8 +270,15 @@ class Set2SetThenCat(nn.Module):
             the feature sizes of the nodes not to perform set2set by direct concatenate.
         """
         rst = []
-        for nt in self.ntypes:
-            ft = self.node_layers[nt](feats[nt], graph.batch_num_nodes(nt))
+        for t in self.ntypes:
+            ft = self.node_layers[t](feats[t], graph.batch_num_nodes(t))
+            rst.append(ft)
+
+        for t in self.etypes:
+            ft = feats[t]
+            ft = ft[::2]  # each bond has two edges, we select one
+            sizes = graph.batch_num_edges(t) // 2
+            ft = self.edge_layers[t](ft, sizes)
             rst.append(ft)
 
         if self.ntypes_direct_cat is not None:

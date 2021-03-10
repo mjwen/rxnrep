@@ -131,12 +131,13 @@ class EncoderAndPooling(nn.Module):
                 set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
                 set2set_num_layers = pooling_kwargs["set2set_num_layers"]
 
-            in_sizes = [compressor_outsize] * 2
+            in_sizes = compressor_outsize
             self.set2set = Set2SetThenCat(
                 num_iters=set2set_num_iterations,
-                num_layers=set2set_num_layers,
-                ntypes=["atom", "bond"],
                 in_feats=in_sizes,
+                num_layers=set2set_num_layers,
+                ntypes=["atom"],
+                etypes=["bond"],
                 ntypes_direct_cat=["global"],
             )
 

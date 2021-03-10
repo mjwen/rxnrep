@@ -117,7 +117,7 @@ def combine_graphs(
             if srctype == "atom":
                 src = [atom_map_number[i][j] for j in u]
             else:
-                # glboal nodes
+                # global nodes
                 src = u + num_nodes_dict[srctype]
                 src = src.numpy().tolist()
 
@@ -145,7 +145,7 @@ def combine_graphs(
     a2a_edges = edges_dict.pop(rel)
     a2a_edges = [a2a_edges[i] for i in bond_reorder]
 
-    edges_dict[rel] = list(a2a_edges)
+    edges_dict[rel] = a2a_edges
 
     # create graph
     new_g = dgl.heterograph(edges_dict, num_nodes_dict=num_nodes_dict)
