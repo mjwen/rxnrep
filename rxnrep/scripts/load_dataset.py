@@ -12,7 +12,33 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.data.green import GreenDataset
+from rxnrep.data.nrel import NRELDataset
 from rxnrep.data.uspto import USPTODataset
+
+
+def get_state_dict_filename(args):
+    """
+    Check dataset state dict if in restore mode
+    """
+
+    if args.restore:
+        if args.dataset_state_dict_filename is None:
+            warnings.warn(
+                "Restore with `args.dataset_state_dict_filename` set to None."
+            )
+            state_dict_filename = None
+        elif not Path(args.dataset_state_dict_filename).exists():
+            warnings.warn(
+                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+                "not found; set to `None`."
+            )
+            state_dict_filename = None
+        else:
+            state_dict_filename = args.dataset_state_dict_filename
+    else:
+        state_dict_filename = None
+
+    return state_dict_filename
 
 
 def load_Green_dataset(args):
@@ -395,26 +421,86 @@ def load_Electrolyte_dataset(args):
     return train_loader, val_loader, test_loader
 
 
-def get_state_dict_filename(args):
-    """
-    Check dataset state dict if in restore mode
-    """
+def load_nrel_dataset(args):
 
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
-    else:
-        state_dict_filename = None
+    state_dict_filename = get_state_dict_filename(args)
 
-    return state_dict_filename
+    trainset = NRELDataset(
+        filename=args.trainset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=state_dict_filename,
+        num_processes=args.nprocs,
+    )
+
+    state_dict = trainset.state_dict()
+
+    valset = NRELDataset(
+        filename=args.valset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=state_dict,
+        num_processes=args.nprocs,
+    )
+
+    testset = NRELDataset(
+        filename=args.testset_filename,
+        atom_featurizer=AtomFeaturizer(),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        transform_features=True,
+        init_state_dict=state_dict,
+        num_processes=args.nprocs,
+    )
+
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    print(
+        "Trainset size: {}, valset size: {}: testset size: {}.".format(
+            len(trainset), len(valset), len(testset)
+        )
+    )
+
+    train_loader = DataLoader(
+        trainset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=trainset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    val_loader = DataLoader(
+        valset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=valset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    test_loader = DataLoader(
+        testset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=testset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    # Add dataset state dict to args to log it
+    args.dataset_state_dict = state_dict
+
+    # Add info that will be used in the model to args for easy access
+    args.feature_size = trainset.feature_size
+
+    args.label_scaler = trainset.get_label_scaler()
+
+    return train_loader, val_loader, test_loader

@@ -137,7 +137,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.regression_tasks = {
             "reaction_energy": {
                 "label_scaler": "reaction_energy",
-                "to_sum_f1": [],
+                "to_sum_f1": {"mae": -1},
             },
             # "activation_energy": {
             #     "label_scaler": "activation_energy",
