@@ -567,25 +567,22 @@ class RxnRepLightningModel(pl.LightningModule):
         )
 
         if self.hparams.lr_scheduler == "reduce_on_plateau":
-            base_scheduler = lr_scheduler.ReduceLROnPlateau(
+            scheduler = lr_scheduler.ReduceLROnPlateau(
                 optimizer, mode="max", factor=0.4, patience=50, verbose=True
             )
         elif self.hparams.lr_scheduler == "cosine":
-            base_scheduler = lr_scheduler.CosineAnnealingLR(
+            scheduler = lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=self.hparams.epochs, eta_min=self.hparams.lr_min
             )
+            if self.hparams.lr_warmup_step:
+                scheduler = GradualWarmupScheduler(
+                    optimizer,
+                    multiplier=1,
+                    total_epoch=self.hparams.lr_warmup_step,
+                    after_scheduler=scheduler,
+                )
         else:
             raise ValueError(f"Not supported lr scheduler: {self.hparams.lr_scheduler}")
-
-        if self.hparams.lr_warmup_step:
-            scheduler = GradualWarmupScheduler(
-                optimizer,
-                multiplier=1,
-                total_epoch=self.hparams.lr_warmup_step,
-                after_scheduler=base_scheduler,
-            )
-        else:
-            scheduler = base_scheduler
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/f1"}
 

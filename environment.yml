@@ -8,4 +8,4 @@ dependencies:
   - rdkit==2020.03.5
   - openbabel==3.1.1
   - pytorch==1.6.0
-  - dgl==0.5.2
+  - dgl==0.6.0
