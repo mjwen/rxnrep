@@ -186,7 +186,12 @@ class GatedGCNConv(nn.Module):
         u = g.nodes["global"].data.pop("u")
 
         if self.batch_norm:
-            u = self.bn_node_u(u)
+            # do not apply batch norm if it there is only one graph and it is in
+            # training mode, BN complains about it
+            if u.shape[0] <= 1 and self.training:
+                pass
+            else:
+                u = self.bn_node_u(u)
         u = self.activation(u)
         if self.residual:
             u = u_in + u
