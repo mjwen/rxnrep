@@ -130,16 +130,24 @@ class GatedGCNConv(nn.Module):
         g.nodes["atom"].data.update({"Eh": self.E(h)})
         g.edges["bond"].data["e"] = e
         g.update_all(atom_message_fn, atom_reduce_fn, etype="bond")
+        try:
+            h1 = g.nodes["atom"].data.pop("h1")
+        except KeyError:
+            # This only happens when there is no edges (e.g. single atom molecule H+).
+            # Will not happen when the single atom molecule is batched with other
+            # molecules. When batched, the batched graph has edges; thus `atom_reduce_fn`
+            # will be called, and `h1` for the single atom molecule is initialized to a
+            # zero tensor by dgl.
+            h1 = 0.0
 
         # step 2
         # global feats to atom node (a simpy copy, sum operates on 1 tensor,
         # since we have only one global nodes connected to each atom node)
         g.nodes["global"].data.update({"Fu": self.F(u)})
         g.update_all(fn.copy_u("Fu", "m"), fn.sum("m", "Fu"), etype="g2a")
+        h2 = g.nodes["atom"].data.pop("Fu")
 
-        # step 3
-        #        D(h)   + sum_j e_ij [Had] Eh_j      + F(u)
-        h = self.D(h) + g.nodes["atom"].data.pop("h") + g.nodes["atom"].data.pop("Fu")
+        h = self.D(h) + h1 + h2
 
         # del for memory efficiency
         del g.nodes["atom"].data["Eh"]
@@ -154,14 +162,22 @@ class GatedGCNConv(nn.Module):
         # update global feature u
         #
 
-        g.nodes["atom"].data.update(
-            {"Gh": self.G(h), "degrees": g.in_degrees(etype="bond").reshape(-1, 1)}
-        )
+        # Get the number of bonds of each atom (i.e. in degrees)
+        # For single atom molecule, set the value from 0 to 1; we do this to avoid
+        # divide by 0 error in `global_reduce_fn` below.
+        degrees = g.in_degrees(etype="bond").reshape(-1, 1)
+        degrees[degrees < 1] = 1
+
+        g.nodes["atom"].data.update({"Gh": self.G(h), "degrees": degrees})
         g.edges["bond"].data.update({"He": self.H(e)})
         g.nodes["global"].data.update({"Iu": self.I(u)})
 
         # step 1
         # edge feats to atom nodes
+        # No need to do the try except block as above for h1, since we use dgl built-in
+        # functions here and fn.sum will always be called because of operation fushion?
+        # But still, the feature He_sum for single atom molecule is initialized to a
+        # zero tensor.
         g.update_all(fn.copy_e("He", "m"), fn.sum("m", "He_sum"), etype="bond")
 
         # step 2
@@ -169,8 +185,7 @@ class GatedGCNConv(nn.Module):
         g.update_all(global_message_fn, global_reduce_fn, etype="a2g")
         u = g.nodes["global"].data.pop("u")
 
-        # do not apply batch norm if it there is only one graph
-        if self.batch_norm and u.shape[0] > 1:
+        if self.batch_norm:
             u = self.bn_node_u(u)
         u = self.activation(u)
         if self.residual:
@@ -198,9 +213,9 @@ def atom_reduce_fn(nodes):
     sigma_eij = nodes.mailbox["sigma_eij"]
 
     # (sum_j eta_ij * Ehj)/(sum_j' eta_ij') <= dense attention
-    h = torch.sum(sigma_eij * Eh_j, dim=1) / (torch.sum(sigma_eij, dim=1) + 1e-6)
+    h1 = torch.sum(sigma_eij * Eh_j, dim=1) / (torch.sum(sigma_eij, dim=1) + 1e-6)
 
-    return {"h": h}
+    return {"h1": h1}
 
 
 def global_message_fn(edges):
@@ -222,6 +237,12 @@ def global_reduce_fn(nodes):
     # nodes, each bond feature will be presented twice. However, we do NOT need to
     # divide it by 2, since here we use mean aggregation and the double counting is
     # already taken care of by the `torch.sum(degrees, dim=1)`.
+    #
+    # Also note that, for single atom molecule, degree is set to 1 (see above),
+    # and He_sum is a zero tensors (set by dgl, see above). Then He_mean is a zero
+    # tensor--what we wanted. Manually setting degree to 1 does not change the results.
+    # But if we do not do He_mean and Gh_mean + He_mean + Iu, should be be careful
+    # about whether this still holds as well.
     He_mean = torch.sum(He_sum, dim=1) / torch.sum(degrees, dim=1)
     Gh_mean = torch.mean(Gh, dim=1)
 
