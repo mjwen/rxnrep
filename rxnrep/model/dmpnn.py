@@ -170,7 +170,7 @@ class DMPNNConvBondMessage(nn.Module):
         #
         # prepare output
         #
-        g.nodes["bond"].data["e"] = message
+        g.edges["bond"].data["e"] = message
         g.update_all(fn.copy_e("e", "m"), fn.sum("m", "sum_ej"), etype="bond")
         sum_ej = g.nodes["atom"].data["sum_ej"]
 
@@ -221,13 +221,15 @@ class DMPNNEncoder(nn.Module):
         self.activation = get_activation(activation)
         self.dropout = get_dropout(dropout)
 
+        self.reaction_feats_size = output_dim
+
     def forward(
         self,
         molecule_graphs: dgl.DGLGraph,
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
-    ) -> Dict[str, torch.Tensor]:
+    ):
         """
         Get a vector representation for each reaction.
 
@@ -259,9 +261,9 @@ class DMPNNEncoder(nn.Module):
         # pooling
         #
         num_atoms = reaction_graphs.batch_num_nodes("atom")
-        feats = segment_reduce(num_atoms, diff_feats, reducer=self.pooling_method)
+        rxn_feats = segment_reduce(num_atoms, diff_feats, reducer=self.pooling_method)
 
-        return feats
+        return None, rxn_feats
 
 
 class DMPNNModel(DMPNNEncoder):
