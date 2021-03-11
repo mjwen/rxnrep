@@ -41,6 +41,7 @@ from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.readout import CompressingNN, HopDistancePooling, Set2SetThenCat
 
 
+# TODO combine this with Encoder, no need to do two
 class EncoderAndPooling(nn.Module):
     """
     Encoder and reaction feature pooling part of the model. Add decoder to use this.

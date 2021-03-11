@@ -79,3 +79,26 @@ class MLP(nn.Module):
 
     def __repr__(self):
         return f"MLP, num layers={self.num_layers}"
+
+
+def get_activation(act: Union[str, Callable]) -> Callable:
+    """
+    Get the activation function.
+
+    If it is a string, convert to torch activation function; if it is already a torch
+    activation function, simply return it.
+    """
+    if isinstance(act, str):
+        act = getattr(nn, act)()
+    return act
+
+
+def get_dropout(drop_ratio: float, delta=1e-3) -> Callable:
+    """
+    Get dropout and do not use it if ratio is smaller than delta.
+    """
+
+    if drop_ratio is None or drop_ratio < delta:
+        return nn.Identity()
+    else:
+        return nn.Dropout(drop_ratio)
