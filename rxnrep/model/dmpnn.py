@@ -107,7 +107,7 @@ class DMPNNConvBondMessage(nn.Module):
         self.depth = depth
 
         # Input
-        self.W_i = nn.Linear(bond_feat_dim, output_dim, bias=False)
+        self.W_i = nn.Linear(atom_feat_dim + bond_feat_dim, output_dim, bias=False)
 
         # Shared weight matrix across depths (default)
         self.W_h = nn.Linear(output_dim, output_dim, bias=False)
@@ -134,9 +134,16 @@ class DMPNNConvBondMessage(nn.Module):
 
         #
         # input
-        #
+        # [h || e]
+        g.nodes["atom"].data["h"] = h
+        g.edges["bond"].data["e"] = e
+        g.apply_edges(
+            lambda edges: {"he": torch.cat((edges.src["h"], edges.data["e"]), dim=-1)},
+            etype="bond",
+        )
+        he = g.edges["bond"].data["he"]
 
-        input = self.W_i(e)
+        input = self.W_i(he)
         message = self.activation(input)
 
         #
