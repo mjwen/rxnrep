@@ -7,10 +7,10 @@ from typing import Any, Dict
 import torch
 
 from rxnrep.model.decoder import FCNNDecoder
-from rxnrep.model.model import EncoderAndPooling
+from rxnrep.model.encoder import ReactionEncoder
 
 
-class ReactionRepresentation(EncoderAndPooling):
+class ReactionClassification(ReactionEncoder):
     """
     Model to represent chemical reactions.
     """

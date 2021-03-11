@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from rxnrep.model.model_clfn import ReactionRepresentation
+from rxnrep.model.model_clfn import ReactionClassification
 from rxnrep.scripts.load_dataset import load_uspto_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import TimeMeter, write_running_metadata
@@ -21,7 +21,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.save_hyperparameters(params)
         params = self.hparams
 
-        self.model = ReactionRepresentation(
+        self.model = ReactionClassification(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -110,8 +110,9 @@ class RxnRepLightningModel(pl.LightningModule):
         mol_graphs = mol_graphs.to(self.device)
         rxn_graphs = rxn_graphs.to(self.device)
 
-        nodes = ["atom", "bond", "global"]
+        nodes = ["atom", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
         logits = self.model.decode(feats, reaction_feats, metadata)

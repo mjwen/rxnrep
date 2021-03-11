@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import dgl
 import torch
@@ -8,6 +8,7 @@ from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.gatedconv2 import GatedGCNConv as GatedGCNConv2
+from rxnrep.model.readout import CompressingNN, HopDistancePooling, Set2SetThenCat
 from rxnrep.model.utils import UnifySize
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,12 @@ class ReactionEncoder(nn.Module):
         reaction_residual: Optional[bool] = True,
         reaction_dropout: Optional[float] = 0.0,
         conv="GatedGCNConv2",
+        # compressing
+        compressing_layer_sizes=None,
+        compressing_layer_activation=None,
+        # pooling
+        pooling_method="set2set",
+        pooling_kwargs: Dict[str, Any] = None,
     ):
         super(ReactionEncoder, self).__init__()
         self.conv = conv
@@ -60,6 +67,12 @@ class ReactionEncoder(nn.Module):
             molecule_activation = getattr(nn, molecule_activation)()
         if isinstance(reaction_activation, str):
             reaction_activation = getattr(nn, reaction_activation)()
+
+        # ========== encoding mol features ==========
+
+        #
+        # embedding to unify feature size
+        #
 
         # unify atom, bond, and global feature size
         if embedding_size is not None:
@@ -82,7 +95,9 @@ class ReactionEncoder(nn.Module):
         else:
             raise ValueError()
 
+        #
         # graph conv layers to update features of molecule graph
+        #
         self.molecule_conv_layers = nn.ModuleList()
         for layer_size in molecule_conv_layer_sizes:
             self.molecule_conv_layers.append(
@@ -98,7 +113,9 @@ class ReactionEncoder(nn.Module):
             )
             in_size = layer_size
 
+        #
         # graph conv layers to update features of reaction graph
+        #
         self.reaction_conv_layers = nn.ModuleList()
         for layer_size in reaction_conv_layer_sizes:
             self.reaction_conv_layers.append(
@@ -114,13 +131,84 @@ class ReactionEncoder(nn.Module):
             )
             in_size = layer_size
 
+        # output feature size from conv layers
+        if reaction_conv_layer_sizes:
+            conv_outsize = reaction_conv_layer_sizes[-1]
+        else:
+            conv_outsize = molecule_conv_layer_sizes[-1]
+
+        # ========== compressor ==========
+        if compressing_layer_sizes:
+            self.compressor = nn.ModuleDict(
+                {
+                    k: CompressingNN(
+                        in_size=conv_outsize,
+                        hidden_sizes=compressing_layer_sizes,
+                        activation=compressing_layer_activation,
+                    )
+                    for k in ["atom", "bond", "global"]
+                }
+            )
+            compressor_outsize = compressing_layer_sizes[-1]
+        else:
+            self.compressor = nn.ModuleDict(
+                {k: nn.Identity() for k in ["atom", "bond", "global"]}
+            )
+            compressor_outsize = conv_outsize
+
+        # ========== reaction feature pooling ==========
+        # readout reaction features, one 1D tensor for each reaction
+
+        self.pooling_method = pooling_method
+
+        if pooling_method == "set2set":
+            if pooling_kwargs is None:
+                set2set_num_iterations = 6
+                set2set_num_layers = 3
+            else:
+                set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
+                set2set_num_layers = pooling_kwargs["set2set_num_layers"]
+
+            in_sizes = compressor_outsize
+            self.set2set = Set2SetThenCat(
+                num_iters=set2set_num_iterations,
+                in_feats=in_sizes,
+                num_layers=set2set_num_layers,
+                ntypes=["atom"],
+                etypes=["bond"],
+                ntypes_direct_cat=["global"],
+            )
+
+            pooling_outsize = compressor_outsize * 5
+
+        elif pooling_method == "hop_distance":
+            if pooling_kwargs is None:
+                raise RuntimeError(
+                    "`max_hop_distance` should be provided as `pooling_kwargs` to use "
+                    "`hop_distance_pool`"
+                )
+            else:
+                max_hop_distance = pooling_kwargs["max_hop_distance"]
+                self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
+
+            pooling_outsize = compressor_outsize * 3
+
+        elif pooling_method == "global_only":
+            pooling_outsize = compressor_outsize
+
+        else:
+            raise ValueError(f"Unsupported pooling method `{pooling_method}`")
+
+        self.node_feats_size = compressor_outsize
+        self.reaction_feats_size = pooling_outsize
+
     def forward(
         self,
         molecule_graphs: dgl.DGLGraph,
         reaction_graphs: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
         """
         Args:
             molecule_graphs: (batched) dgl graphs for reactants and products
@@ -138,13 +226,16 @@ class ReactionEncoder(nn.Module):
                 for reaction `i`.
 
         Returns:
-            Atom, bond, and global features for the reaction, of shape (Na, D'), (Nb', D')
-            and (Ng', D'), respectively. The number of the atom features stay the same,
-            while the number of bond and global features changes. This happens when we
-            assemble the molecules graphs to reaction graphs. Specifically, the number
-            of bond nodes for each reaction is the union of the unchanged bonds,
-            lost bonds in reactants, and added bonds in products, and the number of
-            global nodes become 1 for each reaction.
+            feats: {name, feats} Atom, bond, and global features for the reaction,
+                of shape (Na, D'), (Nb', D') and (Ng', D'), respectively. The number of
+                the atom features stay the same, while the number of bond and global
+                features changes. This happens when we assemble the molecules graphs to
+                reaction graphs. Specifically, the number of bond nodes for each reaction
+                is the union of the unchanged bonds, lost bonds in reactants, and added
+                bonds in products, and the number of global nodes become one for each
+                reaction.
+            reaction_feats: tensor of shape (B, D'), where b is the batch size,
+                and D' is the feature size. One row for each reaction.
         """
 
         # embedding
@@ -171,7 +262,28 @@ class ReactionEncoder(nn.Module):
         for layer in self.reaction_conv_layers:
             feats = layer(reaction_graphs, feats)
 
-        return feats
+        # compressor
+        feats = {k: self.compressor[k](feats[k]) for k in ["atom", "bond", "global"]}
+
+        # readout reaction features, a 1D tensor for each reaction
+        if self.pooling_method == "set2set":
+            reaction_feats = self.set2set(reaction_graphs, feats)
+
+        elif self.pooling_method == "hop_distance":
+
+            hop_dist = {
+                "atom": metadata["atom_hop_dist"],
+                "bond": metadata["bond_hop_dist"],
+            }
+            reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
+
+        elif self.pooling_method == "global_only":
+            reaction_feats = feats["global"]
+
+        else:
+            raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
+
+        return feats, reaction_feats
 
     def get_diff_feats(
         self,
