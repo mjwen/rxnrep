@@ -495,21 +495,31 @@ def get_state_dict_filename(args):
     Check dataset state dict if in restore mode
     """
 
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
+    if "finetune_mode" in args:
+        if not Path(args.pretrained_dataset_state_dict_filename).exists():
+            raise ValueError(
+                f"args.pretrained_dataset_state_dict_filename: "
+                f"`{args.pretrained_dataset_state_dict_filename}` not found."
             )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
         else:
-            state_dict_filename = args.dataset_state_dict_filename
+            state_dict_filename = args.pretrained_dataset_state_dict_filename
+
     else:
-        state_dict_filename = None
+        if args.restore:
+            if args.dataset_state_dict_filename is None:
+                warnings.warn(
+                    "Restore with `args.dataset_state_dict_filename` set to None."
+                )
+                state_dict_filename = None
+            elif not Path(args.dataset_state_dict_filename).exists():
+                warnings.warn(
+                    f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+                    "not found; set to `None`."
+                )
+                state_dict_filename = None
+            else:
+                state_dict_filename = args.dataset_state_dict_filename
+        else:
+            state_dict_filename = None
 
     return state_dict_filename

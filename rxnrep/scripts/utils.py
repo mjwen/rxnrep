@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 import shutil
@@ -10,7 +11,7 @@ import pandas as pd
 import torch
 import torch.distributed as dist
 
-from rxnrep.utils import yaml_dump
+from rxnrep.utils import create_directory, to_path, yaml_dump
 
 logger = logging.getLogger(__name__)
 
@@ -376,3 +377,70 @@ def load_lightning_pretrained_model(PretrainedModel, ckpt_path: Path):
     model = PretrainedModel.load_from_checkpoint(str(ckpt_path))
 
     return model
+
+
+def get_wandb_run_path(identifier: str, path="."):
+    """
+    Args:
+        identifier: wandb unique identifier of experiment, e.g. 2i3rocdl
+        path: root path to search
+    Returns:
+        path to the wandb run directory:
+        e.g. running_dir/job_0/wandb/wandb/run-20201210_160100-3kypdqsw
+    """
+    for root, dirs, files in os.walk(path):
+        if "wandb" not in root:
+            continue
+        for d in dirs:
+            if d.startswith("run-") or d.startswith("offline-run-"):
+                if d.split("-")[-1] == identifier:
+                    return os.path.abspath(os.path.join(root, d))
+
+    raise RuntimeError(f"Cannot found job {identifier} in {path}")
+
+
+def get_wandb_checkpoint_path(identifier: str, path="."):
+    """
+    Args:
+        identifier: wandb unique identifier of experiment, e.g. 2i3rocdl
+        path: root path to search
+    Returns:
+        path to the wandb checkpoint directory:
+        e.g. running_dir/job_0/wandb/<project_name>/<identifier>/checkpoints
+    """
+    for root, dirs, files in os.walk(path):
+        if root.endswith(f"{identifier}/checkpoints"):
+            return os.path.abspath(root)
+
+    raise RuntimeError(f"Cannot found job {identifier} in {path}")
+
+
+def copy_trained_model(
+    identifier: str, source_dir: Path = ".", target_dir: Path = "trained_model"
+):
+    """
+    Copy the last checkpoint and dataset_state_dict.yaml to a directory.
+
+    Args:
+        identifier: wandb unique identifier of experiment, e.g. 2i3rocdl
+        source_dir:
+        target_dir:
+    """
+    # create target dir
+    target_dir = to_path(target_dir)
+    create_directory(target_dir, is_directory=True)
+
+    # copy checkpoint file
+    ckpt_dir = get_wandb_checkpoint_path(identifier, source_dir)
+    print("Checkpoint path:", ckpt_dir)
+
+    checkpoints = glob.glob(os.path.join(ckpt_dir, "epoch=*.ckpt"))
+    checkpoints = sorted(checkpoints)
+    shutil.copy(checkpoints[-1], target_dir.joinpath("checkpoint.ckpt"))
+
+    # copy dataset state dict
+    run_path = get_wandb_run_path(identifier, source_dir)
+    print("wandb run path:", run_path)
+
+    f = to_path(run_path).joinpath("files", "dataset_state_dict.yaml")
+    shutil.copy(f, target_dir.joinpath("dataset_state_dict.yaml"))

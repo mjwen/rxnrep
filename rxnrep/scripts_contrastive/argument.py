@@ -312,3 +312,24 @@ def simclr_decoder_adjuster(args):
     ]
 
     return args
+
+
+def finetune_args(parser):
+    parser.add_argument("--finetune_mode", type=int, default=1)
+    parser.add_argument(
+        "--pretrained_dataset_state_dict_filename",
+        type=str,
+        default="pretrained_model/dataset_state_dict.yaml",
+    )
+    parser.add_argument(
+        "--pretrained_ckpt_path", type=str, default="pretrained_model/checkpoint.ckpt"
+    )
+    parser.add_argument(
+        "--pretrained_tune_encoder",
+        type=int,
+        default=0,
+        help="Whether to optimize params in the encoder of the pretrained model. "
+        "Note, parameters in the decoders are set to be fixed (since they are not used).",
+    )
+
+    return parser
