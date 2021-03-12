@@ -57,7 +57,7 @@ def parse_args():
 
 
 class LightningModel(BaseLightningModel):
-    def create_model(self, params):
+    def init_model(self, params):
 
         model = ReactionRepresentation(
             in_feats=params.feature_size,
@@ -93,7 +93,7 @@ class LightningModel(BaseLightningModel):
         self.classification_tasks = {
             "reaction_type": {
                 "num_classes": self.hparams.num_reaction_classes,
-                "to_score": {"f1": -1},
+                "to_score": {"f1": 1},
             }
         }
 
@@ -107,6 +107,9 @@ class LightningModel(BaseLightningModel):
         )
 
         return {"reaction_type": loss}
+
+    def decode(self, feats, reaction_feats, metadata):
+        return self.model.decode(feats, reaction_feats, metadata)
 
 
 if __name__ == "__main__":

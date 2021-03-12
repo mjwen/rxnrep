@@ -20,7 +20,7 @@ class BaseLightningModel(pl.LightningModule):
         # save params to be accessible via self.hparams
         self.save_hyperparameters(params)
 
-        self.model = self.create_model(self.hparams)
+        self.model = self.init_model(self.hparams)
 
         self.classification_tasks = {}
         self.regression_tasks = {}
@@ -73,7 +73,7 @@ class BaseLightningModel(pl.LightningModule):
             return diff_feats
         elif returns in ["reaction_energy", "activation_energy"]:
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-            preds = self.model.decode(feats, reaction_feats, metadata)
+            preds = self.decode(feats, reaction_feats, metadata)
 
             state_dict = self.hparams.label_scaler[returns].state_dict()
             mean = state_dict["mean"]
@@ -143,7 +143,7 @@ class BaseLightningModel(pl.LightningModule):
         feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-        preds = self.model.decode(feats, reaction_feats, metadata)
+        preds = self.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========
         all_loss = self.compute_loss(preds, labels)
@@ -298,9 +298,9 @@ class BaseLightningModel(pl.LightningModule):
 
         return score
 
-    def create_model(self, params):
+    def init_model(self, params):
         """
-        Create the model.
+        Create backbone model.
 
         Args:
             params:
@@ -392,4 +392,24 @@ class BaseLightningModel(pl.LightningModule):
         Returns:
             {task_name, loss}
         """
+        raise NotImplementedError
+
+    def decode(
+        self,
+        feats: Dict[str, torch.Tensor],
+        reaction_feats: torch.Tensor,
+        metadata: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Decode the molecule and reaction features to properties.
+
+        Args:
+            feats: atom and bond (maybe global) features of molecules
+            reaction_feats: reaction features
+            metadata:
+
+        Returns:
+            predictions: {decoder_name: value} predictions of the decoders.
+        """
+
         raise NotImplementedError

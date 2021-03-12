@@ -180,7 +180,7 @@ class ReactionRepresentation(ReactionEncoder):
 
     def decode(
         self,
-        feats: torch.Tensor,
+        feats: Dict[str, torch.Tensor],
         reaction_feats: torch.Tensor,
         metadata: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
