@@ -16,29 +16,13 @@ from rxnrep.data.nrel import NRELDataset
 from rxnrep.data.uspto import USPTODataset
 
 
-def get_state_dict_filename(args):
-    """
-    Check dataset state dict if in restore mode
-    """
-
-    if args.restore:
-        if args.dataset_state_dict_filename is None:
-            warnings.warn(
-                "Restore with `args.dataset_state_dict_filename` set to None."
-            )
-            state_dict_filename = None
-        elif not Path(args.dataset_state_dict_filename).exists():
-            warnings.warn(
-                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                "not found; set to `None`."
-            )
-            state_dict_filename = None
-        else:
-            state_dict_filename = args.dataset_state_dict_filename
+def load_dataset(args):
+    if "schneider" in args.dataset:
+        return load_uspto_dataset(args)
+    elif args.dataset == "electrolyte":
+        return load_Electrolyte_dataset(args)
     else:
-        state_dict_filename = None
-
-    return state_dict_filename
+        raise ValueError(f"Not supported dataset {args.dataset}")
 
 
 def load_Green_dataset(args):
@@ -504,3 +488,28 @@ def load_nrel_dataset(args):
     args.label_scaler = trainset.get_label_scaler()
 
     return train_loader, val_loader, test_loader
+
+
+def get_state_dict_filename(args):
+    """
+    Check dataset state dict if in restore mode
+    """
+
+    if args.restore:
+        if args.dataset_state_dict_filename is None:
+            warnings.warn(
+                "Restore with `args.dataset_state_dict_filename` set to None."
+            )
+            state_dict_filename = None
+        elif not Path(args.dataset_state_dict_filename).exists():
+            warnings.warn(
+                f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+                "not found; set to `None`."
+            )
+            state_dict_filename = None
+        else:
+            state_dict_filename = args.dataset_state_dict_filename
+    else:
+        state_dict_filename = None
+
+    return state_dict_filename

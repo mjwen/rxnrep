@@ -7,7 +7,7 @@ from torch.nn import functional as F
 
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.load_dataset import load_uspto_dataset
+from rxnrep.scripts.load_dataset import load_dataset
 from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_model import BaseLightningModel
@@ -17,22 +17,11 @@ from rxnrep.scripts_contrastive.main import main
 logger = logging.getLogger(__name__)
 
 
-def parse_args():
+def parse_args(dataset):
     parser = argparse.ArgumentParser()
 
     # ========== dataset ==========
-    prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
-
-    fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
-    fname_val = fname_tr
-    fname_test = fname_tr
-
-    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
-    parser.add_argument("--valset_filename", type=str, default=fname_val)
-    parser.add_argument("--testset_filename", type=str, default=fname_test)
-    parser.add_argument(
-        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
-    )
+    parser = argument.dataset_args(parser, dataset)
 
     # ========== model ==========
     parser = argument.encoder_args(parser)
@@ -116,19 +105,19 @@ class LightningModel(BaseLightningModel):
 if __name__ == "__main__":
 
     logger.info(f"Start training at: {datetime.now()}")
+    pl.seed_everything(25)
 
     filename = "running_metadata.yaml"
     repo_path = "/Users/mjwen/Applications/rxnrep"
     write_running_metadata(filename, repo_path)
 
-    pl.seed_everything(25)
-
     # args
-    args = parse_args()
+    dataset = "schneider"
+    args = parse_args(dataset)
     logger.info(args)
 
     # dataset
-    train_loader, val_loader, test_loader = load_uspto_dataset(args)
+    train_loader, val_loader, test_loader = load_dataset(args)
 
     # model
     model = LightningModel(args)

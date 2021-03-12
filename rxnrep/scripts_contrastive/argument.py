@@ -3,6 +3,45 @@ Arguments for different parts of the model: encoder, compressor, decoder...
 """
 
 
+def dataset_args(parser, dataset: str):
+
+    if "schneider" in dataset:
+        prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
+        fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
+        fname_val = fname_tr
+        fname_test = fname_tr
+
+        # to require labels for classification
+        if "classification" in dataset:
+            parser.add_argument("--has_class_label", type=int, default=1)
+
+    elif dataset == "electrolyte":
+        prefix = "/Users/mjwen/Documents/Dataset/electrolyte/"
+        fname_tr = prefix + "reactions_n2000_train.json"
+        fname_val = prefix + "reactions_n2000_val.json"
+        fname_test = prefix + "reactions_n2000_test.json"
+
+        parser.add_argument(
+            "--only_break_bond",
+            type=int,
+            default=1,
+            help="whether the dataset has only breaking bond, i.e. no added bond",
+        )
+
+    else:
+        raise ValueError(f"Not supported dataset {dataset}")
+
+    parser.add_argument("--dataset", type=str, default=dataset)
+    parser.add_argument("--trainset_filename", type=str, default=fname_tr)
+    parser.add_argument("--valset_filename", type=str, default=fname_val)
+    parser.add_argument("--testset_filename", type=str, default=fname_test)
+    parser.add_argument(
+        "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
+    )
+
+    return parser
+
+
 def training_args(parser):
 
     # restore
