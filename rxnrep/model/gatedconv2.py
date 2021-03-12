@@ -31,20 +31,17 @@ class GatedGCNConv(nn.Module):
         if input_dim != output_dim:
             self.residual = False
 
-        out_sizes = [output_dim] * num_fc_layers
-        acts = [activation] * (num_fc_layers - 1) + [nn.Identity()]
-        use_bias = [True] * num_fc_layers
-
         # A, B, ... I are phi_1, phi_2, ..., phi_9 in the BonDNet paper
-        self.A = MLP(input_dim, out_sizes, acts, use_bias)
-        self.B = MLP(input_dim, out_sizes, acts, use_bias)
-        self.C = MLP(input_dim, out_sizes, acts, use_bias)
-        self.D = MLP(input_dim, out_sizes, acts, use_bias)
-        self.E = MLP(input_dim, out_sizes, acts, use_bias)
-        self.F = MLP(input_dim, out_sizes, acts, use_bias)
-        self.G = MLP(output_dim, out_sizes, acts, use_bias)
-        self.H = MLP(output_dim, out_sizes, acts, use_bias)
-        self.I = MLP(input_dim, out_sizes, acts, use_bias)
+        hidden = [output_dim] * (num_fc_layers - 1)
+        self.A = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
+        self.B = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
+        self.C = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
+        self.D = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
+        self.E = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
+        self.F = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
+        self.G = MLP(output_dim, hidden, activation=activation, out_size=output_dim)
+        self.H = MLP(output_dim, hidden, activation=activation, out_size=output_dim)
+        self.I = MLP(input_dim, hidden, activation=activation, out_size=output_dim)
 
         if self.batch_norm:
             self.bn_node_h = nn.BatchNorm1d(output_dim)

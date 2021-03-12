@@ -8,8 +8,8 @@ from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.gatedconv2 import GatedGCNConv as GatedGCNConv2
-from rxnrep.model.readout import CompressingNN, HopDistancePooling, Set2SetThenCat
-from rxnrep.model.utils import UnifySize
+from rxnrep.model.readout import HopDistancePooling, Set2SetThenCat
+from rxnrep.model.utils import MLP, UnifySize
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ class ReactionEncoder(nn.Module):
         if compressing_layer_sizes:
             self.compressor = nn.ModuleDict(
                 {
-                    k: CompressingNN(
+                    k: MLP(
                         in_size=conv_outsize,
                         hidden_sizes=compressing_layer_sizes,
                         activation=compressing_layer_activation,

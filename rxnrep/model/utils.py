@@ -1,4 +1,4 @@
-from typing import Callable, List, Union
+from typing import Callable, List, Optional, Union
 
 import torch.nn as nn
 
@@ -41,41 +41,56 @@ class UnifySize(nn.Module):
 
 class MLP(nn.Module):
     """
-    A fully connected neural network.
+    Multilayer perceptrons.
+
+    By default, activation is applied to each hidden layer. Optionally, one can asking
+    for an output layer by setting out_size.
+
 
     Args:
         in_size: input feature size
-        out_sizes: size of each layer
-        activations: activation function of each layer. If an element is `None`,
-            then activation is not applied for that layer.
-            If a string, this will call nn.<the_string>
-        use_bias: whether to use bias for each layer
+        hidden_sizes: sizes for hidden layers
+        bias: whether to use bias for hidden layers
+        activation: activation function for hidden layers
+        out_size: size of output layer
+        out_bias: whether to use bias for output layer
+        out_activation: whether to apply activation for output layer
     """
 
     def __init__(
         self,
         in_size: int,
-        out_sizes: List[int],
-        activations: List[Union[Callable, str]],
-        use_bias: List[bool],
+        hidden_sizes: List[int],
+        bias: bool = True,
+        activation: Union[Callable, str] = "ReLU",
+        out_size: Optional[int] = None,
+        out_bias: bool = True,
+        out_activation: bool = False,
     ):
         super(MLP, self).__init__()
+        self.num_layers = len(hidden_sizes) + 1
 
-        self.layers = nn.ModuleList()
-        for out, act, b in zip(out_sizes, activations, use_bias):
-            self.layers.append(nn.Linear(in_size, out, bias=b))
-            if act is not None:
-                if isinstance(act, str):
-                    act = getattr(nn, act)()
-                self.layers.append(act)
-            in_size = out
+        layers = []
 
-        self.num_layers = len(activations)
+        # hidden layers
+        for size in hidden_sizes:
+            layers.append(nn.Linear(in_size, size, bias=bias))
+            if activation is not None:
+                act = get_activation(activation)
+                layers.append(act)
+            in_size = size
+
+        # output layer
+        if out_size is not None:
+            layers.append(nn.Linear(in_size, out_size, bias=out_bias))
+            if activation is not None and out_activation:
+                act = get_activation(activation)
+                layers.append(act)
+
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
+        return self.mlp(x)
 
     def __repr__(self):
         return f"MLP, num layers={self.num_layers}"

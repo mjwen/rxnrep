@@ -17,6 +17,7 @@
 # - reaction energy
 # - activation energy
 # - bep activation energy label
+# - reaction type
 
 # By default, the compressing layers and all decoders are set to None, meaning they
 # will not be used. Also set the hidden_layer_sizes set an empty list will also not use
@@ -28,14 +29,8 @@ from typing import Any, Dict
 
 import torch
 
-from rxnrep.model.decoder import (
-    ActivationEnergyDecoder,
-    AtomHopDistDecoder,
-    AtomTypeDecoder,
-    BondHopDistDecoder,
-    ReactionEnergyDecoder,
-)
 from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.utils import MLP
 
 
 class ReactionRepresentation(ReactionEncoder):
@@ -85,6 +80,10 @@ class ReactionRepresentation(ReactionEncoder):
         # activation energy decoder
         activation_energy_decoder_hidden_layer_sizes=None,
         activation_energy_decoder_activation=None,
+        # reaction classification decoder
+        reaction_type_decoder_hidden_layer_sizes=None,
+        reaction_type_decoder_num_classes=None,
+        reaction_type_decoder_activation=None,
     ):
 
         # encoder and pooling
@@ -113,33 +112,33 @@ class ReactionRepresentation(ReactionEncoder):
 
         # bond hop dist decoder
         if bond_hop_dist_decoder_hidden_layer_sizes:
-            self.bond_hop_dist_decoder = BondHopDistDecoder(
+            self.bond_hop_dist_decoder = MLP(
                 in_size=self.node_feats_size,
-                num_classes=bond_hop_dist_decoder_num_classes,
-                hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
+                hidden_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
                 activation=bond_hop_dist_decoder_activation,
+                out_size=bond_hop_dist_decoder_num_classes,
             )
         else:
             self.bond_hop_dist_decoder = None
 
         # atom hop dist decoder
         if atom_hop_dist_decoder_hidden_layer_sizes:
-            self.atom_hop_dist_decoder = AtomHopDistDecoder(
+            self.atom_hop_dist_decoder = MLP(
                 in_size=self.node_feats_size,
-                num_classes=atom_hop_dist_decoder_num_classes,
-                hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
+                hidden_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
                 activation=atom_hop_dist_decoder_activation,
+                out_size=atom_hop_dist_decoder_num_classes,
             )
         else:
             self.atom_hop_dist_decoder = None
 
         # masked atom type decoder
         if masked_atom_type_decoder_hidden_layer_sizes:
-            self.masked_atom_type_decoder = AtomTypeDecoder(
+            self.masked_atom_type_decoder = MLP(
                 in_size=self.node_feats_size,
-                num_classes=masked_atom_type_decoder_num_classes,
-                hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
+                hidden_sizes=masked_atom_type_decoder_hidden_layer_sizes,
                 activation=masked_atom_type_decoder_activation,
+                out_size=masked_atom_type_decoder_num_classes,
             )
         else:
             self.masked_atom_type_decoder = None
@@ -148,23 +147,36 @@ class ReactionRepresentation(ReactionEncoder):
 
         # reaction energy decoder
         if reaction_energy_decoder_hidden_layer_sizes:
-            self.reaction_energy_decoder = ReactionEnergyDecoder(
+            self.reaction_energy_decoder = MLP(
                 in_size=self.reaction_feats_size,
-                hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
+                hidden_sizes=reaction_energy_decoder_hidden_layer_sizes,
                 activation=reaction_energy_decoder_activation,
+                out_size=1,
             )
         else:
             self.reaction_energy_decoder = None
 
         # activation energy decoder
         if activation_energy_decoder_hidden_layer_sizes:
-            self.activation_energy_decoder = ActivationEnergyDecoder(
+            self.activation_energy_decoder = MLP(
                 in_size=self.reaction_feats_size,
-                hidden_layer_sizes=activation_energy_decoder_hidden_layer_sizes,
+                hidden_sizes=activation_energy_decoder_hidden_layer_sizes,
                 activation=activation_energy_decoder_activation,
+                out_size=1,
             )
         else:
             self.activation_energy_decoder = None
+
+        # reaction type decoder
+        if reaction_type_decoder_hidden_layer_sizes:
+            self.reaction_type_decoder = MLP(
+                in_size=self.reaction_feats_size,
+                hidden_sizes=reaction_type_decoder_hidden_layer_sizes,
+                activation=reaction_type_decoder_activation,
+                out_size=reaction_type_decoder_num_classes,
+            )
+        else:
+            self.reaction_type_decoder = None
 
     def decode(
         self,
@@ -213,10 +225,17 @@ class ReactionRepresentation(ReactionEncoder):
             if self.reaction_energy_decoder is None
             else self.reaction_energy_decoder(reaction_feats)
         )
+
         activation_energy = (
             None
             if self.activation_energy_decoder is None
             else self.activation_energy_decoder(reaction_feats)
+        )
+
+        reaction_type = (
+            None
+            if self.reaction_type_decoder is None
+            else self.reaciton_type_decoder(feats["reaction"])
         )
 
         # predictions
@@ -227,6 +246,7 @@ class ReactionRepresentation(ReactionEncoder):
             "reaction_cluster": reaction_feats,
             "reaction_energy": reaction_energy,
             "activation_energy": activation_energy,
+            "reaction_type": reaction_type,
         }
 
         return predictions
