@@ -8,14 +8,23 @@ from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import load_checkpoint_wandb, save_files_to_wandb
 
 
-def main(args, model, train_loader, val_loader, test_loader, project="tmp-rxnrep"):
+def main(
+    args,
+    model,
+    train_loader,
+    val_loader,
+    test_loader,
+    top_k=3,
+    monitor="val/score",
+    project="tmp-rxnrep",
+):
 
     # callbacks
     checkpoint_callback = ModelCheckpoint(
-        monitor="val/score", mode="max", save_last=True, save_top_k=5, verbose=False
+        monitor=monitor, mode="max", save_last=True, save_top_k=top_k, verbose=False
     )
     early_stop_callback = EarlyStopping(
-        monitor="val/score", min_delta=0.0, patience=150, mode="max", verbose=True
+        monitor=monitor, min_delta=0.0, patience=150, mode="max", verbose=True
     )
 
     # logger

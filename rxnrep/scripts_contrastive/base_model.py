@@ -17,7 +17,6 @@ class BaseLightningModel(pl.LightningModule):
     def __init__(self, params):
         super().__init__()
 
-        # save params to be accessible via self.hparams
         self.save_hyperparameters(params)
 
         self.model = self.init_model(self.hparams)
@@ -71,7 +70,7 @@ class BaseLightningModel(pl.LightningModule):
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
-        elif returns in ["reaction_energy", "activation_energy"]:
+        elif returns in ["reaction_energy", "activation_energy", "reaction_type"]:
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.decode(feats, reaction_feats, metadata)
 
@@ -89,6 +88,7 @@ class BaseLightningModel(pl.LightningModule):
                 "diff_feature_after_rxn_conv",
                 "reaction_energy",
                 "activation_energy",
+                "reaction_type",
             ]
             raise ValueError(
                 f"Expect `returns` to be one of {supported}; got `{returns}`."
@@ -113,7 +113,8 @@ class BaseLightningModel(pl.LightningModule):
         score = self.compute_metrics("val")
 
         # val/score used for early stopping and learning rate scheduler
-        self.log(f"val/score", score, on_step=False, on_epoch=True, prog_bar=True)
+        if score is not None:
+            self.log(f"val/score", score, on_step=False, on_epoch=True, prog_bar=True)
 
         # time it
         delta_t, cumulative_t = self.timer.update()
@@ -251,7 +252,9 @@ class BaseLightningModel(pl.LightningModule):
         """
         mode = "metric_" + mode
 
-        score = 0
+        # Do not set to 0 there in order to return None if there is no metric
+        # contributes to score
+        score = None
 
         for task_name, task_setting in self.classification_tasks.items():
             for metric in self.metrics[mode][task_name]:
@@ -269,6 +272,7 @@ class BaseLightningModel(pl.LightningModule):
                 metric_obj.reset()
 
                 if metric in task_setting["to_score"]:
+                    score = 0 if score is None else score
                     sign = task_setting["to_score"][metric]
                     score += out * sign
 
@@ -293,6 +297,7 @@ class BaseLightningModel(pl.LightningModule):
                 metric_obj.reset()
 
                 if metric in task_setting["to_score"]:
+                    score = 0 if score is None else score
                     sign = task_setting["to_score"][metric]
                     score += out * sign
 
@@ -357,9 +362,26 @@ class BaseLightningModel(pl.LightningModule):
             #     "to_score": {"mae": -1},
             # }
         }
+        """
 
-        self.contrastive_tasks = {}
+        raise NotImplementedError
 
+    def decode(
+        self,
+        feats: Dict[str, torch.Tensor],
+        reaction_feats: torch.Tensor,
+        metadata: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Decode the molecule and reaction features to properties.
+
+        Args:
+            feats: atom and bond (maybe global) features of molecules
+            reaction_feats: reaction features
+            metadata:
+
+        Returns:
+            predictions: {decoder_name: value} predictions of the decoders.
         """
 
         raise NotImplementedError
@@ -392,24 +414,4 @@ class BaseLightningModel(pl.LightningModule):
         Returns:
             {task_name, loss}
         """
-        raise NotImplementedError
-
-    def decode(
-        self,
-        feats: Dict[str, torch.Tensor],
-        reaction_feats: torch.Tensor,
-        metadata: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Decode the molecule and reaction features to properties.
-
-        Args:
-            feats: atom and bond (maybe global) features of molecules
-            reaction_feats: reaction features
-            metadata:
-
-        Returns:
-            predictions: {decoder_name: value} predictions of the decoders.
-        """
-
         raise NotImplementedError

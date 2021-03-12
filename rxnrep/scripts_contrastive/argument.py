@@ -243,3 +243,33 @@ def reaction_type_decoder_adjuster(args):
     ]
 
     return args
+
+
+def simclr_decoder_args(parser):
+    parser.add_argument(
+        "--simclr_hidden_layer_sizes", type=int, nargs="+", default=[256, 128]
+    )
+    parser.add_argument("--simclr_activation", type=str, default="ReLU")
+    parser.add_argument("--simclr_temperature", type=float, default=0.1)
+
+    return parser
+
+
+def simclr_decoder_helper(parser):
+    parser.add_argument("--simclr_num_layers", type=int, default=2)
+    return parser
+
+
+def simclr_decoder_adjuster(args):
+    val = get_encoder_out_feats_size(args)
+
+    if args.pooling_method == "global_only":
+        val = val
+    else:
+        val = 2 * val
+
+    args.simclr_hidden_layer_sizes = [
+        max(val // 2 ** i, 50) for i in range(args.simclr_num_layers)
+    ]
+
+    return args

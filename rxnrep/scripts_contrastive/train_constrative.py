@@ -3,13 +3,15 @@ import logging
 from datetime import datetime
 
 import pytorch_lightning as pl
-import torch.nn.functional as F
+from torch.nn import functional as F
 
-from rxnrep.model.model import ReactionRepresentation
+from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.utils import MLP
 from rxnrep.scripts.load_dataset import load_uspto_dataset
 from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_model import BaseLightningModel
+from rxnrep.scripts_contrastive.losses import nt_xent_loss
 from rxnrep.scripts_contrastive.main import main
 
 logger = logging.getLogger(__name__)
@@ -19,8 +21,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # ========== dataset ==========
-    parser.add_argument("--has_class_label", type=int, default=1)
-
     prefix = "/Users/mjwen/Documents/Dataset/uspto/Schneider50k/"
 
     fname_tr = prefix + "schneider50k_n400_processed_train.tsv"
@@ -36,14 +36,14 @@ def parse_args():
 
     # ========== model ==========
     parser = argument.encoder_args(parser)
-    parser = argument.reaction_type_decoder_args(parser)
+    parser = argument.simclr_decoder_args(parser)
 
     # ========== training ==========
     parser = argument.training_args(parser)
 
     # ========== helper ==========
     parser = argument.encoder_helper(parser)
-    parser = argument.reaction_type_decoder_helper(parser)
+    parser = argument.simclr_decoder_helper(parser)
 
     ####################
     args = parser.parse_args()
@@ -51,15 +51,25 @@ def parse_args():
 
     # ========== adjuster ==========
     args = argument.encoder_adjuster(args)
-    args = argument.reaction_type_decoder_adjuster(args)
+    args = argument.simclr_decoder_adjuster(args)
 
     return args
 
 
 class LightningModel(BaseLightningModel):
+    def __init__(self, params):
+        super().__init__(params)
+
+        # decoder
+        self.projection = MLP(
+            in_size=self.model.reaction_feats_size,
+            hidden_sizes=params.simclr_hidden_layer_sizes,
+            activation=params.simclr_activation,
+        )
+
     def init_model(self, params):
 
-        model = ReactionRepresentation(
+        model = ReactionEncoder(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -81,35 +91,26 @@ class LightningModel(BaseLightningModel):
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
-            # reaction type decoder
-            reaction_type_decoder_hidden_layer_sizes=params.reaction_type_decoder_hidden_layer_sizes,
-            reaction_type_decoder_activation=params.reaction_type_decoder_activation,
-            reaction_type_decoder_num_classes=params.num_reaction_classes,
         )
 
         return model
 
     def init_tasks(self):
-        self.classification_tasks = {
-            "reaction_type": {
-                "num_classes": self.hparams.num_reaction_classes,
-                "to_score": {"f1": 1},
-            }
-        }
-
-    def compute_loss(self, preds, labels):
-
-        loss = F.cross_entropy(
-            preds["reaction_type"],
-            labels["reaction_type"],
-            reduction="mean",
-            weight=self.hparams.reaction_class_weight.to(self.device),
-        )
-
-        return {"reaction_type": loss}
+        pass
 
     def decode(self, feats, reaction_feats, metadata):
-        return self.model.decode(feats, reaction_feats, metadata)
+        preds = {"z": self.projection(reaction_feats)}
+        return preds
+
+    def compute_loss(self, preds, labels):
+        out_1 = preds["z"]
+        out_1 = F.normalize(out_1, dim=-1)
+
+        out_2 = out_1
+
+        loss = nt_xent_loss(out_1, out_2, self.hparams.simclr_temperature)
+
+        return {"contrastive": loss}
 
 
 if __name__ == "__main__":
@@ -133,6 +134,15 @@ if __name__ == "__main__":
     model = LightningModel(args)
 
     project = "tmp-rxnrep"
-    main(args, model, train_loader, val_loader, test_loader, project=project)
+    main(
+        args,
+        model,
+        train_loader,
+        val_loader,
+        test_loader,
+        top_k=1,
+        monitor="val/loss",
+        project=project,
+    )
 
     logger.info(f"Finish training at: {datetime.now()}")
