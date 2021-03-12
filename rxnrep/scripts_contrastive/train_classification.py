@@ -84,6 +84,9 @@ class LightningModel(BaseLightningModel):
             }
         }
 
+    def decode(self, feats, reaction_feats, metadata):
+        return self.model.decode(feats, reaction_feats, metadata)
+
     def compute_loss(self, preds, labels):
 
         loss = F.cross_entropy(
@@ -94,9 +97,6 @@ class LightningModel(BaseLightningModel):
         )
 
         return {"reaction_type": loss}
-
-    def decode(self, feats, reaction_feats, metadata):
-        return self.model.decode(feats, reaction_feats, metadata)
 
 
 if __name__ == "__main__":
@@ -120,6 +120,6 @@ if __name__ == "__main__":
     model = LightningModel(args)
 
     project = "tmp-rxnrep"
-    main(args, model, train_loader, val_loader, test_loader, project=project)
+    main(args, model, train_loader, val_loader, test_loader, __file__, project=project)
 
     logger.info(f"Finish training at: {datetime.now()}")

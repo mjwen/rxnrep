@@ -50,10 +50,11 @@ class LightningModel(BaseLightningModel):
         super().__init__(params)
 
         # decoder
-        self.projection = MLP(
+        # name this `.._decoder` so that we can easily freeze it when finetune
+        self.projection_decoder = MLP(
             in_size=self.model.reaction_feats_size,
-            hidden_sizes=params.simclr_hidden_layer_sizes,
-            activation=params.simclr_activation,
+            hidden_sizes=self.hparams.simclr_hidden_layer_sizes,
+            activation=self.hparams.simclr_activation,
         )
 
     def init_model(self, params):
@@ -88,7 +89,7 @@ class LightningModel(BaseLightningModel):
         pass
 
     def decode(self, feats, reaction_feats, metadata):
-        preds = {"z": self.projection(reaction_feats)}
+        preds = {"z": self.projection_decoder(reaction_feats)}
         return preds
 
     def compute_loss(self, preds, labels):
@@ -129,6 +130,7 @@ if __name__ == "__main__":
         train_loader,
         val_loader,
         test_loader,
+        __file__,
         top_k=1,
         monitor="val/loss",
         project=project,

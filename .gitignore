@@ -139,5 +139,6 @@ dmypy.json
 *.pkl
 *.txt
 *.json
+*.ckpt
 wandb
 

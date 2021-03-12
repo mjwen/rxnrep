@@ -14,6 +14,7 @@ def main(
     train_loader,
     val_loader,
     test_loader,
+    training_file,
     top_k=3,
     monitor="val/score",
     project="tmp-rxnrep",
@@ -89,5 +90,12 @@ def main(
         or (args.gpus > 1 and cluster.local_rank() == 0)
     ):
         save_files_to_wandb(
-            wandb_logger, [__file__, "running_metadata.yaml", "sweep.py", "submit.sh"]
+            wandb_logger,
+            [
+                training_file,
+                "dataset_state_dict.yaml",
+                "running_metadata.yaml",
+                "submit.sh",
+                "sweep.py",
+            ],
         )

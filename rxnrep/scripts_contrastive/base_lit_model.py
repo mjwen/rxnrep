@@ -44,6 +44,11 @@ class BaseLightningModel(pl.LightningModule):
             Values from the decoder can also be returned; currently supported ones are
             `reaction_energy`, `activation_energy`, and `reaction_type`.
         """
+        if return_mode is None and "finetune_mode" in self.hparams:
+            # in finetune mode, self.model is also a base lit model; should directly
+            # pass batch to it
+            return self.model(batch, return_mode)
+
         # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
