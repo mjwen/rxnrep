@@ -75,14 +75,14 @@ class USPTODataset(BaseDatasetWithLabels):
         """
         Labels for all reactions.
 
-        Add `reaction_class`.
+        Add `reaction_type`.
         """
         super().generate_labels()
 
         if self.has_class_label:
             for i, rxn in enumerate(self.reactions):
                 rxn_class = rxn.get_property("label")
-                self.labels[i]["reaction_class"] = torch.as_tensor(
+                self.labels[i]["reaction_type"] = torch.as_tensor(
                     [int(rxn_class)], dtype=torch.int64
                 )
 
@@ -115,6 +115,6 @@ class USPTODataset(BaseDatasetWithLabels):
                 )
                 w = torch.as_tensor(w, dtype=torch.float32)
 
-            weight["reaction_class"] = w
+            weight["reaction_type"] = w
 
         return weight

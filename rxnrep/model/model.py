@@ -235,7 +235,7 @@ class ReactionRepresentation(ReactionEncoder):
         reaction_type = (
             None
             if self.reaction_type_decoder is None
-            else self.reaciton_type_decoder(feats["reaction"])
+            else self.reaction_type_decoder(reaction_feats)
         )
 
         # predictions

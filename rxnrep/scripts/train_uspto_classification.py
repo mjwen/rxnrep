@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from rxnrep.model.model_clfn import ReactionClassification
+from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts.load_dataset import load_uspto_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import TimeMeter, write_running_metadata
@@ -21,7 +21,7 @@ class RxnRepLightningModel(pl.LightningModule):
         self.save_hyperparameters(params)
         params = self.hparams
 
-        self.model = ReactionClassification(
+        self.model = ReactionRepresentation(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -37,13 +37,13 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # classification head
-            head_hidden_layer_sizes=params.head_hidden_layer_sizes,
-            num_classes=params.num_reaction_classes,
-            head_activation=params.head_activation,
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
+            # classification head
+            reaction_type_decoder_hidden_layer_sizes=params.head_hidden_layer_sizes,
+            reaction_type_decoder_num_classes=params.num_reaction_classes,
+            reaction_type_decoder_activation=params.head_activation,
         )
 
         # metrics
@@ -115,13 +115,12 @@ class RxnRepLightningModel(pl.LightningModule):
         feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
 
         feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-        logits = self.model.decode(feats, reaction_feats, metadata)
-        preds = {"reaction_class": logits}
+        preds = self.model.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========
         loss = F.cross_entropy(
-            preds["reaction_class"],
-            labels["reaction_class"],
+            preds["reaction_type"],
+            labels["reaction_type"],
             reduction="mean",
             weight=self.hparams.reaction_class_weight.to(self.device),
         )
@@ -129,7 +128,7 @@ class RxnRepLightningModel(pl.LightningModule):
         # ========== log the loss ==========
         self.log_dict(
             {
-                f"{mode}/loss/reaction_class": loss,
+                f"{mode}/loss/reaction_type": loss,
             },
             on_step=False,
             on_epoch=True,
@@ -159,7 +158,7 @@ class RxnRepLightningModel(pl.LightningModule):
         for mode in ["metric_train", "metric_val", "metric_test"]:
             metrics[mode] = nn.ModuleDict(
                 {
-                    "reaction_class": nn.ModuleDict(
+                    "reaction_type": nn.ModuleDict(
                         {
                             "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                             "precision": pl.metrics.Precision(
@@ -189,7 +188,7 @@ class RxnRepLightningModel(pl.LightningModule):
         preds,
         labels,
         mode,
-        keys=("reaction_class",),
+        keys=("reaction_type",),
     ):
         """
         update metric states at each step
@@ -204,7 +203,7 @@ class RxnRepLightningModel(pl.LightningModule):
     def _compute_metrics(
         self,
         mode,
-        keys=("reaction_class",),
+        keys=("reaction_type",),
     ):
         """
         compute metric and log it at each epoch

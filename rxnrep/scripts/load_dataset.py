@@ -190,7 +190,7 @@ def load_uspto_dataset(args):
         else None
     )
 
-    has_class_label = args.max_hop_distance if "has_class_label" in args else False
+    has_class_label = args.has_class_label if "has_class_label" in args else False
 
     trainset = USPTODataset(
         filename=args.trainset_filename,
@@ -287,7 +287,7 @@ def load_uspto_dataset(args):
         class_weight = trainset.get_class_weight(
             num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
         )
-        args.reaction_class_weight = class_weight["reaction_class"]
+        args.reaction_class_weight = class_weight["reaction_type"]
 
     elif max_hop_distance is not None:
         class_weight = trainset.get_class_weight()
