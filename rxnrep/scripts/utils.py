@@ -360,3 +360,19 @@ def save_files_to_wandb(wandb_logger, files: List[str] = None):
         fname = Path.cwd().joinpath(f)
         if fname.exists():
             wandb.save(str(fname), policy="now")
+
+
+def load_lightning_pretrained_model(PretrainedModel, ckpt_path: Path):
+    """
+    Load the pretrained model.
+
+    Args:
+        PretrainedModel: pretrained model class
+        ckpt_path: path to the checkpoint
+    """
+    ckpt_path = Path(ckpt_path).expanduser().resolve()
+    if not ckpt_path.exists():
+        raise Exception(f"Cannot load pretrained mode; {ckpt_path} does not exists.")
+    model = PretrainedModel.load_from_checkpoint(str(ckpt_path))
+
+    return model

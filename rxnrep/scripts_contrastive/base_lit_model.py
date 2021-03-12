@@ -2,7 +2,7 @@
 Base model for Constrative representation learning.
 """
 
-from typing import Dict
+from typing import Dict, Optional
 
 import pytorch_lightning as pl
 import torch
@@ -29,24 +29,22 @@ class BaseLightningModel(pl.LightningModule):
 
         self.timer = TimeMeter()
 
-    def forward(self, batch, returns: str = "reaction_feature"):
+    def forward(self, batch, return_mode: Optional[str] = None):
         """
         Args:
-            batch:
-            returns: the type of features (embeddings) to return. Optionals are
-                `reaction_feature`, 'diff_feature_before_rxn_conv',
-                and 'diff_feature_after_rxn_conv'.
+            batch: batch of input
+            return_mode: select what to return. See below.
 
         Returns:
-            If returns = `reaction_feature`, return a 2D tensor of reaction features,
-            each row for a reaction;
-            If returns = `diff_feature_before_rxn_conv` or `diff_feature_after_rxn_conv`,
-            return a dictionary of atom, bond, and global features.
-            As the name suggests, the returned features can be `before` or `after`
-            the reaction conv layers.
-            If returns = `activation_energy` (`reaction_energy`), return the activation
-            (reaction) energy predicted by the decoder.
+            If `None`, directly return the value returned by the self.model forward
+            method. This is typically the features and reaction features returned
+            by the decoder, e.g. (feats, reaction_feats). feats is a dictionary of
+            atom, bond, and global features and reaction_feats is the reaction
+            feature tensor.
+            Values from the decoder can also be returned; currently supported ones are
+            `reaction_energy`, `activation_energy`, and `reaction_type`.
         """
+        # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
 
         # lightning cannot move dgl graphs to gpu, so do it manually
@@ -57,41 +55,37 @@ class BaseLightningModel(pl.LightningModule):
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
         feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
 
-        if returns == "reaction_feature":
-            _, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
-            return reaction_feats
+        # ========== determine returns ==========
+        if return_mode is None:
+            return self.model(mol_graphs, rxn_graphs, feats, metadata)
 
-        elif returns == "diff_feature_after_rxn_conv":
-            diff_feats, _ = self.model(mol_graphs, rxn_graphs, feats, metadata)
-            return diff_feats
-
-        elif returns == "diff_feature_before_rxn_conv":
+        elif return_mode == "diff_feature_before_rxn_conv":
             diff_feats = self.model.get_diff_feats(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
-        elif returns in ["reaction_energy", "activation_energy", "reaction_type"]:
+
+        elif return_mode in ["reaction_energy", "activation_energy", "reaction_type"]:
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.decode(feats, reaction_feats, metadata)
 
-            state_dict = self.hparams.label_scaler[returns].state_dict()
+            state_dict = self.hparams.label_scaler[return_mode].state_dict()
             mean = state_dict["mean"]
             std = state_dict["std"]
-            preds = preds[returns] * std + mean
+            preds = preds[return_mode] * std + mean
 
             return preds
 
         else:
             supported = [
-                "reaction_feature",
+                None,
                 "diff_feature_before_rxn_conv",
-                "diff_feature_after_rxn_conv",
                 "reaction_energy",
                 "activation_energy",
                 "reaction_type",
             ]
             raise ValueError(
-                f"Expect `returns` to be one of {supported}; got `{returns}`."
+                f"Expect `return_mode` to be one of {supported}; got `{return_mode}`."
             )
 
     def training_step(self, batch, batch_idx):
@@ -134,16 +128,8 @@ class BaseLightningModel(pl.LightningModule):
 
         # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
+        feats, reaction_feats = self(batch)
 
-        # lightning cannot move dgl graphs to gpu, so do it manually
-        mol_graphs = mol_graphs.to(self.device)
-        rxn_graphs = rxn_graphs.to(self.device)
-
-        nodes = ["atom", "global"]
-        feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
-        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
-
-        feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
         preds = self.decode(feats, reaction_feats, metadata)
 
         # ========== compute losses ==========

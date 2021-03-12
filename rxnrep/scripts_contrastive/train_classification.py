@@ -9,7 +9,7 @@ from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts.load_dataset import load_dataset
 from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
-from rxnrep.scripts_contrastive.base_model import BaseLightningModel
+from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
 from rxnrep.scripts_contrastive.main import main
 
 logger = logging.getLogger(__name__)

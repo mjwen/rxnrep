@@ -33,6 +33,7 @@ from rxnrep.scripts.utils import (
     TimeMeter,
     get_repo_git_commit,
     load_checkpoint_wandb,
+    load_lightning_pretrained_model,
     save_files_to_wandb,
 )
 
@@ -71,7 +72,9 @@ class RxnRepLightningModel(pl.LightningModule):
         # )
 
         # load pretrained model
-        self.backbone = load_pretrained_model(params.pretrained_ckpt_path)
+        self.backbone = load_lightning_pretrained_model(
+            PretrainedModel, params.pretrained_ckpt_path
+        )
 
         if self.hparams.pretrained_tune_encoder:
             # only fix parameters in the decoder
@@ -489,22 +492,6 @@ def load_dataset(args):
     args.feature_size = trainset.feature_size
 
     return train_loader, val_loader, test_loader
-
-
-def load_pretrained_model(ckpt_path: Path):
-    """
-    Load the pretrained model.
-
-    Args:
-        ckpt_path: path to the checkpoint
-        device: device to move the model to
-    """
-    ckpt_path = Path(ckpt_path).expanduser().resolve()
-    if not ckpt_path.exists():
-        raise Exception(f"Cannot load pretrained mode; {ckpt_path} does not exists.")
-    model = PretrainedModel.load_from_checkpoint(str(ckpt_path))
-
-    return model
 
 
 def main():
