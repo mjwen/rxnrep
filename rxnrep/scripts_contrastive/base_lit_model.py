@@ -7,8 +7,8 @@ from typing import Dict, Optional
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torch.optim import lr_scheduler
-from warmup_scheduler import GradualWarmupScheduler
 
 from rxnrep.scripts.utils import TimeMeter
 
@@ -168,16 +168,12 @@ class BaseLightningModel(pl.LightningModule):
                 optimizer, mode="max", factor=0.4, patience=50, verbose=True
             )
         elif self.hparams.lr_scheduler == "cosine":
-            scheduler = lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=self.hparams.epochs, eta_min=self.hparams.lr_min
+            scheduler = LinearWarmupCosineAnnealingLR(
+                optimizer,
+                warmup_epochs=self.hparams.lr_warmup_step,
+                max_epochs=self.hparams.epochs,
+                eta_min=self.hparams.lr_min,
             )
-            if self.hparams.lr_warmup_step:
-                scheduler = GradualWarmupScheduler(
-                    optimizer,
-                    multiplier=1,
-                    total_epoch=self.hparams.lr_warmup_step,
-                    after_scheduler=scheduler,
-                )
         else:
             raise ValueError(f"Not supported lr scheduler: {self.hparams.lr_scheduler}")
 

@@ -46,17 +46,6 @@ def parse_args(dataset):
 
 
 class LightningModel(BaseLightningModel):
-    def __init__(self, params):
-        super().__init__(params)
-
-        # decoder
-        # name this `.._decoder` so that we can easily freeze it when finetune
-        self.projection_decoder = MLP(
-            in_size=self.model.reaction_feats_size,
-            hidden_sizes=self.hparams.simclr_hidden_layer_sizes,
-            activation=self.hparams.simclr_activation,
-        )
-
     def init_model(self, params):
 
         model = ReactionEncoder(
@@ -81,6 +70,16 @@ class LightningModel(BaseLightningModel):
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
+        )
+
+        #
+        # decoder
+        #
+        # name this `.._decoder` so that we can easily freeze it when finetune
+        self.projection_decoder = MLP(
+            in_size=model.reaction_feats_size,
+            hidden_sizes=params.simclr_hidden_layer_sizes,
+            activation=params.simclr_activation,
         )
 
         return model

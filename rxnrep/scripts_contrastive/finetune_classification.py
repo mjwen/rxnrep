@@ -52,21 +52,10 @@ def parse_args(dataset):
 
 
 class LightningModel(BaseLightningModel):
-    def __init__(self, params):
-        super().__init__(params)
-
-        #
-        # decoder to predict classes
-        #
-        # self.model.model is the model created in init_model() of the pretrained model
-        self.mlp = MLP(
-            in_size=self.model.model.reaction_feats_size,
-            hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
-            activation=params.reaction_type_decoder_activation,
-            out_size=params.num_reaction_classes,
-        )
-
     def init_model(self, params):
+        #
+        # backbone model
+        #
         model = load_lightning_pretrained_model(
             PretrainedModel, params.pretrained_ckpt_path
         )
@@ -80,6 +69,17 @@ class LightningModel(BaseLightningModel):
         else:
             # fix all backbone parameters
             model.freeze()
+
+        #
+        # decoder to predict classes
+        #
+        # model.model is the model created in init_model() of the pretrained model
+        self.mlp = MLP(
+            in_size=model.model.reaction_feats_size,
+            hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
+            activation=params.reaction_type_decoder_activation,
+            out_size=params.num_reaction_classes,
+        )
 
         return model
 
