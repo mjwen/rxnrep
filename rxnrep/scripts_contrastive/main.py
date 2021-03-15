@@ -17,15 +17,20 @@ def main(
     training_file,
     top_k=3,
     monitor="val/score",
+    monitor_mode="max",
     project="tmp-rxnrep",
 ):
 
     # callbacks
     checkpoint_callback = ModelCheckpoint(
-        monitor=monitor, mode="max", save_last=True, save_top_k=top_k, verbose=False
+        monitor=monitor,
+        mode=monitor_mode,
+        save_last=True,
+        save_top_k=top_k,
+        verbose=False,
     )
     early_stop_callback = EarlyStopping(
-        monitor=monitor, min_delta=0.0, patience=150, mode="max", verbose=True
+        monitor=monitor, min_delta=0.0, patience=150, mode=monitor_mode, verbose=True
     )
 
     # logger

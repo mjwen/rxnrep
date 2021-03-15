@@ -132,6 +132,7 @@ if __name__ == "__main__":
         __file__,
         top_k=1,
         monitor="val/loss",
+        monitor_mode="min",
         project=project,
     )
 
