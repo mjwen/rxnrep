@@ -84,6 +84,14 @@ class Reaction:
         return self._id
 
     @property
+    def num_atoms(self) -> int:
+        return sum([m.num_atoms for m in self.reactants])
+
+    @property
+    def num_bonds(self) -> int:
+        return len(self.unchanged_bonds) + len(self.lost_bonds) + len(self.added_bonds)
+
+    @property
     def unchanged_bonds(self) -> List[BondIndex]:
         """
         Unchanged bonds, i.e. bonds exist in both the reactants and products.
@@ -170,8 +178,7 @@ class Reaction:
         # row of distances: atoms in the center;
         # column of distances: distance to other atoms
         VAL = 10000000000
-        num_atoms = sum([m.num_atoms for m in self.reactants])
-        distances = VAL * np.ones((num_atoms, num_atoms), dtype=np.int)
+        distances = VAL * np.ones((self.num_atoms, self.num_atoms), dtype=np.int)
 
         # distance from center atoms to other atoms
         nx_graph = nx.Graph(incoming_graph_data=all_bonds)
@@ -798,8 +805,7 @@ def get_atom_distance_to_reaction_center(
     # i.e. hop_distances[i] will be the hop distance for atom node i in the reaction
     # graph.
     hop_distances = []
-    num_atoms = sum([m.num_atoms for m in reaction.reactants])
-    for atom in range(num_atoms):
+    for atom in range(reaction.num_atoms):
 
         # atoms involved with both lost and added bonds
         if atom in atoms_in_lost_bonds and atom in atoms_in_added_bonds:
