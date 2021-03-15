@@ -1,3 +1,7 @@
+"""
+Feature and label scaler.
+"""
+
 import logging
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
@@ -10,7 +14,7 @@ from sklearn.preprocessing import StandardScaler as sk_StandardScaler
 logger = logging.getLogger(__name__)
 
 
-class Transformer:
+class Scaler:
     """
     Base class for normalize the dataset, either the features for the labels.
     """
@@ -40,7 +44,7 @@ class Transformer:
         self._std = d["std"]
 
 
-class StandardScaler(Transformer):
+class StandardScaler(Scaler):
     """
     A wrapper over `sklearn.preprocessing.StandardScaler`.
     """
@@ -96,7 +100,7 @@ class StandardScaler1D(StandardScaler):
         return data
 
 
-class GraphFeatureTransformer(Transformer):
+class GraphFeatureScaler(Scaler):
     """
     Standardize graph features (both node and edge features) and place them back to
     the graph feature dict.

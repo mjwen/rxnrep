@@ -16,8 +16,8 @@ from rxnrep.core.reaction import (
     get_bond_distance_to_reaction_center,
 )
 from rxnrep.data.augmentation import AtomTypeFeatureMasker
+from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
 from rxnrep.data.to_graph import build_graph_and_featurize_reaction
-from rxnrep.data.transformer import GraphFeatureTransformer, StandardScaler1D
 from rxnrep.utils import tensor_to_list, to_path, to_tensor, yaml_dump, yaml_load
 
 logger = logging.getLogger(__name__)
@@ -256,7 +256,7 @@ class BaseDataset:
         """
         logger.info(f"Start scaling features...")
 
-        feature_scaler = GraphFeatureTransformer()
+        feature_scaler = GraphFeatureScaler()
 
         if self.init_state_dict is not None:
             assert (
