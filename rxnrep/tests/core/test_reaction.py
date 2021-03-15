@@ -163,6 +163,17 @@ class TestReaction:
             assert "check_atom_map_number" in str(e)
         mols[0].set_atom_map_number({0: 3})  # set back
 
+    def test_atom_bond_distance_to_reaction_center(self):
+        """See below for the molecule graphs."""
+        smi_rxn = "[CH3:3][CH2+:1].[CH2:2]1[CH1:4]([CH2:6]1)[CH2:5]>>[CH3:3].[CH2:2]1[CH1:4]([CH2:6]1)[CH2:5][CH2+:1]"
+        rxn = smiles_to_reaction(smi_rxn)
+
+        atom_distances = rxn.atom_distance_to_reaction_center
+        assert atom_distances == [0, 2, 0, 1, 0, 2]
+
+        bond_distances = rxn.bond_distance_to_reaction_center
+        assert bond_distances == [2, 3, 1, 2, 0, 0]
+
 
 def test_get_atom_bond_distance_to_reaction_center():
     r"""Create a reaction: CH3CH2+ + CH3CH2CH2 --> CH3 + CH3CH2CH2CH2+
