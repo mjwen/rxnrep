@@ -170,12 +170,22 @@ class ReactionEncoder(nn.Module):
                 set2set_num_layers = pooling_kwargs["set2set_num_layers"]
 
             in_sizes = compressor_outsize
+
+            if conv == "GatedGCNConv":
+                ntypes = ["atom", "bond"]
+                etypes = []
+            elif conv == "GatedGCNConv2":
+                ntypes = ["atom"]
+                etypes = ["bond"]
+            else:
+                raise ValueError()
+
             self.set2set = Set2SetThenCat(
                 num_iters=set2set_num_iterations,
                 in_feats=in_sizes,
                 num_layers=set2set_num_layers,
-                ntypes=["atom"],
-                etypes=["bond"],
+                ntypes=ntypes,
+                etypes=etypes,
                 ntypes_direct_cat=["global"],
             )
 
@@ -267,7 +277,11 @@ class ReactionEncoder(nn.Module):
 
         # readout reaction features, a 1D tensor for each reaction
         if self.pooling_method == "set2set":
-            reaction_feats = self.set2set(reaction_graphs, feats)
+            sizes = {
+                "atom": torch.as_tensor(metadata["num_atoms"]).to(feats["atom"].device),
+                "bond": torch.as_tensor(metadata["num_bonds"]).to(feats["bond"].device),
+            }
+            reaction_feats = self.set2set(feats, sizes)
 
         elif self.pooling_method == "hop_distance":
 

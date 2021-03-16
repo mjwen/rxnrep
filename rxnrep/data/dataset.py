@@ -710,9 +710,17 @@ class BaseContrastiveDataset(BaseDataset):
     @staticmethod
     def update_meta(meta, reactants_g, products_g):
 
-        # only unchanged bonds are modified, lost and added are not
+        meta["num_atoms"] = reactants_g.num_nodes("atom")
+
+        # in data transforms, lost and added are not augmented, only unchanged bonds
         meta["num_unchanged_bonds"] = (
             reactants_g.num_edges("bond") // 2 - meta["num_lost_bonds"]
+        )
+
+        meta["num_bonds"] = (
+            meta["num_unchanged_bonds"]
+            + meta["num_lost_bonds"]
+            + meta["num_added_bonds"]
         )
 
         return meta
@@ -783,8 +791,9 @@ class BaseContrastiveDataset(BaseDataset):
         batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
 
         # metadata used to split global and bond features
-        keys = metadata[0].keys()
+        # keys = metadata[0].keys()
         # batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+        keys = metadata1[0].keys()
         batched_metadata1 = {k: [d[k] for d in metadata1] for k in keys}
         batched_metadata2 = {k: [d[k] for d in metadata2] for k in keys}
 

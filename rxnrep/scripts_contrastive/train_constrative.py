@@ -118,11 +118,6 @@ if __name__ == "__main__":
     args = parse_args(dataset)
     logger.info(args)
 
-    #
-    # @@@ temporary
-    #
-    args.pooling_method = "global_only"
-
     # dataset
     train_loader, val_loader, test_loader = load_dataset(args)
 

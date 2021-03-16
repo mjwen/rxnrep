@@ -249,15 +249,16 @@ class Set2SetThenCat(nn.Module):
             )
 
     def forward(
-        self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
+        self, feats: Dict[str, torch.Tensor], sizes: Dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """
         Args:
-            graph: the graph
-            feats: node features with node type as key and the corresponding
+            feats: node (edge) features with node (edge) type as key and the corresponding
                 features as value. Each tensor is of shape (N, D) where N is the number
                 of nodes of the corresponding node type, and D is the feature size
                 (D could be different for different node features).
+            sizes: number of atoms (bonds) in each reaction for the node (edge) types
+                of features. (name, size), where size is a 1D int tensor.
 
         Returns:
             A tensor representation of the each graph, of shape
@@ -269,19 +270,18 @@ class Set2SetThenCat(nn.Module):
         """
         rst = []
         for t in self.ntypes:
-            ft = self.node_layers[t](feats[t], graph.batch_num_nodes(t))
+            ft = self.node_layers[t](feats[t], sizes[t])
             rst.append(ft)
 
         for t in self.etypes:
             ft = feats[t]
             ft = ft[::2]  # each bond has two edges, we select one
-            sizes = graph.batch_num_edges(t) // 2
-            ft = self.edge_layers[t](ft, sizes)
+            ft = self.edge_layers[t](ft, sizes[t])
             rst.append(ft)
 
         if self.ntypes_direct_cat is not None:
-            for nt in self.ntypes_direct_cat:
-                rst.append(feats[nt])
+            for t in self.ntypes_direct_cat:
+                rst.append(feats[t])
 
         res = torch.cat(rst, dim=-1)
 
