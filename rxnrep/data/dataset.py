@@ -1,3 +1,4 @@
+import copy
 import functools
 import logging
 import multiprocessing
@@ -706,6 +707,16 @@ class BaseContrastiveDataset(BaseDataset):
 
             self.medadata[i].update(meta)
 
+    @staticmethod
+    def update_meta(meta, reactants_g, products_g):
+
+        # only unchanged bonds are modified, lost and added are not
+        meta["num_unchanged_bonds"] = (
+            reactants_g.num_edges("bond") // 2 - meta["num_lost_bonds"]
+        )
+
+        return meta
+
     def __getitem__(self, item: int):
         """
         Get data point with index.
@@ -722,23 +733,25 @@ class BaseContrastiveDataset(BaseDataset):
             reactants_g, products_g, reaction_g, reaction
         )
 
-        if self.return_index:
-            return (
-                item,
-                reactants_g,
-                reactants_g1,
-                reactants_g2,
-                products_g,
-                products_g1,
-                products_g2,
-                reaction_g,
-                reaction_g1,
-                reaction_g2,
-                meta,
-                label,
-            )
-        else:
-            return reactants_g, products_g, reaction_g, meta, label
+        meta1 = self.update_meta(copy.copy(meta), reactants_g1, products_g1)
+        meta2 = self.update_meta(copy.copy(meta), reactants_g2, products_g2)
+
+        return (
+            item,
+            reactants_g,
+            reactants_g1,
+            reactants_g2,
+            products_g,
+            products_g1,
+            products_g2,
+            reaction_g,
+            reaction_g1,
+            reaction_g2,
+            meta,
+            meta1,
+            meta2,
+            label,
+        )
 
     @staticmethod
     def collate_fn(samples):
@@ -754,6 +767,8 @@ class BaseContrastiveDataset(BaseDataset):
             reaction_g1,
             reaction_g2,
             metadata,
+            metadata1,
+            metadata2,
             labels,
         ) = map(list, zip(*samples))
 
@@ -769,12 +784,14 @@ class BaseContrastiveDataset(BaseDataset):
 
         # metadata used to split global and bond features
         keys = metadata[0].keys()
-        batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+        # batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+        batched_metadata1 = {k: [d[k] for d in metadata1] for k in keys}
+        batched_metadata2 = {k: [d[k] for d in metadata2] for k in keys}
 
         return (
             batched_indices,
             (batched_molecule_graphs1, batched_molecule_graphs2),
             batched_reaction_graphs,
             batched_labels,
-            batched_metadata,
+            (batched_metadata1, batched_metadata2),
         )

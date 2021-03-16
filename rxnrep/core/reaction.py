@@ -264,7 +264,7 @@ class Reaction:
                     "Bad reaction is: {self.id}"
                 )
 
-        self._bond_distance_to_reaction_center = distances
+            self._bond_distance_to_reaction_center = distances
 
         return self._bond_distance_to_reaction_center
 

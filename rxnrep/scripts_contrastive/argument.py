@@ -113,9 +113,7 @@ def encoder_args(parser):
     parser.add_argument("--molecule_activation", type=str, default="ReLU")
     parser.add_argument("--molecule_residual", type=int, default=1)
     parser.add_argument("--molecule_dropout", type=float, default="0.0")
-    parser.add_argument(
-        "--reaction_conv_layer_sizes", type=int, nargs="+", default=[64, 64, 64]
-    )
+    parser.add_argument("--reaction_conv_layer_sizes", type=int, nargs="+", default=[])
     parser.add_argument("--reaction_num_fc_layers", type=int, default=2)
     parser.add_argument("--reaction_batch_norm", type=int, default=1)
     parser.add_argument("--reaction_activation", type=str, default="ReLU")
@@ -163,7 +161,7 @@ def encoder_helper(parser):
         help="hidden layer size for mol and rxn conv",
     )
     parser.add_argument("--num_mol_conv_layers", type=int, default=2)
-    parser.add_argument("--num_rxn_conv_layers", type=int, default=2)
+    parser.add_argument("--num_rxn_conv_layers", type=int, default=0)
 
     return parser
 
