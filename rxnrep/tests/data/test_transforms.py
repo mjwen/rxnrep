@@ -1,9 +1,11 @@
+import itertools
+
 import dgl
 import torch
 
 from rxnrep.core.reaction import smiles_to_reaction
 from rxnrep.data.to_graph import combine_graphs, create_reaction_graph
-from rxnrep.data.transforms import DropAtom
+from rxnrep.data.transforms import DropAtom, DropBond
 from rxnrep.tests.utils import create_graph
 from rxnrep.utils import seed_all
 
@@ -118,6 +120,43 @@ def test_drop_atom():
     assert torch.equal(
         g1.nodes["atom"].data["feat"][select], g2.nodes["atom"].data["feat"]
     )
+    eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
+    edata = g1.edges["bond"].data["feat"][retained_bond_edge]
+    reorder = [eid.index(i) for i in retained_bond_edge]
+    assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
+
+
+def test_drop_bond():
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+
+    transform = DropBond(ratio=0.3)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # bond 1 is dropped
+    idx = 1
+    retained_bond_edge = list(
+        itertools.chain.from_iterable(
+            [[2 * i, 2 * i + 1] for i in range(5) if i != idx]
+        )
+    )
+
+    g1 = reactants_g
+    g2 = sub_reactants_g
+    assert torch.equal(g1.nodes["global"].data["feat"], g2.nodes["global"].data["feat"])
+    assert torch.equal(g1.nodes["atom"].data["feat"], g2.nodes["atom"].data["feat"])
+    eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
+    edata = g1.edges["bond"].data["feat"][retained_bond_edge]
+    reorder = [eid.index(i) for i in retained_bond_edge]
+    assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
+
+    g1 = products_g
+    g2 = sub_products_g
+    assert torch.equal(g1.nodes["global"].data["feat"], g2.nodes["global"].data["feat"])
+    assert torch.equal(g1.nodes["atom"].data["feat"], g2.nodes["atom"].data["feat"])
     eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
     edata = g1.edges["bond"].data["feat"][retained_bond_edge]
     reorder = [eid.index(i) for i in retained_bond_edge]

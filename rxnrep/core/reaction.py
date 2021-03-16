@@ -88,10 +88,6 @@ class Reaction:
         return sum([m.num_atoms for m in self.reactants])
 
     @property
-    def num_bonds(self) -> int:
-        return len(self.unchanged_bonds) + len(self.lost_bonds) + len(self.added_bonds)
-
-    @property
     def unchanged_bonds(self) -> List[BondIndex]:
         """
         Unchanged bonds, i.e. bonds exist in both the reactants and products.
@@ -154,117 +150,119 @@ class Reaction:
         return self._species
 
     @property
-    def atoms_in_reaction_center(self) -> List[int]:
-        atoms = [
-            i for i in itertools.chain.from_iterable(self.bonds_in_reaction_center)
-        ]
-        return sorted(set(atoms))
-
-    @property
-    def bonds_in_reaction_center(self) -> List[BondIndex]:
-        return self.lost_bonds + self.added_bonds
-
-    @property
     def atom_distance_to_reaction_center(self) -> List[int]:
         """
         Hop distance of atoms to reaction center.
+
+        The atoms are ordered according to atom map number.
         """
-        if self._atom_distance_to_reaction_center is not None:
-            return self._atom_distance_to_reaction_center
+        if self._atom_distance_to_reaction_center is None:
 
-        atoms_in_reaction_center = self.atoms_in_reaction_center
-        all_bonds = self.unchanged_bonds + self.lost_bonds + self.added_bonds
-
-        # row of distances: atoms in the center;
-        # column of distances: distance to other atoms
-        VAL = 10000000000
-        distances = VAL * np.ones((self.num_atoms, self.num_atoms), dtype=np.int)
-
-        # distance from center atoms to other atoms
-        nx_graph = nx.Graph(incoming_graph_data=all_bonds)
-        for center_atom in atoms_in_reaction_center:
-            dists = nx.single_source_shortest_path_length(nx_graph, center_atom)
-            for atom, d in dists.items():
-                distances[center_atom][atom] = d
-
-        distances = np.min(distances, axis=0).tolist()
-
-        if VAL in distances:
-            atom = distances.index(VAL)
-            raise RuntimeError(
-                f"Cannot find path to reaction center for atom {atom}, this should not "
-                "happen. The reaction probably has atoms not connected to others in "
-                "both the reactants and the products. Please remove these atoms."
-                f"Bad reaction is: {self.id}"
+            atoms_in_reaction_center = set(
+                [
+                    i
+                    for i in itertools.chain.from_iterable(
+                        self.lost_bonds + self.added_bonds
+                    )
+                ]
             )
 
-        self._atom_distance_to_reaction_center = distances
+            all_bonds = self.unchanged_bonds + self.lost_bonds + self.added_bonds
+
+            # row of distances: atoms in the center;
+            # column of distances: distance to other atoms
+            VAL = 10000000000
+            distances = VAL * np.ones((self.num_atoms, self.num_atoms), dtype=np.int)
+
+            # distance from center atoms to other atoms
+            nx_graph = nx.Graph(incoming_graph_data=all_bonds)
+            for center_atom in atoms_in_reaction_center:
+                dists = nx.single_source_shortest_path_length(nx_graph, center_atom)
+                for atom, d in dists.items():
+                    distances[center_atom][atom] = d
+
+            distances = np.min(distances, axis=0).tolist()
+
+            if VAL in distances:
+                atom = distances.index(VAL)
+                raise RuntimeError(
+                    f"Cannot find path to reaction center for atom {atom}, this should not "
+                    "happen. The reaction probably has atoms not connected to others in "
+                    "both the reactants and the products. Please remove these atoms."
+                    f"Bad reaction is: {self.id}"
+                )
+
+            self._atom_distance_to_reaction_center = distances
+
         return self._atom_distance_to_reaction_center
 
     @property
     def bond_distance_to_reaction_center(self) -> List[int]:
         """
         Hop distance of bonds to reaction center.
+
+        Bonds are ordered according to bond map number.
+
+        In `combine_graphs()`, the bond node in the graph are reordered according to bond
+        map number. In `create_reaction_graph()`, the unchanged bonds will have bond
+        node number 0, 1, ... N_unchanged-1, the lost bonds in the reactants will have
+        bond node number N_unchanged, ... N-1, where N is the number of bonds in the
+        reactants, and the added bonds will have bond node number N, ... N+N_added-1.
+        We shifted the indices of the added bonds right by `the number of lost bonds`
+        to make a graph containing all bonds. Here we do the same shift for added bonds.
         """
-        if self._bond_distance_to_reaction_center is not None:
-            return self._bond_distance_to_reaction_center
 
-        atom_distances = self._atom_distance_to_reaction_center
+        if self._bond_distance_to_reaction_center is None:
 
-        reactants_bond_map_number = self.get_reactants_bond_map_number(
-            for_changed=True, as_dict=True
-        )
-        products_bond_map_number = self.get_products_bond_map_number(
-            for_changed=True, as_dict=True
-        )
-        reactants_bond_map_number = {
-            k: v for d in reactants_bond_map_number for k, v in d.items()
-        }
-        products_bond_map_number = {
-            k: v for d in products_bond_map_number for k, v in d.items()
-        }
-        # In `combine_graphs()`, the bond node in the graph are reordered according to bond
-        # map number. In `create_reaction_graph()`, the unchanged bonds will have bond
-        # node number 0, 1, ... N_unchanged-1, the lost bonds in the reactants will have
-        # bond node number N_unchanged, ... N-1, where N is the number of bonds in the
-        # reactants, and the added bonds will have bond node number N, ... N+N_added-1.
-        # We shifted the indices of the added bonds right by `the number of lost bonds`
-        # to make a graph containing all bonds. Here we do the same shift for added bonds.
+            atom_distances = self.atom_distance_to_reaction_center
 
-        unchanged_bonds = self.unchanged_bonds
-        lost_bonds = self.lost_bonds
-        added_bonds = self.added_bonds
-        num_lost_bonds = len(lost_bonds)
-        num_bonds = len(unchanged_bonds + lost_bonds + added_bonds)
-
-        distances = [None] * num_bonds
-
-        for bond in lost_bonds:
-            idx = reactants_bond_map_number[bond]
-            distances[idx] = 0
-
-        for bond in added_bonds:
-            idx = products_bond_map_number[bond] + num_lost_bonds
-            distances[idx] = 0
-
-        for bond in unchanged_bonds:
-            atom1, atom2 = bond
-            atom1_dist = atom_distances[atom1]
-            atom2_dist = atom_distances[atom2]
-
-            if atom1_dist == atom2_dist:
-                dist = atom1_dist + 1
-            else:
-                dist = max(atom1_dist, atom2_dist)
-
-            idx = reactants_bond_map_number[bond]
-            distances[idx] = dist
-
-        if None in distances:
-            raise RuntimeError(
-                "Some bond has not hop distance, this should not happen. "
-                "Bad reaction is: {self.id}"
+            reactants_bond_map_number = self.get_reactants_bond_map_number(
+                for_changed=True, as_dict=True
             )
+            products_bond_map_number = self.get_products_bond_map_number(
+                for_changed=True, as_dict=True
+            )
+            reactants_bond_map_number = {
+                k: v for d in reactants_bond_map_number for k, v in d.items()
+            }
+            products_bond_map_number = {
+                k: v for d in products_bond_map_number for k, v in d.items()
+            }
+
+            unchanged_bonds = self.unchanged_bonds
+            lost_bonds = self.lost_bonds
+            added_bonds = self.added_bonds
+            num_lost_bonds = len(lost_bonds)
+            num_bonds = len(unchanged_bonds + lost_bonds + added_bonds)
+
+            distances = [None] * num_bonds
+
+            for bond in lost_bonds:
+                idx = reactants_bond_map_number[bond]
+                distances[idx] = 0
+
+            for bond in added_bonds:
+                idx = products_bond_map_number[bond] + num_lost_bonds
+                distances[idx] = 0
+
+            for bond in unchanged_bonds:
+                atom1, atom2 = bond
+                atom1_dist = atom_distances[atom1]
+                atom2_dist = atom_distances[atom2]
+
+                if atom1_dist == atom2_dist:
+                    dist = atom1_dist + 1
+                else:
+                    dist = max(atom1_dist, atom2_dist)
+
+                idx = reactants_bond_map_number[bond]
+                distances[idx] = dist
+
+            if None in distances:
+                raise RuntimeError(
+                    "Some bond has not hop distance, this should not happen. "
+                    "Bad reaction is: {self.id}"
+                )
 
         self._bond_distance_to_reaction_center = distances
 
