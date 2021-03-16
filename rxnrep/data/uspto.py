@@ -6,7 +6,7 @@ from typing import Callable, Dict, Optional, Union
 import torch
 from sklearn.utils import class_weight
 
-from rxnrep.data.dataset import BaseDatasetWithLabels
+from rxnrep.data.dataset import BaseContrastiveDataset, BaseDatasetWithLabels
 from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
@@ -118,3 +118,24 @@ class USPTODataset(BaseDatasetWithLabels):
             weight["reaction_type"] = w
 
         return weight
+
+
+class USPTOConstrativeDataset(BaseContrastiveDataset):
+    """
+    USPTO dataset.
+    """
+
+    def read_file(self, filename: Path):
+        logger.info("Start reading dataset ...")
+
+        succeed_reactions, failed = read_smiles_tsv_dataset(
+            filename, remove_H=True, nprocs=self.nprocs
+        )
+
+        counter = Counter(failed)
+        logger.info(
+            f"Finish reading dataset. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
+        )
+
+        return succeed_reactions, failed

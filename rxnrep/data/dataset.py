@@ -646,3 +646,135 @@ class BaseDatasetWithLabels(BaseDataset):
             batched_labels,
             batched_metadata,
         )
+
+
+class BaseContrastiveDataset(BaseDataset):
+    """
+    Base dataset for contrastive learning.
+    """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        atom_featurizer: Callable,
+        bond_featurizer: Callable,
+        global_featurizer: Callable,
+        *,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
+        transform_features: bool = True,
+        return_index: bool = True,
+        num_processes: int = 1,
+        #
+        # args to control labels
+        #
+        transforms_1: Callable = None,
+        transforms_2: Callable = None,
+    ):
+
+        super().__init__(
+            filename,
+            atom_featurizer,
+            bond_featurizer,
+            global_featurizer,
+            init_state_dict=init_state_dict,
+            transform_features=transform_features,
+            return_index=return_index,
+            num_processes=num_processes,
+        )
+
+        # labels and metadata (one inner dict for each reaction)
+        # do not use [{}] * len(self.reactions); update one will change all
+        self.labels = [{} for _ in range(len(self.reactions))]
+        self.medadata = [{} for _ in range(len(self.reactions))]
+
+        # transforms
+        self.transforms_1 = transforms_1
+        self.transforms_2 = transforms_2
+
+        self.generate_metadata()
+
+    def generate_metadata(self):
+
+        for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
+            meta = {
+                "reactant_num_molecules": len(rxn.reactants),
+                "product_num_molecules": len(rxn.products),
+                "num_unchanged_bonds": len(rxn.unchanged_bonds),
+                "num_lost_bonds": len(rxn.lost_bonds),
+                "num_added_bonds": len(rxn.added_bonds),
+            }
+
+            self.medadata[i].update(meta)
+
+    def __getitem__(self, item: int):
+        """
+        Get data point with index.
+        """
+        reactants_g, products_g, reaction_g = self.dgl_graphs[item]
+        reaction = self.reactions[item]
+        label = self.labels[item]
+        meta = self.medadata[item]
+
+        reactants_g1, products_g1, reaction_g1, _ = self.transforms_1(
+            reactants_g, products_g, reaction_g, reaction
+        )
+        reactants_g2, products_g2, reaction_g2, _ = self.transforms_2(
+            reactants_g, products_g, reaction_g, reaction
+        )
+
+        if self.return_index:
+            return (
+                item,
+                reactants_g,
+                reactants_g1,
+                reactants_g2,
+                products_g,
+                products_g1,
+                products_g2,
+                reaction_g,
+                reaction_g1,
+                reaction_g2,
+                meta,
+                label,
+            )
+        else:
+            return reactants_g, products_g, reaction_g, meta, label
+
+    @staticmethod
+    def collate_fn(samples):
+        (
+            indices,
+            reactants_g,
+            reactants_g1,
+            reactants_g2,
+            products_g,
+            products_g1,
+            products_g2,
+            reaction_g,
+            reaction_g1,
+            reaction_g2,
+            metadata,
+            labels,
+        ) = map(list, zip(*samples))
+
+        batched_indices = torch.as_tensor(indices)
+
+        batched_molecule_graphs1 = dgl.batch(reactants_g1 + products_g1)
+        batched_molecule_graphs2 = dgl.batch(reactants_g2 + products_g2)
+        batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+
+        # labels
+        keys = labels[0].keys()
+        batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
+
+        # metadata used to split global and bond features
+        keys = metadata[0].keys()
+        batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+
+        return (
+            batched_indices,
+            (batched_molecule_graphs1, batched_molecule_graphs2),
+            batched_reaction_graphs,
+            batched_labels,
+            batched_metadata,
+        )
