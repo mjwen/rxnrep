@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler
-from rxnrep.tests.utils import create_graph_C, create_graph_CO2
+from tests.utils import create_graph_C, create_graph_CO2
 
 
 def test_stadard_scaler():

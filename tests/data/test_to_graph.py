@@ -4,7 +4,7 @@ import torch
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.data.to_graph import combine_graphs, create_reaction_graph, mol_to_graph
-from rxnrep.tests.utils import create_graph_C, create_graph_CO2
+from tests.utils import create_graph_C, create_graph_CO2
 
 
 def test_create_graph():

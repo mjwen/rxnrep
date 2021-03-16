@@ -4,7 +4,7 @@ import torch.nn as nn
 from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv2 import GatedGCNConv
-from rxnrep.tests.utils import create_graph_C, create_graph_CO2
+from tests.utils import create_graph_C, create_graph_CO2
 
 
 def test_gated_gcn_conv_C():

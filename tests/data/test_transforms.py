@@ -6,8 +6,8 @@ import torch
 from rxnrep.core.reaction import smiles_to_reaction
 from rxnrep.data.to_graph import combine_graphs, create_reaction_graph
 from rxnrep.data.transforms import DropAtom, DropBond
-from rxnrep.tests.utils import create_graph
 from rxnrep.utils import seed_all
+from tests.utils import create_graph
 
 
 def create_reaction_and_graphs():
