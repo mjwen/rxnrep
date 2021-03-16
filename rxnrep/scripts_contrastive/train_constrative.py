@@ -7,10 +7,10 @@ from torch.nn import functional as F
 
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.load_dataset import load_dataset
 from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
-from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
+from rxnrep.scripts_contrastive.base_contrastive_lit_model import BaseLightningModel
+from rxnrep.scripts_contrastive.load_dataset import load_dataset
 from rxnrep.scripts_contrastive.losses import nt_xent_loss
 from rxnrep.scripts_contrastive.main import main
 
@@ -88,16 +88,18 @@ class LightningModel(BaseLightningModel):
         pass
 
     def decode(self, feats, reaction_feats, metadata):
-        preds = {"z": self.projection_decoder(reaction_feats)}
-        return preds
+        z = self.projection_decoder(reaction_feats)
+
+        return z
 
     def compute_loss(self, preds, labels):
-        out_1 = preds["z"]
-        out_1 = F.normalize(out_1, dim=-1)
+        z1 = preds["z1"]
+        z2 = preds["z2"]
 
-        out_2 = out_1
+        z1 = F.normalize(z1, dim=-1)
+        z2 = F.normalize(z2, dim=-1)
 
-        loss = nt_xent_loss(out_1, out_2, self.hparams.simclr_temperature)
+        loss = nt_xent_loss(z1, z2, self.hparams.simclr_temperature)
 
         return {"contrastive": loss}
 
@@ -115,6 +117,11 @@ if __name__ == "__main__":
     dataset = "schneider"
     args = parse_args(dataset)
     logger.info(args)
+
+    #
+    # @@@ temporary
+    #
+    args.pooling_method = "global_only"
 
     # dataset
     train_loader, val_loader, test_loader = load_dataset(args)
