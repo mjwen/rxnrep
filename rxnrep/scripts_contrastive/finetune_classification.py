@@ -131,7 +131,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "4hpdefmp"
+    pretrained_model_identifier = "11t7vtp8"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

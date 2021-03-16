@@ -495,7 +495,8 @@ def get_state_dict_filename(args):
     Check dataset state dict if in restore mode
     """
 
-    if "finetune_mode" in args:
+    # finetune mode
+    if "pretrained_dataset_state_dict_filename" in args:
         if not Path(args.pretrained_dataset_state_dict_filename).exists():
             raise ValueError(
                 f"args.pretrained_dataset_state_dict_filename: "

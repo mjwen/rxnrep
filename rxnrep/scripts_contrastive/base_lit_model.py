@@ -29,10 +29,11 @@ class BaseLightningModel(pl.LightningModule):
 
         self.timer = TimeMeter()
 
-    def forward(self, batch, return_mode: Optional[str] = None):
+    def forward(
+        self, mol_graphs, rxn_graphs, feats, metadata, return_mode: Optional[str] = None
+    ):
         """
         Args:
-            batch: batch of input
             return_mode: select what to return. See below.
 
         Returns:
@@ -44,23 +45,7 @@ class BaseLightningModel(pl.LightningModule):
             Values from the decoder can also be returned; currently supported ones are
             `reaction_energy`, `activation_energy`, and `reaction_type`.
         """
-        if return_mode is None and "finetune_mode" in self.hparams:
-            # in finetune mode, self.model is also a base lit model; should directly
-            # pass batch to it
-            return self.model(batch, return_mode)
 
-        # ========== compute predictions ==========
-        indices, mol_graphs, rxn_graphs, labels, metadata = batch
-
-        # lightning cannot move dgl graphs to gpu, so do it manually
-        mol_graphs = mol_graphs.to(self.device)
-        rxn_graphs = rxn_graphs.to(self.device)
-
-        nodes = ["atom", "global"]
-        feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
-        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
-
-        # ========== determine returns ==========
         if return_mode is None:
             return self.model(mol_graphs, rxn_graphs, feats, metadata)
 
@@ -133,7 +118,16 @@ class BaseLightningModel(pl.LightningModule):
 
         # ========== compute predictions ==========
         indices, mol_graphs, rxn_graphs, labels, metadata = batch
-        feats, reaction_feats = self(batch)
+
+        # lightning cannot move dgl graphs to gpu, so do it manually
+        mol_graphs = mol_graphs.to(self.device)
+        rxn_graphs = rxn_graphs.to(self.device)
+
+        nodes = ["atom", "global"]
+        feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
+
+        feats, reaction_feats = self(mol_graphs, rxn_graphs, feats, metadata)
 
         preds = self.decode(feats, reaction_feats, metadata)
 

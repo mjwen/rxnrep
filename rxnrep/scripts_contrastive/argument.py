@@ -315,7 +315,6 @@ def simclr_decoder_adjuster(args):
 
 
 def finetune_args(parser):
-    parser.add_argument("--finetune_mode", type=int, default=1)
     parser.add_argument(
         "--pretrained_dataset_state_dict_filename",
         type=str,

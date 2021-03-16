@@ -74,6 +74,7 @@ def main(
         callbacks=[checkpoint_callback, early_stop_callback],
         logger=wandb_logger,
         resume_from_checkpoint=checkpoint_path,
+        sync_batchnorm=True,
         progress_bar_refresh_rate=100,
         flush_logs_every_n_steps=50,
         weights_summary="top",
