@@ -85,7 +85,24 @@ class Reaction:
 
     @property
     def num_atoms(self) -> int:
+        """
+        Total number of atoms.
+        """
         return sum([m.num_atoms for m in self.reactants])
+
+    @property
+    def num_reactants_bonds(self) -> int:
+        """
+        Total number of bonds in all reactants.
+        """
+        return len(self.unchanged_bonds) + len(self.lost_bonds)
+
+    @property
+    def num_products_bonds(self) -> int:
+        """
+        Total number of bonds in all products.
+        """
+        return len(self.unchanged_bonds) + len(self.added_bonds)
 
     @property
     def unchanged_bonds(self) -> List[BondIndex]:
