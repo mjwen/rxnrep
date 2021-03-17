@@ -5,7 +5,12 @@ import torch
 
 from rxnrep.core.reaction import smiles_to_reaction
 from rxnrep.data.to_graph import combine_graphs, create_reaction_graph
-from rxnrep.data.transforms import DropAtom, DropBond
+from rxnrep.data.transforms import (
+    DropAtom,
+    DropBond,
+    MaskAtomAttribute,
+    MaskBondAttribute,
+)
 from rxnrep.utils import seed_all
 
 from ..utils import create_graph
@@ -162,3 +167,75 @@ def test_drop_bond():
     edata = g1.edges["bond"].data["feat"][retained_bond_edge]
     reorder = [eid.index(i) for i in retained_bond_edge]
     assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
+
+
+def test_mask_atom_attribute():
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = MaskAtomAttribute(ratio=0.5)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # atom 3 is selected
+    idx = 3
+    ref = torch.zeros(3).float()
+    assert torch.equal(sub_reactants_g.nodes["atom"].data["feat"][idx], ref)
+    assert torch.equal(sub_products_g.nodes["atom"].data["feat"][idx], ref)
+
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = MaskAtomAttribute(ratio=0.5, mask_value="mean+std")
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g,
+        products_g,
+        reaction_g,
+        reaction,
+        feature_mean=torch.arange(3).float(),
+        feature_std=torch.arange(3).float(),
+    )
+
+    # atom 3 is selected
+    idx = 3
+    ref = 2 * torch.arange(3).float()
+    assert torch.equal(sub_reactants_g.nodes["atom"].data["feat"][idx], ref)
+    assert torch.equal(sub_products_g.nodes["atom"].data["feat"][idx], ref)
+
+
+def test_mask_bond_attribute():
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = MaskBondAttribute(ratio=0.3)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # bond 1 is selected
+    idx = 1
+    indices = [2 * idx, 2 * idx + 1]  # each bond has two edges
+    ref = torch.zeros(2, 3).float()
+    assert torch.equal(sub_reactants_g.edges["bond"].data["feat"][indices], ref)
+    assert torch.equal(sub_products_g.edges["bond"].data["feat"][indices], ref)
+
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = MaskBondAttribute(ratio=0.3, mask_value="mean+std")
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g,
+        products_g,
+        reaction_g,
+        reaction,
+        feature_mean=torch.arange(3).float(),
+        feature_std=torch.arange(3).float(),
+    )
+
+    # bond 1 is selected
+    indices = [2 * idx, 2 * idx + 1]  # each bond has two edges
+    x = 2 * torch.arange(3).float()
+    ref = torch.stack([x, x])
+    assert torch.equal(sub_reactants_g.edges["bond"].data["feat"][indices], ref)
+    assert torch.equal(sub_products_g.edges["bond"].data["feat"][indices], ref)

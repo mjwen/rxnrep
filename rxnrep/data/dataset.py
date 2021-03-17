@@ -743,6 +743,14 @@ class BaseContrastiveDataset(BaseDataset):
         meta1 = self.update_meta(copy.copy(meta), reactants_g1, products_g1)
         meta2 = self.update_meta(copy.copy(meta), reactants_g2, products_g2)
 
+        # #
+        # # for profile running speed purpose
+        # #
+        # reactants_g1, products_g1, reaction_g1 = reactants_g, products_g, reaction_g
+        # reactants_g2, products_g2, reaction_g2 = reactants_g, products_g, reaction_g
+        # meta1 = self.update_meta(copy.copy(meta), reactants_g1, products_g1)
+        # meta2 = self.update_meta(copy.copy(meta), reactants_g2, products_g2)
+
         return (
             item,
             reactants_g,
