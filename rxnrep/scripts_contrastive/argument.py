@@ -257,7 +257,7 @@ def reaction_type_decoder_args(parser):
         default=[256, 128],
     )
     parser.add_argument("--reaction_type_decoder_activation", type=str, default="ReLU")
-    parser.add_argument("--num_reaction_classes", type=int, default=50)
+    parser.add_argument("--num_reaction_classes", type=int, default=46)
 
     return parser
 

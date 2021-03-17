@@ -81,13 +81,13 @@ class USPTODataset(BaseDatasetWithLabels):
 
         if self.has_class_label:
             for i, rxn in enumerate(self.reactions):
-                rxn_class = rxn.get_property("label")
+                rxn_class = rxn.get_property("reaction_type")
                 self.labels[i]["reaction_type"] = torch.as_tensor(
                     [int(rxn_class)], dtype=torch.int64
                 )
 
     def get_class_weight(
-        self, num_reaction_classes: int = 50, class_weight_as_1: bool = False
+        self, num_reaction_classes: int = None, class_weight_as_1: bool = False
     ) -> Dict[str, torch.Tensor]:
         """
         Create class weight to be used in cross entropy losses.

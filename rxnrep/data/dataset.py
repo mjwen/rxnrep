@@ -539,6 +539,10 @@ class BaseDatasetWithLabels(BaseDataset):
             meta = {
                 "reactant_num_molecules": len(rxn.reactants),
                 "product_num_molecules": len(rxn.products),
+                "num_atoms": rxn.num_atoms,
+                "num_bonds": len(rxn.unchanged_bonds)
+                + len(rxn.lost_bonds)
+                + len(rxn.added_bonds),
                 "num_unchanged_bonds": len(rxn.unchanged_bonds),
                 "num_lost_bonds": len(rxn.lost_bonds),
                 "num_added_bonds": len(rxn.added_bonds),
@@ -713,15 +717,10 @@ class BaseContrastiveDataset(BaseDataset):
         meta["num_atoms"] = reactants_g.num_nodes("atom")
 
         # in data transforms, lost and added are not augmented, only unchanged bonds
-        meta["num_unchanged_bonds"] = (
-            reactants_g.num_edges("bond") // 2 - meta["num_lost_bonds"]
-        )
+        unchanged = reactants_g.num_edges("bond") // 2 - meta["num_lost_bonds"]
 
-        meta["num_bonds"] = (
-            meta["num_unchanged_bonds"]
-            + meta["num_lost_bonds"]
-            + meta["num_added_bonds"]
-        )
+        meta["num_unchanged_bonds"] = unchanged
+        meta["num_bonds"] = unchanged + meta["num_lost_bonds"] + meta["num_added_bonds"]
 
         return meta
 
