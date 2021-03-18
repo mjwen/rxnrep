@@ -22,6 +22,7 @@ def parse_args(dataset):
 
     # ========== dataset ==========
     parser = argument.dataset_args(parser, dataset)
+    parser = argument.data_augmentation_args(parser)
 
     # ========== model ==========
     parser = argument.encoder_args(parser)

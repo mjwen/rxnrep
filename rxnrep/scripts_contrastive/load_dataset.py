@@ -22,8 +22,6 @@ def load_uspto_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
 
-    t1, t2 = init_augmentations(args)
-
     trainset = USPTOConstrativeDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
@@ -32,11 +30,14 @@ def load_uspto_dataset(args):
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         transform_features=True,
-        transforms_1=t1,
-        transforms_2=t2,
     )
-
     state_dict = trainset.state_dict()
+
+    # we initialize t1 and t2 here in case transforms need statistics from trainset
+    # (e.g. feature mean)
+    t1, t2 = init_augmentations(args)
+    trainset.transform1 = t1
+    trainset.transform2 = t1
 
     valset = USPTOConstrativeDataset(
         filename=args.valset_filename,
@@ -46,8 +47,8 @@ def load_uspto_dataset(args):
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
-        transforms_1=t1,
-        transforms_2=t2,
+        transform1=t1,
+        transform2=t2,
     )
 
     testset = USPTOConstrativeDataset(
@@ -58,8 +59,8 @@ def load_uspto_dataset(args):
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
-        transforms_1=t1,
-        transforms_2=t2,
+        transform1=t1,
+        transform2=t2,
     )
 
     # save dataset state dict for retraining or prediction
@@ -145,6 +146,31 @@ def get_state_dict_filename(args):
 
 
 def init_augmentations(args):
-    t1 = transforms.DropAtom(ratio=0.3)
-    t2 = transforms.DropBond(ratio=0.3)
+    def select_transform(name, ratio, mask_value_atom, mask_value_bond):
+        if name == "drop_atom":
+            t = transforms.DropAtom(ratio=ratio)
+        elif name == "drop_bond":
+            t = transforms.DropBond(ratio=ratio)
+        elif name == "mask_atom":
+            t = transforms.MaskAtomAttribute(ratio=ratio, mask_value=mask_value_atom)
+        elif name == "mask_bond":
+            t = transforms.MaskBondAttribute(ratio=ratio, mask_value=mask_value_bond)
+        else:
+            raise ValueError(f"Unsupported augmentation type {name}")
+
+        return t
+
+    t1 = select_transform(
+        args.augment_1,
+        args.augment_1_ratio,
+        args.augment_mask_value_atom,
+        args.augment_mask_value_bond,
+    )
+    t2 = select_transform(
+        args.augment_2,
+        args.augment_2_ratio,
+        args.augment_mask_value_atom,
+        args.augment_mask_value_bond,
+    )
+
     return t1, t2
