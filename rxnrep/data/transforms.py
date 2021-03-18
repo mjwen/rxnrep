@@ -1,4 +1,4 @@
-from typing import Any, Tuple, Union
+from typing import Any, List, Tuple, Union
 
 import dgl
 import numpy as np
@@ -32,22 +32,6 @@ class Transform:
             metadata:
         """
         raise NotImplementedError
-
-    @staticmethod
-    def _get_atoms_not_in_center(reaction) -> np.ndarray:
-        """
-        Get atoms not in reaction center.
-        """
-        (not_in_center,) = np.nonzero(reaction.atom_distance_to_reaction_center)
-        return not_in_center
-
-    @staticmethod
-    def _get_bonds_not_in_center(reaction) -> np.ndarray:
-        """
-        Get bonds not in reaction center.
-        """
-        (not_in_center,) = np.nonzero(reaction.bond_distance_to_reaction_center)
-        return not_in_center
 
 
 class Compose:
@@ -90,8 +74,7 @@ class DropAtom(Transform):
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-
-        not_in_center = self._get_atoms_not_in_center(reaction)
+        (not_in_center,) = np.nonzero(reaction.atom_distance_to_reaction_center)
         n = int(self.ratio * len(not_in_center))
 
         if n == 0:
@@ -101,16 +84,9 @@ class DropAtom(Transform):
             to_drop = np.random.choice(not_in_center, n, replace=False)
             to_keep = sorted(set(range(reaction.num_atoms)) - set(to_drop))
 
-            # extract atom dgl subgraph
-            g = reactants_g
-            nodes = {k: list(range(g.num_nodes(k))) for k in g.ntypes}
-            nodes["atom"] = to_keep
-            sub_reactants_g = dgl.node_subgraph(g, nodes)
-
-            g = products_g
-            nodes = {k: list(range(g.num_nodes(k))) for k in g.ntypes}
-            nodes["atom"] = to_keep
-            sub_products_g = dgl.node_subgraph(g, nodes)
+            # extract subgraph
+            sub_reactants_g = get_node_subgraph(reactants_g, to_keep)
+            sub_products_g = get_node_subgraph(products_g, to_keep)
 
             return sub_reactants_g, sub_products_g, reaction_g, None
 
@@ -125,8 +101,7 @@ class DropBond(Transform):
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-
-        not_in_center = self._get_bonds_not_in_center(reaction)
+        (not_in_center,) = np.nonzero(reaction.bond_distance_to_reaction_center)
         n = int(self.ratio * len(not_in_center))
 
         if n == 0:
@@ -143,16 +118,9 @@ class DropBond(Transform):
             num_product_edges = 2 * reaction.num_products_bonds
             product_bonds_to_keep = sorted(set(range(num_product_edges)) - to_drop)
 
-            # extract atom dgl subgraph
-            g = reactants_g
-            edges = {k: list(range(g.num_edges(k))) for k in g.etypes}
-            edges["bond"] = reactant_bonds_to_keep
-            sub_reactants_g = dgl.edge_subgraph(g, edges, preserve_nodes=True)
-
-            g = products_g
-            edges = {k: list(range(g.num_edges(k))) for k in g.etypes}
-            edges["bond"] = product_bonds_to_keep
-            sub_products_g = dgl.edge_subgraph(g, edges, preserve_nodes=True)
+            # extract dgl subgraph
+            sub_reactants_g = get_edge_subgraph(reactants_g, reactant_bonds_to_keep)
+            sub_products_g = get_edge_subgraph(products_g, product_bonds_to_keep)
 
             return sub_reactants_g, sub_products_g, reaction_g, None
 
@@ -175,8 +143,7 @@ class MaskAtomAttribute(Transform):
         self.mask_value = mask_value
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-
-        not_in_center = self._get_atoms_not_in_center(reaction)
+        (not_in_center,) = np.nonzero(reaction.atom_distance_to_reaction_center)
         n = int(self.ratio * len(not_in_center))
 
         if n == 0:
@@ -194,6 +161,8 @@ class MaskBondAttribute(Transform):
     """
     Only mask bonds not in the center.
 
+    This will modify feature in place. So please backup the feature before calling this.
+
     Args:
         ratio:
         mask_value: values to use for the masked features. The features of the masked
@@ -208,8 +177,7 @@ class MaskBondAttribute(Transform):
         self.mask_value = mask_value
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-
-        not_in_center = self._get_bonds_not_in_center(reaction)
+        (not_in_center,) = np.nonzero(reaction.bond_distance_to_reaction_center)
         n = int(self.ratio * len(not_in_center))
 
         if n == 0:
@@ -220,7 +188,91 @@ class MaskBondAttribute(Transform):
             x = indices * 2  # each bond has two edges (2i and 2i+1)
             selected = sorted(np.concatenate((x, x + 1)))
 
+            # modify feature in-place
             reactants_g.edges["bond"].data["feat"][selected] = self.mask_value
             products_g.edges["bond"].data["feat"][selected] = self.mask_value
 
             return reactants_g, products_g, reaction_g, None
+
+
+class Subgraph(Transform):
+    """
+    Subgraph as in `Graph Contrastive Learning with Augmentations` (appendix A2)
+    """
+
+    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
+        distance = reaction.atom_distance_to_reaction_center
+        in_center = np.argwhere(distance == 0).reshape(-1).to_list()
+
+        # number of not in center atoms to sample
+        # (note the ratio here is the ratio to drop)
+        num_in_center = len(in_center)
+        num_not_in_center = len(distance) - num_in_center
+        num_sample = int((1 - self.ratio) * num_not_in_center)
+
+        if num_sample == 0:
+            return reactants_g, products_g, reaction_g, None
+
+        else:
+            # initialize subgraph as atoms in the center
+            sub_graph = in_center
+
+            # Initialize neighbors (do not contain atoms already in sub_graph)
+            # It is sufficient to use the reactants graph to get the neighbors,
+            # since in the reaction, there is no molecule that is not connected to
+            # other molecules (i.e. no reagent molecules).
+            #
+            neigh = np.concatenate(
+                [reactants_g.successors(n, etype="bond").numpy() for n in in_center]
+            )
+            # For example, given molecules,
+            #       C2---C3
+            #      /      \
+            # C0--C1      C4--C5
+            #
+            # Suppose C1-C2 is a lost bond and C2-C3 is an added bond, the above
+            # `neigh` will include C0, C1, C2, and C4, but NO C3, because we use
+            # successors of reactants_g, and that C2-C3 is an added bond.
+            # So, to get all neigh (including in_center atoms) the below union is needed.
+            neigh = set(neigh).union(sub_graph).difference(sub_graph)
+
+            count = len(sub_graph)
+            while len(sub_graph) <= num_in_center + num_sample:
+
+                if len(neigh) == 0:  # e.g. H--H --> H + H, or all atoms included
+                    break
+
+                sample_atom = np.random.choice(list(neigh))
+
+                assert (
+                    sample_atom not in sub_graph
+                ), "Something went wrong, this should not happen"
+
+                sub_graph.append(sample_atom)
+                neigh = neigh.union(
+                    reactants_g.successors(sample_atom, etype="bond").numpy().to_list()
+                )
+
+                # remove subgraph atoms from neigh
+                neigh = neigh.difference(sub_graph)
+
+                count += 1
+
+            # extract subgraph
+            selected = sorted(sub_graph)
+            sub_reactants_g = get_node_subgraph(reactants_g, selected)
+            sub_products_g = get_node_subgraph(products_g, selected)
+
+            return sub_reactants_g, sub_products_g, reaction_g, None
+
+
+def get_node_subgraph(g, nodes: List[int], node_type: str = "atom"):
+    nodes_dict = {k: list(range(g.num_nodes(k))) for k in g.ntypes}
+    nodes_dict[node_type] = nodes
+    return dgl.node_subgraph(g, nodes_dict)
+
+
+def get_edge_subgraph(g, edges: List[int], edge_type: str = "bond"):
+    edges_dict = {k: list(range(g.num_edges(k))) for k in g.etypes}
+    edges_dict[edge_type] = edges
+    return dgl.edge_subgraph(g, edges_dict, preserve_nodes=True)
