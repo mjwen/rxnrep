@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 
 import dgl
 import numpy as np
@@ -163,25 +163,18 @@ class MaskAtomAttribute(Transform):
 
     Args:
         ratio:
-        mask_value: The type of values to use for the masked features.
-            If `None`, 0 will be used. if `mean+std`, feature mean plus feature std
-            is used. if `mean`, feature mean is used.
+        mask_value: values to use for the masked features. The features of the masked
+            bonds are set to this value. Since we normalize all the input features by
+            subtracting mean and divide std, a value of 0 is equivalent to setting all
+            the input features to mean, and a value of 1 is equivalent to setting all
+            the input features to mean+std.
     """
 
-    def __init__(self, ratio: float, mask_value: str = None):
+    def __init__(self, ratio: float, mask_value: Union[float, torch.Tensor] = 0.0):
         super().__init__(ratio)
-
         self.mask_value = mask_value
 
-    def __call__(
-        self,
-        reactants_g,
-        products_g,
-        reaction_g,
-        reaction: Reaction,
-        feature_mean: torch.Tensor = None,
-        feature_std: torch.Tensor = None,
-    ):
+    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
 
         not_in_center = self._get_atoms_not_in_center(reaction)
         n = int(self.ratio * len(not_in_center))
@@ -191,24 +184,8 @@ class MaskAtomAttribute(Transform):
 
         else:
             selected = sorted(np.random.choice(not_in_center, n, replace=False))
-
-            if self.mask_value is not None:
-                assert feature_mean is not None and feature_std is not None, (
-                    "Feature mean and std needed to mask atom features when "
-                    "`mask_value != None`"
-                )
-
-                if self.mask_value == "mean+std":
-                    value = feature_mean + feature_std
-                elif self.mask_value == "mean":
-                    value = feature_mean
-                else:
-                    raise ValueError(f"Unsupported mask value type: {self.mask_value}")
-            else:
-                value = 0
-
-            reactants_g.nodes["atom"].data["feat"][selected] = value
-            products_g.nodes["atom"].data["feat"][selected] = value
+            reactants_g.nodes["atom"].data["feat"][selected] = self.mask_value
+            products_g.nodes["atom"].data["feat"][selected] = self.mask_value
 
             return reactants_g, products_g, reaction_g, None
 
@@ -219,35 +196,18 @@ class MaskBondAttribute(Transform):
 
     Args:
         ratio:
-        mask_value: The type of values to use for the masked features.
-            If `None`, 0 will be used. if `mean+std`, feature mean plus feature std
-            is used. if `mean`, feature mean is used.
+        mask_value: values to use for the masked features. The features of the masked
+            bonds are set to this value. Since we normalize all the input features by
+            subtracting mean and divide std, a value of 0 is equivalent to setting all
+            the input features to mean, and a value of 1 is equivalent to setting all
+            the input features to mean+std.
     """
 
-    def __init__(self, ratio: float, mask_value: str = None):
+    def __init__(self, ratio: float, mask_value: Union[float, torch.Tensor] = 0.0):
         super().__init__(ratio)
-
         self.mask_value = mask_value
 
-    def __call__(
-        self,
-        reactants_g,
-        products_g,
-        reaction_g,
-        reaction: Reaction,
-        feature_mean: torch.Tensor = None,
-        feature_std: torch.Tensor = None,
-    ):
-        """
-
-        Args:
-            reactants_g:
-            products_g:
-            reaction_g:
-            reaction:
-            feature_mean: 1D tensor of bond feature mean
-            feature_std: 1D tensor of bond feature std
-        """
+    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
 
         not_in_center = self._get_bonds_not_in_center(reaction)
         n = int(self.ratio * len(not_in_center))
@@ -260,22 +220,7 @@ class MaskBondAttribute(Transform):
             x = indices * 2  # each bond has two edges (2i and 2i+1)
             selected = sorted(np.concatenate((x, x + 1)))
 
-            if self.mask_value is not None:
-                assert feature_mean is not None and feature_std is not None, (
-                    "Feature mean and std needed to mask atom features when "
-                    "`mask_value != None`"
-                )
-
-                if self.mask_value == "mean+std":
-                    value = feature_mean + feature_std
-                elif self.mask_value == "mean":
-                    value = feature_mean
-                else:
-                    raise ValueError(f"Unsupported mask value type: {self.mask_value}")
-            else:
-                value = 0
-
-            reactants_g.edges["bond"].data["feat"][selected] = value
-            products_g.edges["bond"].data["feat"][selected] = value
+            reactants_g.edges["bond"].data["feat"][selected] = self.mask_value
+            products_g.edges["bond"].data["feat"][selected] = self.mask_value
 
             return reactants_g, products_g, reaction_g, None

@@ -173,42 +173,24 @@ def test_mask_atom_attribute():
     seed_all(25)
 
     reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = MaskAtomAttribute(ratio=0.5)
+    transform = MaskAtomAttribute(ratio=0.5, mask_value=1)
     sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
         reactants_g, products_g, reaction_g, reaction
     )
 
     # atom 3 is selected
     idx = 3
-    ref = torch.zeros(3).float()
-    assert torch.equal(sub_reactants_g.nodes["atom"].data["feat"][idx], ref)
-    assert torch.equal(sub_products_g.nodes["atom"].data["feat"][idx], ref)
-
-    seed_all(25)
-
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = MaskAtomAttribute(ratio=0.5, mask_value="mean+std")
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g,
-        products_g,
-        reaction_g,
-        reaction,
-        feature_mean=torch.arange(3).float(),
-        feature_std=torch.arange(3).float(),
-    )
-
-    # atom 3 is selected
-    idx = 3
-    ref = 2 * torch.arange(3).float()
+    ref = torch.ones(3)
     assert torch.equal(sub_reactants_g.nodes["atom"].data["feat"][idx], ref)
     assert torch.equal(sub_products_g.nodes["atom"].data["feat"][idx], ref)
 
 
 def test_mask_bond_attribute():
+
     seed_all(25)
 
     reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = MaskBondAttribute(ratio=0.3)
+    transform = MaskBondAttribute(ratio=0.3, mask_value=1)
     sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
         reactants_g, products_g, reaction_g, reaction
     )
@@ -216,26 +198,6 @@ def test_mask_bond_attribute():
     # bond 1 is selected
     idx = 1
     indices = [2 * idx, 2 * idx + 1]  # each bond has two edges
-    ref = torch.zeros(2, 3).float()
-    assert torch.equal(sub_reactants_g.edges["bond"].data["feat"][indices], ref)
-    assert torch.equal(sub_products_g.edges["bond"].data["feat"][indices], ref)
-
-    seed_all(25)
-
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = MaskBondAttribute(ratio=0.3, mask_value="mean+std")
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g,
-        products_g,
-        reaction_g,
-        reaction,
-        feature_mean=torch.arange(3).float(),
-        feature_std=torch.arange(3).float(),
-    )
-
-    # bond 1 is selected
-    indices = [2 * idx, 2 * idx + 1]  # each bond has two edges
-    x = 2 * torch.arange(3).float()
-    ref = torch.stack([x, x])
+    ref = torch.ones(2, 3)
     assert torch.equal(sub_reactants_g.edges["bond"].data["feat"][indices], ref)
     assert torch.equal(sub_products_g.edges["bond"].data["feat"][indices], ref)

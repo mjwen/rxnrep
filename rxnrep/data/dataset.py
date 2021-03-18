@@ -672,8 +672,8 @@ class BaseContrastiveDataset(BaseDataset):
         #
         # args to control labels
         #
-        transforms_1: Callable = None,
-        transforms_2: Callable = None,
+        transform1: Callable = None,
+        transform2: Callable = None,
     ):
 
         super().__init__(
@@ -693,8 +693,8 @@ class BaseContrastiveDataset(BaseDataset):
         self.medadata = [{} for _ in range(len(self.reactions))]
 
         # transforms
-        self.transforms_1 = transforms_1
-        self.transforms_2 = transforms_2
+        self.transform1 = transform1
+        self.transform2 = transform2
 
         self.generate_metadata()
 
@@ -733,10 +733,10 @@ class BaseContrastiveDataset(BaseDataset):
         label = self.labels[item]
         meta = self.medadata[item]
 
-        reactants_g1, products_g1, reaction_g1, _ = self.transforms_1(
+        reactants_g1, products_g1, reaction_g1, _ = self.transform1(
             reactants_g, products_g, reaction_g, reaction
         )
-        reactants_g2, products_g2, reaction_g2, _ = self.transforms_2(
+        reactants_g2, products_g2, reaction_g2, _ = self.transform2(
             reactants_g, products_g, reaction_g, reaction
         )
 
