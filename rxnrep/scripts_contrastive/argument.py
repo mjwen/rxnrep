@@ -342,7 +342,7 @@ def data_augmentation_args(parser):
     parser.add_argument(
         "--augment_2",
         type=str,
-        default="drop_bond",
+        default="mask_bond",
         choices=["drop_atom", "drop_bond", "mask_atom", "mask_bond"],
     )
     parser.add_argument("--augment_1_ratio", type=float, default=0.2)

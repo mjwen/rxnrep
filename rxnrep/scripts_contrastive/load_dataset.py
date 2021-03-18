@@ -22,28 +22,30 @@ def load_uspto_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
 
+    atom_featurizer = AtomFeaturizer()
+    bond_featurizer = BondFeaturizer()
+    global_featurizer = GlobalFeaturizer()
+
+    t1, t2 = init_augmentations(args)
+
     trainset = USPTOConstrativeDataset(
         filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=atom_featurizer,
+        bond_featurizer=bond_featurizer,
+        global_featurizer=global_featurizer,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         transform_features=True,
+        transform1=t1,
+        transform2=t2,
     )
     state_dict = trainset.state_dict()
 
-    # we initialize t1 and t2 here in case transforms need statistics from trainset
-    # (e.g. feature mean)
-    t1, t2 = init_augmentations(args)
-    trainset.transform1 = t1
-    trainset.transform2 = t1
-
     valset = USPTOConstrativeDataset(
         filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=atom_featurizer,
+        bond_featurizer=bond_featurizer,
+        global_featurizer=global_featurizer,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
@@ -53,9 +55,9 @@ def load_uspto_dataset(args):
 
     testset = USPTOConstrativeDataset(
         filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=atom_featurizer,
+        bond_featurizer=bond_featurizer,
+        global_featurizer=global_featurizer,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,

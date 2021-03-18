@@ -19,6 +19,7 @@ from rxnrep.core.reaction import (
 from rxnrep.data.augmentation import AtomTypeFeatureMasker
 from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
 from rxnrep.data.to_graph import build_graph_and_featurize_reaction
+from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
 from rxnrep.utils import tensor_to_list, to_path, to_tensor, yaml_dump, yaml_load
 
 logger = logging.getLogger(__name__)
@@ -692,11 +693,49 @@ class BaseContrastiveDataset(BaseDataset):
         self.labels = [{} for _ in range(len(self.reactions))]
         self.medadata = [{} for _ in range(len(self.reactions))]
 
+        self.generate_metadata()
+
         # transforms
         self.transform1 = transform1
         self.transform2 = transform2
+        if isinstance(self.transform1, MaskAtomAttribute) or isinstance(
+            self.transform2, MaskAtomAttribute
+        ):
+            self.backup_atom_features()
+        if isinstance(self.transform1, MaskBondAttribute) or isinstance(
+            self.transform2, MaskBondAttribute
+        ):
+            self.backup_bond_features()
 
-        self.generate_metadata()
+    def backup_atom_features(self):
+        """
+        Make a copy of the input features in case the mask features transforms modify
+        them.
+        """
+        self.reactants_atom_features = []
+        self.products_atom_features = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            self.reactants_atom_features.append(
+                reactants_g.nodes["atom"].data.pop("feat")
+            )
+            self.products_atom_features.append(
+                products_g.nodes["atom"].data.pop("feat")
+            )
+
+    def backup_bond_features(self):
+        """
+        Make a copy of the input features in case the mask features transforms modify
+        them.
+        """
+        self.reactants_bond_features = []
+        self.products_bond_features = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            self.reactants_bond_features.append(
+                reactants_g.edges["bond"].data.pop("feat")
+            )
+            self.products_bond_features.append(
+                products_g.edges["bond"].data.pop("feat")
+            )
 
     def generate_metadata(self):
 
@@ -733,6 +772,28 @@ class BaseContrastiveDataset(BaseDataset):
         label = self.labels[item]
         meta = self.medadata[item]
 
+        # Assign atom/bond features bach to graph. Should clone to keep backup intact.
+        if isinstance(self.transform1, MaskAtomAttribute) or isinstance(
+            self.transform2, MaskAtomAttribute
+        ):
+            reactants_g.nodes["atom"].data["feat"] = self.reactants_atom_features[
+                item
+            ].clone()
+            products_g.nodes["atom"].data["feat"] = self.products_atom_features[
+                item
+            ].clone()
+
+        if isinstance(self.transform1, MaskBondAttribute) or isinstance(
+            self.transform2, MaskBondAttribute
+        ):
+            reactants_g.edges["bond"].data["feat"] = self.reactants_bond_features[
+                item
+            ].clone()
+            products_g.edges["bond"].data["feat"] = self.products_bond_features[
+                item
+            ].clone()
+
+        # Augment graph and features
         reactants_g1, products_g1, reaction_g1, _ = self.transform1(
             reactants_g, products_g, reaction_g, reaction
         )
