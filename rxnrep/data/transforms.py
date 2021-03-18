@@ -197,47 +197,53 @@ class MaskBondAttribute(Transform):
 
 class Subgraph(Transform):
     """
-    Subgraph as in `Graph Contrastive Learning with Augmentations` (appendix A2)
+    Reaction center ego-subgraph, similar to appendix A2 of
+    `Graph Contrastive Learning with Augmentations`, https://arxiv.org/abs/2010.13902.
+
+    The difference is that we start with all atoms in reaction center, where as in the
+    paper, it starts with a randomly chosen atom.
+
+    Args:
+        ratio: the ratio of non-center atoms to keep.
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        distance = reaction.atom_distance_to_reaction_center
-        in_center = np.argwhere(distance == 0).reshape(-1).to_list()
+        distance = np.asarray(reaction.atom_distance_to_reaction_center)
+        in_center = np.argwhere(distance == 0).reshape(-1).tolist()
 
         # number of not in center atoms to sample
-        # (note the ratio here is the ratio to drop)
         num_in_center = len(in_center)
         num_not_in_center = len(distance) - num_in_center
-        num_sample = int((1 - self.ratio) * num_not_in_center)
+        num_sample = int(self.ratio * num_not_in_center)
 
         if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
 
         else:
-            # initialize subgraph as atoms in the center
+            # Initialize subgraph as atoms in the center
             sub_graph = in_center
 
             # Initialize neighbors (do not contain atoms already in sub_graph)
             # It is sufficient to use the reactants graph to get the neighbors,
-            # since in the reaction, there is no molecule that is not connected to
-            # other molecules (i.e. no reagent molecules).
-            #
+            # since beyond the reaction center, the reactants and products graphs are
+            # the same.
             neigh = np.concatenate(
-                [reactants_g.successors(n, etype="bond").numpy() for n in in_center]
+                [reactants_g.successors(n, etype="bond").numpy() for n in sub_graph]
             )
-            # For example, given molecules,
+
+            # Given reaction graph,
+            #
             #       C2---C3
             #      /      \
             # C0--C1      C4--C5
             #
-            # Suppose C1-C2 is a lost bond and C2-C3 is an added bond, the above
+            # suppose C1-C2 is a lost bond and C2-C3 is an added bond, the above
             # `neigh` will include C0, C1, C2, and C4, but NO C3, because we use
             # successors of reactants_g, and that C2-C3 is an added bond.
             # So, to get all neigh (including in_center atoms) the below union is needed.
             neigh = set(neigh).union(sub_graph).difference(sub_graph)
 
-            count = len(sub_graph)
-            while len(sub_graph) <= num_in_center + num_sample:
+            while len(sub_graph) < num_in_center + num_sample:
 
                 if len(neigh) == 0:  # e.g. H--H --> H + H, or all atoms included
                     break
@@ -250,13 +256,11 @@ class Subgraph(Transform):
 
                 sub_graph.append(sample_atom)
                 neigh = neigh.union(
-                    reactants_g.successors(sample_atom, etype="bond").numpy().to_list()
+                    reactants_g.successors(sample_atom, etype="bond").numpy().tolist()
                 )
 
                 # remove subgraph atoms from neigh
                 neigh = neigh.difference(sub_graph)
-
-                count += 1
 
             # extract subgraph
             selected = sorted(sub_graph)

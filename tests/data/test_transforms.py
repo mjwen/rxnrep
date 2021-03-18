@@ -10,10 +10,108 @@ from rxnrep.data.transforms import (
     DropBond,
     MaskAtomAttribute,
     MaskBondAttribute,
+    Subgraph,
 )
 from rxnrep.utils import seed_all
 
 from ..utils import create_graph
+
+
+def test_drop_atom():
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+
+    transform = DropAtom(ratio=0.5)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # atom 3 is dropped
+    idx = 3
+
+    select = [True for _ in range(6)]
+    select[idx] = False
+
+    # bond 1, and 4 are kept
+    retained_bond_edges = [2, 3, 8, 9]
+
+    assert_atom_subgroup(reactants_g, sub_reactants_g, select, retained_bond_edges)
+    assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
+
+
+def test_drop_bond():
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+
+    transform = DropBond(ratio=0.3)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # bond 1 is dropped
+    idx = 1
+    retained_bond_edges = list(
+        itertools.chain.from_iterable(
+            [[2 * i, 2 * i + 1] for i in range(5) if i != idx]
+        )
+    )
+
+    assert_bond_subgroup(reactants_g, sub_reactants_g, retained_bond_edges)
+    assert_bond_subgroup(products_g, sub_products_g, retained_bond_edges)
+
+
+def test_mask_atom_attribute():
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = MaskAtomAttribute(ratio=0.5, mask_value=1)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # atom 3 is selected
+    idx = 3
+    ref = torch.ones(3)
+    assert torch.equal(sub_reactants_g.nodes["atom"].data["feat"][idx], ref)
+    assert torch.equal(sub_products_g.nodes["atom"].data["feat"][idx], ref)
+
+
+def test_mask_bond_attribute():
+
+    seed_all(25)
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = MaskBondAttribute(ratio=0.3, mask_value=1)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # bond 1 is selected
+    idx = 1
+    indices = [2 * idx, 2 * idx + 1]  # each bond has two edges
+    ref = torch.ones(2, 3)
+    assert torch.equal(sub_reactants_g.edges["bond"].data["feat"][indices], ref)
+    assert torch.equal(sub_products_g.edges["bond"].data["feat"][indices], ref)
+
+
+def test_subgraph():
+
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = Subgraph(ratio=0.5)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # atom 3 is selected, atoms 0,2,4 are in center
+    select = [True, False, True, True, True, False]
+
+    # bonds 2, 4 are kept
+    retained_bond_edges = [4, 5, 8, 9]
+
+    assert_atom_subgroup(reactants_g, sub_reactants_g, select, retained_bond_edges)
+    assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
 
 
 def create_reaction_and_graphs():
@@ -90,114 +188,26 @@ def create_reaction_and_graphs():
     return reactants_g, products_g, reaction_g, reaction
 
 
-def test_drop_atom():
-    seed_all(25)
+def assert_atom_subgroup(g, sub_g, retained_nodes, retained_bond_edges):
 
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-
-    transform = DropAtom(ratio=0.5)
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g, products_g, reaction_g, reaction
-    )
-
-    # atom 3 is dropped
-    idx = 3
-
-    select = [True for _ in range(6)]
-    select[idx] = False
-
-    # bond 1, and 4 are kept
-    retained_bond_edge = [2, 3, 8, 9]
-
-    g1 = reactants_g
-    g2 = sub_reactants_g
-    assert torch.equal(g1.nodes["global"].data["feat"], g2.nodes["global"].data["feat"])
     assert torch.equal(
-        g1.nodes["atom"].data["feat"][select], g2.nodes["atom"].data["feat"]
+        g.nodes["global"].data["feat"], sub_g.nodes["global"].data["feat"]
     )
-    eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
-    edata = g1.edges["bond"].data["feat"][retained_bond_edge]
-    reorder = [eid.index(i) for i in retained_bond_edge]
-    assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
-
-    g1 = products_g
-    g2 = sub_products_g
-    assert torch.equal(g1.nodes["global"].data["feat"], g2.nodes["global"].data["feat"])
     assert torch.equal(
-        g1.nodes["atom"].data["feat"][select], g2.nodes["atom"].data["feat"]
+        g.nodes["atom"].data["feat"][retained_nodes], sub_g.nodes["atom"].data["feat"]
     )
-    eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
-    edata = g1.edges["bond"].data["feat"][retained_bond_edge]
-    reorder = [eid.index(i) for i in retained_bond_edge]
-    assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
+    eid = sub_g.edges["bond"].data[dgl.EID].numpy().tolist()
+    edata = g.edges["bond"].data["feat"][retained_bond_edges]
+    reorder = [eid.index(i) for i in retained_bond_edges]
+    assert torch.equal(edata, sub_g.edges["bond"].data["feat"][reorder])
 
 
-def test_drop_bond():
-    seed_all(25)
-
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-
-    transform = DropBond(ratio=0.3)
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g, products_g, reaction_g, reaction
+def assert_bond_subgroup(g, sub_g, retained_bond_edges):
+    assert torch.equal(
+        g.nodes["global"].data["feat"], sub_g.nodes["global"].data["feat"]
     )
-
-    # bond 1 is dropped
-    idx = 1
-    retained_bond_edge = list(
-        itertools.chain.from_iterable(
-            [[2 * i, 2 * i + 1] for i in range(5) if i != idx]
-        )
-    )
-
-    g1 = reactants_g
-    g2 = sub_reactants_g
-    assert torch.equal(g1.nodes["global"].data["feat"], g2.nodes["global"].data["feat"])
-    assert torch.equal(g1.nodes["atom"].data["feat"], g2.nodes["atom"].data["feat"])
-    eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
-    edata = g1.edges["bond"].data["feat"][retained_bond_edge]
-    reorder = [eid.index(i) for i in retained_bond_edge]
-    assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
-
-    g1 = products_g
-    g2 = sub_products_g
-    assert torch.equal(g1.nodes["global"].data["feat"], g2.nodes["global"].data["feat"])
-    assert torch.equal(g1.nodes["atom"].data["feat"], g2.nodes["atom"].data["feat"])
-    eid = g2.edges["bond"].data[dgl.EID].numpy().tolist()
-    edata = g1.edges["bond"].data["feat"][retained_bond_edge]
-    reorder = [eid.index(i) for i in retained_bond_edge]
-    assert torch.equal(edata, g2.edges["bond"].data["feat"][reorder])
-
-
-def test_mask_atom_attribute():
-    seed_all(25)
-
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = MaskAtomAttribute(ratio=0.5, mask_value=1)
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g, products_g, reaction_g, reaction
-    )
-
-    # atom 3 is selected
-    idx = 3
-    ref = torch.ones(3)
-    assert torch.equal(sub_reactants_g.nodes["atom"].data["feat"][idx], ref)
-    assert torch.equal(sub_products_g.nodes["atom"].data["feat"][idx], ref)
-
-
-def test_mask_bond_attribute():
-
-    seed_all(25)
-
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = MaskBondAttribute(ratio=0.3, mask_value=1)
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g, products_g, reaction_g, reaction
-    )
-
-    # bond 1 is selected
-    idx = 1
-    indices = [2 * idx, 2 * idx + 1]  # each bond has two edges
-    ref = torch.ones(2, 3)
-    assert torch.equal(sub_reactants_g.edges["bond"].data["feat"][indices], ref)
-    assert torch.equal(sub_products_g.edges["bond"].data["feat"][indices], ref)
+    assert torch.equal(g.nodes["atom"].data["feat"], sub_g.nodes["atom"].data["feat"])
+    eid = sub_g.edges["bond"].data[dgl.EID].numpy().tolist()
+    edata = g.edges["bond"].data["feat"][retained_bond_edges]
+    reorder = [eid.index(i) for i in retained_bond_edges]
+    assert torch.equal(edata, sub_g.edges["bond"].data["feat"][reorder])
