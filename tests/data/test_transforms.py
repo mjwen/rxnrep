@@ -11,6 +11,7 @@ from rxnrep.data.transforms import (
     MaskAtomAttribute,
     MaskBondAttribute,
     Subgraph,
+    get_node_subgraph,
 )
 from rxnrep.utils import seed_all
 
@@ -114,6 +115,20 @@ def test_subgraph():
     assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
 
 
+def test_node_subgraph():
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+
+    # after removing atom 3, bond 1, and 4 are kept
+    retained_nodes = [0, 1, 2, 4, 5]
+    retained_bond_edges = [2, 3, 8, 9]
+
+    sub_g = get_node_subgraph(reactants_g, nodes=retained_nodes)
+    assert_atom_subgroup(reactants_g, sub_g, retained_nodes, retained_bond_edges)
+
+    sub_g = get_node_subgraph(products_g, nodes=retained_nodes)
+    assert_atom_subgroup(products_g, sub_g, retained_nodes, retained_bond_edges)
+
+
 def create_reaction_and_graphs():
     r"""Create a reaction: CH3CH2+ + CH3CH2CH2 --> CH3 + CH3CH2CH2CH2+
 
@@ -188,7 +203,15 @@ def create_reaction_and_graphs():
     return reactants_g, products_g, reaction_g, reaction
 
 
-def assert_atom_subgroup(g, sub_g, retained_nodes, retained_bond_edges):
+def assert_atom_subgroup(
+    g, sub_g, retained_nodes, retained_bond_edges, need_reorder=False
+):
+    """
+    Args:
+        need_reorder: whether to reorder edge feature according to eid. This is needed
+        if dgl.node_subgroup() is used, in which the relative order of edges are not
+        preserved.
+    """
 
     assert torch.equal(
         g.nodes["global"].data["feat"], sub_g.nodes["global"].data["feat"]
@@ -196,10 +219,15 @@ def assert_atom_subgroup(g, sub_g, retained_nodes, retained_bond_edges):
     assert torch.equal(
         g.nodes["atom"].data["feat"][retained_nodes], sub_g.nodes["atom"].data["feat"]
     )
-    eid = sub_g.edges["bond"].data[dgl.EID].numpy().tolist()
-    edata = g.edges["bond"].data["feat"][retained_bond_edges]
-    reorder = [eid.index(i) for i in retained_bond_edges]
-    assert torch.equal(edata, sub_g.edges["bond"].data["feat"][reorder])
+    g_edata = g.edges["bond"].data["feat"][retained_bond_edges]
+    sub_g_edata = sub_g.edges["bond"].data["feat"]
+
+    if need_reorder:
+        eid = sub_g.edges["bond"].data[dgl.EID].numpy().tolist()
+        reorder = [eid.index(i) for i in retained_bond_edges]
+        sub_g_edata = sub_g_edata[reorder]
+
+    assert torch.equal(g_edata, sub_g_edata)
 
 
 def assert_bond_subgroup(g, sub_g, retained_bond_edges):

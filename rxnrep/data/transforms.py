@@ -151,6 +151,8 @@ class MaskAtomAttribute(Transform):
 
         else:
             selected = sorted(np.random.choice(not_in_center, n, replace=False))
+
+            # modify feature in-place
             reactants_g.nodes["atom"].data["feat"][selected] = self.mask_value
             products_g.nodes["atom"].data["feat"][selected] = self.mask_value
 
@@ -270,13 +272,85 @@ class Subgraph(Transform):
             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
-def get_node_subgraph(g, nodes: List[int], node_type: str = "atom"):
+def get_edge_subgraph(g, edges: List[int], edge_type: str = "bond"):
+    edges_dict = {k: list(range(g.num_edges(k))) for k in g.etypes}
+    edges_dict[edge_type] = edges
+    return dgl.edge_subgraph(g, edges_dict, preserve_nodes=True)
+
+
+def get_node_subgraph1(g, nodes: List[int], node_type: str = "atom"):
+    """
+    This cannot preserve relative order of edges.
+    """
     nodes_dict = {k: list(range(g.num_nodes(k))) for k in g.ntypes}
     nodes_dict[node_type] = nodes
     return dgl.node_subgraph(g, nodes_dict)
 
 
-def get_edge_subgraph(g, edges: List[int], edge_type: str = "bond"):
-    edges_dict = {k: list(range(g.num_edges(k))) for k in g.etypes}
-    edges_dict[edge_type] = edges
-    return dgl.edge_subgraph(g, edges_dict, preserve_nodes=True)
+def get_node_subgraph(g, nodes: List[int], node_type: str = "atom") -> dgl.DGLGraph:
+    """
+    Node subgraph that preserves relative edge order.
+
+    This has the same functionality as dgl.node_subgraph(); but this also preserves
+    relative order of the edges.
+    """
+
+    # node mapping, old to new
+    nodes = sorted(nodes)
+    node_map = {n: i for i, n in enumerate(nodes)}
+
+    edges_dict = {}
+    edge_feats = {}
+    for rel in g.canonical_etypes:
+        srctype, etype, dsttype = rel
+
+        u, v, eid = g.edges(form="all", order="eid", etype=rel)
+
+        if srctype != node_type and dsttype != node_type:
+            # neither is node type
+            edges_dict[rel] = (u, v)
+            edge_feats[rel] = g.edges[rel].data
+        else:
+            u = u.numpy()
+            v = v.numpy()
+
+            if srctype == node_type and dsttype == node_type:
+                # both are node type
+                isin = np.isin(u, nodes) * np.isin(v, nodes)
+                new_u = [node_map[i] for i in u[isin]]
+                new_v = [node_map[i] for i in v[isin]]
+            elif srctype == node_type:
+                # src is node type
+                isin = np.isin(u, nodes)
+                new_u = [node_map[i] for i in u[isin]]
+                new_v = v[isin]
+            else:
+                # dst is node type
+                isin = np.isin(v, nodes)
+                new_u = u[isin]
+                new_v = [node_map[i] for i in v[isin]]
+
+            edges_dict[rel] = (new_u, new_v)
+            edge_feats[rel] = {k: v[isin] for k, v in g.edges[rel].data.items()}
+
+    num_nodes_dict = {t: g.num_nodes(t) for t in g.ntypes}
+    num_nodes_dict[node_type] = len(nodes)
+
+    # create graph
+    new_g = dgl.heterograph(edges_dict, num_nodes_dict=num_nodes_dict)
+
+    # edge features
+    for k, v in edge_feats.items():
+        new_g.edges[k].data.update(v)
+
+    # nodes features
+    for t in g.ntypes:
+        feats = g.nodes[t].data
+
+        # select features of retaining nodes
+        if t == node_type:
+            feats = {k: v[nodes] for k, v in feats.items()}
+
+        new_g.nodes[t].data.update(feats)
+
+    return new_g
