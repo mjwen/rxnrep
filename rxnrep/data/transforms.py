@@ -258,7 +258,7 @@ class Subgraph(Transform):
 
                 sub_graph.append(sample_atom)
                 neigh = neigh.union(
-                    reactants_g.successors(sample_atom, etype="bond").numpy().tolist()
+                    reactants_g.successors(sample_atom, etype="bond").numpy()
                 )
 
                 # remove subgraph atoms from neigh
