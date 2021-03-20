@@ -1022,7 +1022,6 @@ class BaseBatchContrastiveDataset(BaseDataset):
         batched_metadata1 = update_meta(batched_reactants_graphs1, metadata)
         batched_metadata2 = update_meta(batched_reactants_graphs2, metadata)
 
-        #############################3
         # labels
         keys = labels[0].keys()
         batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}

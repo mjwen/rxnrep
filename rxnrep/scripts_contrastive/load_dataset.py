@@ -4,9 +4,9 @@ from pathlib import Path
 
 from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data import transforms
+from rxnrep.data import transforms, transforms_batch
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import USPTOConstrativeDataset
+from rxnrep.data.uspto import USPTOBatchConstrativeDataset, USPTOConstrativeDataset
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,12 @@ def load_uspto_dataset(args):
 
     t1, t2 = init_augmentations(args)
 
-    trainset = USPTOConstrativeDataset(
+    if args.augment_batch_transform:
+        DST = USPTOBatchConstrativeDataset
+    else:
+        DST = USPTOConstrativeDataset
+
+    trainset = DST(
         filename=args.trainset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -41,7 +46,7 @@ def load_uspto_dataset(args):
     )
     state_dict = trainset.state_dict()
 
-    valset = USPTOConstrativeDataset(
+    valset = DST(
         filename=args.valset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -53,7 +58,7 @@ def load_uspto_dataset(args):
         transform2=t2,
     )
 
-    testset = USPTOConstrativeDataset(
+    testset = DST(
         filename=args.testset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -148,9 +153,15 @@ def get_state_dict_filename(args):
 
 
 def init_augmentations(args):
-    def select_transform(name, ratio, mask_value_atom, mask_value_bond):
+    def select_transform(
+        name, ratio, mask_value_atom, mask_value_bond, batch_transform
+    ):
+
         if name == "drop_atom":
-            t = transforms.DropAtom(ratio=ratio)
+            if transforms_batch:
+                t = transforms_batch.DropAtomBatch(ratio=ratio)
+            else:
+                t = transforms.DropAtom(ratio=ratio)
         elif name == "drop_bond":
             t = transforms.DropBond(ratio=ratio)
         elif name == "mask_atom":
@@ -167,12 +178,14 @@ def init_augmentations(args):
         args.augment_1_ratio,
         args.augment_mask_value_atom,
         args.augment_mask_value_bond,
+        args.augment_batch_transform,
     )
     t2 = select_transform(
         args.augment_2,
         args.augment_2_ratio,
         args.augment_mask_value_atom,
         args.augment_mask_value_bond,
+        args.augment_batch_transform,
     )
 
     return t1, t2
