@@ -2,6 +2,7 @@ import copy
 import functools
 import logging
 import multiprocessing
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -872,3 +873,195 @@ class BaseContrastiveDataset(BaseDataset):
             batched_labels,
             (batched_metadata1, batched_metadata2),
         )
+
+
+class BaseBatchContrastiveDataset(BaseDataset):
+    """
+    Base dataset for contrastive learning.
+    """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        atom_featurizer: Callable,
+        bond_featurizer: Callable,
+        global_featurizer: Callable,
+        *,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
+        transform_features: bool = True,
+        return_index: bool = True,
+        num_processes: int = 1,
+        #
+        # args to control labels
+        #
+        transform1: Callable = None,
+        transform2: Callable = None,
+    ):
+
+        super().__init__(
+            filename,
+            atom_featurizer,
+            bond_featurizer,
+            global_featurizer,
+            init_state_dict=init_state_dict,
+            transform_features=transform_features,
+            return_index=return_index,
+            num_processes=num_processes,
+        )
+
+        # labels and metadata (one inner dict for each reaction)
+        # do not use [{}] * len(self.reactions); update one will change all
+        self.labels = [{} for _ in range(len(self.reactions))]
+        self.medadata = [{} for _ in range(len(self.reactions))]
+
+        self.generate_metadata()
+
+        # transforms
+        self.transform1 = transform1
+        self.transform2 = transform2
+        if isinstance(self.transform1, MaskAtomAttribute) or isinstance(
+            self.transform2, MaskAtomAttribute
+        ):
+            self.backup_atom_features()
+        if isinstance(self.transform1, MaskBondAttribute) or isinstance(
+            self.transform2, MaskBondAttribute
+        ):
+            self.backup_bond_features()
+
+    def backup_atom_features(self):
+        """
+        Make a copy of the input features in case the mask features transforms modify
+        them.
+        """
+        self.reactants_atom_features = []
+        self.products_atom_features = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            self.reactants_atom_features.append(
+                reactants_g.nodes["atom"].data.pop("feat")
+            )
+            self.products_atom_features.append(
+                products_g.nodes["atom"].data.pop("feat")
+            )
+
+    def backup_bond_features(self):
+        """
+        Make a copy of the input features in case the mask features transforms modify
+        them.
+        """
+        self.reactants_bond_features = []
+        self.products_bond_features = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            self.reactants_bond_features.append(
+                reactants_g.edges["bond"].data.pop("feat")
+            )
+            self.products_bond_features.append(
+                products_g.edges["bond"].data.pop("feat")
+            )
+
+    def generate_metadata(self):
+
+        for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
+            meta = {
+                "reactant_num_molecules": len(rxn.reactants),
+                "product_num_molecules": len(rxn.products),
+                "num_unchanged_bonds": len(rxn.unchanged_bonds),
+                "num_lost_bonds": len(rxn.lost_bonds),
+                "num_added_bonds": len(rxn.added_bonds),
+            }
+
+            self.medadata[i].update(meta)
+
+    def __getitem__(self, item: int):
+        """
+        Get data point with index.
+        """
+        reactants_g, products_g, reaction_g = self.dgl_graphs[item]
+        reaction = self.reactions[item]
+        label = self.labels[item]
+        meta = self.medadata[item]
+
+        return item, reactants_g, products_g, reaction_g, meta, label, reaction
+
+    @staticmethod
+    def collate_fn(samples):
+        indices, reactants_g, products_g, reaction_g, metadata, labels, reactions = map(
+            list, zip(*samples)
+        )
+
+        batched_indices = torch.as_tensor(indices)
+
+        batched_reactants_graphs = dgl.batch(reactants_g)
+        batched_products_graphs = dgl.batch(products_g)
+        batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+
+        from rxnrep.data.transforms_batch import DropAtomBatch
+
+        transform1 = DropAtomBatch(ratio=0.2)
+        transform2 = DropAtomBatch(ratio=0.2)
+        batched_reactants_graphs1, batched_products_graphs1, _, _ = transform1(
+            batched_reactants_graphs,
+            batched_products_graphs,
+            batched_reaction_graphs,
+            reactions,
+        )
+        batched_molecule_graphs1 = dgl.batch(
+            [batched_reactants_graphs1, batched_products_graphs1]
+        )
+
+        batched_reactants_graphs2, batched_products_graphs2, _, _ = transform2(
+            batched_reactants_graphs,
+            batched_products_graphs,
+            batched_reaction_graphs,
+            reactions,
+        )
+        batched_molecule_graphs2 = dgl.batch(
+            [batched_reactants_graphs2, batched_products_graphs2]
+        )
+
+        # metadata
+        batched_metadata1 = update_meta(batched_reactants_graphs1, metadata)
+        batched_metadata2 = update_meta(batched_reactants_graphs2, metadata)
+
+        #############################3
+        # labels
+        keys = labels[0].keys()
+        batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
+
+        return (
+            batched_indices,
+            (batched_molecule_graphs1, batched_molecule_graphs2),
+            batched_reaction_graphs,
+            batched_labels,
+            (batched_metadata1, batched_metadata2),
+        )
+
+
+def update_meta(batched_reactants_graphs, metadata):
+    new_metadata = defaultdict(list)
+
+    num_edges = (
+        batched_reactants_graphs.batch_num_edges(("atom", "bond", "atom"))
+        .numpy()
+        .tolist()
+    )
+
+    for i, meta in enumerate(metadata):
+
+        # update original
+        for k, v in meta.items():
+            if k == "num_unchanged_bonds":
+                v = num_edges[i] // 2 - meta["num_lost_bonds"]
+            new_metadata[k].append(v)
+
+        # add new meta
+        new_metadata["num_bonds"].append(
+            new_metadata["num_unchanged_bonds"][i]
+            + meta["num_lost_bonds"]
+            + meta["num_added_bonds"]
+        )
+
+    new_metadata["num_atoms"] = (
+        batched_reactants_graphs.batch_num_nodes("atom").numpy().tolist()
+    )
+
+    return new_metadata
