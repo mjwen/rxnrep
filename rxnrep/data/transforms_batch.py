@@ -47,10 +47,12 @@ class DropAtomBatch(TransformBatch):
     def __call__(self, reactants_g, products_g, reactions_g, reactions: List[Reaction]):
 
         rct_batch_num_edges = {
-            t: reactants_g.batch_num_edges(t) for t in reactants_g.canonical_etypes
+            t: reactants_g.batch_num_edges(t).clone()
+            for t in reactants_g.canonical_etypes
         }
         prdt_batch_num_edges = {
-            t: products_g.batch_num_edges(t) for t in products_g.canonical_etypes
+            t: products_g.batch_num_edges(t).clone()
+            for t in products_g.canonical_etypes
         }
 
         all_to_keep = []
@@ -68,8 +70,10 @@ class DropAtomBatch(TransformBatch):
             num_atoms = rxn.num_atoms
             to_keep = sorted(set(range(num_atoms)).difference(to_drop))
             to_keep = np.asarray(to_keep) + start
+            all_to_keep.append(to_keep)
 
-            # number of edges after dropping
+            # compute number of edges after dropping
+            to_drop = to_drop + start
             drop_edge_pairs = get_edges_associated_with_nodes(
                 reactants_g, to_drop, etype="bond"
             )
@@ -79,7 +83,6 @@ class DropAtomBatch(TransformBatch):
             # since the same number edges are dropped
             update_batch_num_edge(i, prdt_batch_num_edges, drop_edge_pairs, to_drop)
 
-            all_to_keep.append(to_keep)
             all_num_atoms.append(num_atoms - len(to_drop))
 
             start += num_atoms
