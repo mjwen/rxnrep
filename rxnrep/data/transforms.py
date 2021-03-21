@@ -275,7 +275,7 @@ class Subgraph(Transform):
 def get_edge_subgraph(g, edges: List[int], edge_type: str = "bond"):
     edges_dict = {k: list(range(g.num_edges(k))) for k in g.etypes}
     edges_dict[edge_type] = edges
-    return dgl.edge_subgraph(g, edges_dict, preserve_nodes=True)
+    return dgl.edge_subgraph(g, edges_dict, preserve_nodes=True, store_ids=False)
 
 
 def get_node_subgraph1(g, nodes: List[int], node_type: str = "atom"):
@@ -284,7 +284,7 @@ def get_node_subgraph1(g, nodes: List[int], node_type: str = "atom"):
     """
     nodes_dict = {k: list(range(g.num_nodes(k))) for k in g.ntypes}
     nodes_dict[node_type] = nodes
-    return dgl.node_subgraph(g, nodes_dict)
+    return dgl.node_subgraph(g, nodes_dict, store_ids=False)
 
 
 def get_node_subgraph(g, nodes: List[int], node_type: str = "atom") -> dgl.DGLGraph:
@@ -361,7 +361,7 @@ def get_node_subgraph(g, nodes: List[int], node_type: str = "atom") -> dgl.DGLGr
 
 class IdentityTransform:
     """
-    Identity tranform that does not modify the graph.
+    Identity transform that does not modify the graph.
     """
 
     def __init__(self, ratio: float):
