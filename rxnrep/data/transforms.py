@@ -350,8 +350,9 @@ def get_node_subgraph(g, nodes: List[int], node_type: str = "atom") -> dgl.DGLGr
         # select features of retaining nodes
         if t == node_type:
             feats = {k: v[nodes] for k, v in feats.items()}
+
             # add node ids
-            feats["_ID"] = torch.as_tensor(nodes)
+            # feats["_ID"] = torch.as_tensor(nodes)
 
         new_g.nodes[t].data.update(feats)
 

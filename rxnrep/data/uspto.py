@@ -124,7 +124,7 @@ class USPTODataset(BaseDatasetWithLabels):
         return weight
 
 
-class USPTOConstrativeDataset(BaseContrastiveDataset):
+class USPTOContrastiveDataset(BaseContrastiveDataset):
 
     """
     USPTO dataset.
@@ -146,7 +146,7 @@ class USPTOConstrativeDataset(BaseContrastiveDataset):
         return succeed_reactions, failed
 
 
-class USPTOBatchConstrativeDataset(BaseBatchContrastiveDataset):
+class USPTOBatchContrastiveDataset(BaseBatchContrastiveDataset):
 
     """
     USPTO dataset.

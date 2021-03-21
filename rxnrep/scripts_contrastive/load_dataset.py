@@ -6,7 +6,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data import transforms
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import USPTOConstrativeDataset
+from rxnrep.data.uspto import USPTOContrastiveDataset
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def load_uspto_dataset(args):
 
     t1, t2 = init_augmentations(args)
 
-    trainset = USPTOConstrativeDataset(
+    trainset = USPTOContrastiveDataset(
         filename=args.trainset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -41,7 +41,7 @@ def load_uspto_dataset(args):
     )
     state_dict = trainset.state_dict()
 
-    valset = USPTOConstrativeDataset(
+    valset = USPTOContrastiveDataset(
         filename=args.valset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -53,7 +53,7 @@ def load_uspto_dataset(args):
         transform2=t2,
     )
 
-    testset = USPTOConstrativeDataset(
+    testset = USPTOContrastiveDataset(
         filename=args.testset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,

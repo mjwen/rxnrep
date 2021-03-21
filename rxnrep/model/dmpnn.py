@@ -13,8 +13,7 @@ from dgl import function as fn
 from dgl.ops import segment_reduce
 from torch import nn
 
-from rxnrep.model.decoder import ActivationEnergyDecoder, ReactionEnergyDecoder
-from rxnrep.model.utils import get_activation, get_dropout
+from rxnrep.model.utils import MLP, get_activation, get_dropout
 
 
 class DMPNNConvAtomMessage(nn.Module):
@@ -305,20 +304,22 @@ class DMPNNModel(DMPNNEncoder):
 
         # reaction energy decoder
         if reaction_energy_decoder_hidden_layer_sizes:
-            self.reaction_energy_decoder = ReactionEnergyDecoder(
+            self.reaction_energy_decoder = MLP(
                 in_size=self.reaction_feats_size,
-                hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
+                hidden_sizes=reaction_energy_decoder_hidden_layer_sizes,
                 activation=reaction_energy_decoder_activation,
+                out_size=1,
             )
         else:
             self.reaction_energy_decoder = None
 
         # activation energy decoder
         if activation_energy_decoder_hidden_layer_sizes:
-            self.activation_energy_decoder = ActivationEnergyDecoder(
+            self.activation_energy_decoder = MLP(
                 in_size=self.reaction_feats_size,
-                hidden_layer_sizes=activation_energy_decoder_hidden_layer_sizes,
+                hidden_sizes=activation_energy_decoder_hidden_layer_sizes,
                 activation=activation_energy_decoder_activation,
+                out_size=1,
             )
         else:
             self.activation_energy_decoder = None
