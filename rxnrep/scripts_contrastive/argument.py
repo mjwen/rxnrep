@@ -337,18 +337,17 @@ def data_augmentation_args(parser):
         "--augment_1",
         type=str,
         default="drop_atom",
-        choices=["drop_atom", "drop_bond", "mask_atom", "mask_bond"],
+        choices=["drop_atom", "drop_bond", "mask_atom", "mask_bond", "subgraph"],
     )
     parser.add_argument(
         "--augment_2",
         type=str,
-        default="drop_atom",
-        choices=["drop_atom", "drop_bond", "mask_atom", "mask_bond"],
+        default="subgraph",
+        choices=["drop_atom", "drop_bond", "mask_atom", "mask_bond", "subgraph"],
     )
     parser.add_argument("--augment_1_ratio", type=float, default=0.2)
     parser.add_argument("--augment_2_ratio", type=float, default=0.2)
     parser.add_argument("--augment_mask_value_atom", type=float, default=1.0)
     parser.add_argument("--augment_mask_value_bond", type=float, default=1.0)
-    parser.add_argument("--augment_batch_transform", type=int, default=1)
 
     return parser

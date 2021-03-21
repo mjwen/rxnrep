@@ -4,9 +4,9 @@ from pathlib import Path
 
 from torch.utils.data.dataloader import DataLoader
 
-from rxnrep.data import transforms, transforms_batch
+from rxnrep.data import transforms
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
-from rxnrep.data.uspto import USPTOBatchConstrativeDataset, USPTOConstrativeDataset
+from rxnrep.data.uspto import USPTOConstrativeDataset
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,7 @@ def load_uspto_dataset(args):
 
     t1, t2 = init_augmentations(args)
 
-    if args.augment_batch_transform:
-        DST = USPTOBatchConstrativeDataset
-    else:
-        DST = USPTOConstrativeDataset
-
-    trainset = DST(
+    trainset = USPTOConstrativeDataset(
         filename=args.trainset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -46,7 +41,7 @@ def load_uspto_dataset(args):
     )
     state_dict = trainset.state_dict()
 
-    valset = DST(
+    valset = USPTOConstrativeDataset(
         filename=args.valset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -58,7 +53,7 @@ def load_uspto_dataset(args):
         transform2=t2,
     )
 
-    testset = DST(
+    testset = USPTOConstrativeDataset(
         filename=args.testset_filename,
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
@@ -153,21 +148,18 @@ def get_state_dict_filename(args):
 
 
 def init_augmentations(args):
-    def select_transform(
-        name, ratio, mask_value_atom, mask_value_bond, batch_transform
-    ):
+    def select_transform(name, ratio, mask_value_atom, mask_value_bond):
 
         if name == "drop_atom":
-            if transforms_batch:
-                t = transforms_batch.DropAtomBatch(ratio=ratio)
-            else:
-                t = transforms.DropAtom(ratio=ratio)
+            t = transforms.DropAtom(ratio=ratio)
         elif name == "drop_bond":
             t = transforms.DropBond(ratio=ratio)
         elif name == "mask_atom":
             t = transforms.MaskAtomAttribute(ratio=ratio, mask_value=mask_value_atom)
         elif name == "mask_bond":
             t = transforms.MaskBondAttribute(ratio=ratio, mask_value=mask_value_bond)
+        elif name == "subgraph":
+            t = transforms.Subgraph(ratio=ratio)
         else:
             raise ValueError(f"Unsupported augmentation type {name}")
 
@@ -178,14 +170,12 @@ def init_augmentations(args):
         args.augment_1_ratio,
         args.augment_mask_value_atom,
         args.augment_mask_value_bond,
-        args.augment_batch_transform,
     )
     t2 = select_transform(
         args.augment_2,
         args.augment_2_ratio,
         args.augment_mask_value_atom,
         args.augment_mask_value_bond,
-        args.augment_batch_transform,
     )
 
     return t1, t2
