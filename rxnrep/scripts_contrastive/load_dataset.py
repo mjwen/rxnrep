@@ -160,6 +160,8 @@ def init_augmentations(args):
             t = transforms.MaskBondAttribute(ratio=ratio, mask_value=mask_value_bond)
         elif name == "subgraph":
             t = transforms.Subgraph(ratio=ratio)
+        elif name == "identity":
+            t = transforms.IdentityTransform(ratio=ratio)
         else:
             raise ValueError(f"Unsupported augmentation type {name}")
 

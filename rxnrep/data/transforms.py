@@ -357,3 +357,19 @@ def get_node_subgraph(g, nodes: List[int], node_type: str = "atom") -> dgl.DGLGr
         new_g.nodes[t].data.update(feats)
 
     return new_g
+
+
+class IdentityTransform:
+    """
+    Identity tranform that does not modify the graph.
+    """
+
+    def __init__(self, ratio: float):
+        assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
+        self.ratio = ratio
+
+    def __call__(
+        self, reactants_g, products_g, reaction_g, reaction: Reaction
+    ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
+
+        return reactants_g, products_g, reaction_g, reaction
