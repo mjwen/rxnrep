@@ -235,7 +235,7 @@ def assert_bond_subgroup(g, sub_g, retained_bond_edges):
         g.nodes["global"].data["feat"], sub_g.nodes["global"].data["feat"]
     )
     assert torch.equal(g.nodes["atom"].data["feat"], sub_g.nodes["atom"].data["feat"])
-    eid = sub_g.edges["bond"].data[dgl.EID].numpy().tolist()
-    edata = g.edges["bond"].data["feat"][retained_bond_edges]
-    reorder = [eid.index(i) for i in retained_bond_edges]
-    assert torch.equal(edata, sub_g.edges["bond"].data["feat"][reorder])
+    assert torch.equal(
+        g.edges["bond"].data["feat"][retained_bond_edges],
+        sub_g.edges["bond"].data["feat"],
+    )

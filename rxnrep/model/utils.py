@@ -69,7 +69,8 @@ class MLP(nn.Module):
         out_activation: bool = False,
     ):
         super(MLP, self).__init__()
-        self.num_layers = len(hidden_sizes) + 1
+        self.num_hidden_layers = len(hidden_sizes)
+        self.has_out_layer = out_size is not None
 
         layers = []
 
@@ -86,8 +87,7 @@ class MLP(nn.Module):
                 layers.append(nn.BatchNorm1d(size))
 
             if activation is not None:
-                act = get_activation(activation)
-                layers.append(act)
+                layers.append(get_activation(activation))
 
             in_size = size
 
@@ -104,8 +104,7 @@ class MLP(nn.Module):
                 layers.append(nn.BatchNorm1d(out_size))
 
             if activation is not None and out_activation:
-                act = get_activation(activation)
-                layers.append(act)
+                layers.append(get_activation(activation))
 
         self.mlp = nn.Sequential(*layers)
 
@@ -113,7 +112,10 @@ class MLP(nn.Module):
         return self.mlp(x)
 
     def __repr__(self):
-        return f"MLP, num layers={self.num_layers}"
+        s = f"MLP, num hidden layers: {self.num_layers}"
+        if self.has_out_layer:
+            s += "; with output layer"
+        return s
 
 
 def get_activation(act: Union[str, Callable]) -> Callable:
