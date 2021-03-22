@@ -20,14 +20,14 @@ class ReactionEncoder(nn.Module):
 
     This is achieve by:
 
-    1. update atom, bond, and global features of molecule graphs for the reactants and
-       products with gated graph conv layers.
+    1. update atom, bond, and (optionally global) features of molecule graphs for the
+       reactants and products with gated graph conv layers.
     2. compute the difference features between the products and the reactants.
-    3. update the difference features obtained in step 2 of the reaction graph with gated
-       graph conv layers.
+    3. (optional) update the difference features using the reaction graph.
+    4. (optional) update difference features using MLP
+    5. readout reaction features using a pooling, e.g. set2set
 
     Args:
-
         embedding_size: Typically, atom, bond, and global features do not have the same
             size. We apply a linear layer to unity their size to `embedding_size`. If
             `None`, the embedding layer is not applied.
@@ -39,13 +39,13 @@ class ReactionEncoder(nn.Module):
         self,
         in_feats: Dict[str, int],
         embedding_size: Optional[int] = None,
-        molecule_conv_layer_sizes: Optional[List[int]] = (64, 64),
-        molecule_num_fc_layers: Optional[int] = 2,
-        molecule_batch_norm: Optional[bool] = True,
-        molecule_activation: Optional[str] = "ReLU",
-        molecule_residual: Optional[bool] = True,
-        molecule_dropout: Optional[float] = 0.0,
-        reaction_conv_layer_sizes: Optional[List[int]] = (64, 64),
+        molecule_conv_layer_sizes: List[int] = (64, 64),
+        molecule_num_fc_layers: int = 2,
+        molecule_batch_norm: bool = True,
+        molecule_activation: str = "ReLU",
+        molecule_residual: bool = True,
+        molecule_dropout: float = 0.0,
+        reaction_conv_layer_sizes: Optional[List[int]] = None,
         reaction_num_fc_layers: Optional[int] = 2,
         reaction_batch_norm: Optional[bool] = True,
         reaction_activation: Optional[str] = "ReLU",
@@ -54,10 +54,11 @@ class ReactionEncoder(nn.Module):
         conv="GatedGCNConv2",
         has_global_feats: bool = True,
         # compressing
-        compressing_layer_sizes=None,
-        compressing_layer_activation=None,
+        compressing_layer_sizes: Optional[List[int]] = None,
+        compressing_layer_batch_norm: Optional[bool] = True,
+        compressing_layer_activation: Optional[str] = "ReLU",
         # pooling
-        pooling_method="set2set",
+        pooling_method: str = "set2set",
         pooling_kwargs: Dict[str, Any] = None,
     ):
         super(ReactionEncoder, self).__init__()
@@ -103,8 +104,8 @@ class ReactionEncoder(nn.Module):
         for layer_size in molecule_conv_layer_sizes:
             self.molecule_conv_layers.append(
                 conv_class(
-                    input_dim=in_size,
-                    output_dim=layer_size,
+                    in_size=in_size,
+                    out_size=layer_size,
                     num_fc_layers=molecule_num_fc_layers,
                     batch_norm=molecule_batch_norm,
                     activation=molecule_activation,
@@ -117,42 +118,45 @@ class ReactionEncoder(nn.Module):
         #
         # graph conv layers to update features of reaction graph
         #
-        self.reaction_conv_layers = nn.ModuleList()
-        for layer_size in reaction_conv_layer_sizes:
-            self.reaction_conv_layers.append(
-                conv_class(
-                    input_dim=in_size,
-                    output_dim=layer_size,
-                    num_fc_layers=reaction_num_fc_layers,
-                    batch_norm=reaction_batch_norm,
-                    activation=reaction_activation,
-                    residual=reaction_residual,
-                    dropout=reaction_dropout,
-                )
-            )
-            in_size = layer_size
-
-        # output feature size from conv layers
         if reaction_conv_layer_sizes:
+            self.reaction_conv_layers = nn.ModuleList()
+            for layer_size in reaction_conv_layer_sizes:
+                self.reaction_conv_layers.append(
+                    conv_class(
+                        in_size=in_size,
+                        out_size=layer_size,
+                        num_fc_layers=reaction_num_fc_layers,
+                        batch_norm=reaction_batch_norm,
+                        activation=reaction_activation,
+                        residual=reaction_residual,
+                        dropout=reaction_dropout,
+                    )
+                )
+                in_size = layer_size
+
             conv_outsize = reaction_conv_layer_sizes[-1]
         else:
+            self.reaction_conv_layers = None
             conv_outsize = molecule_conv_layer_sizes[-1]
 
         # ========== compressor ==========
-        feat_types = ["atom", "bond"]
-        if has_global_feats:
-            feat_types.append("global")
         if compressing_layer_sizes:
+            self.feat_types = ["atom", "bond"]
+            if has_global_feats:
+                self.feat_types.append("global")
+
             self.compressor = nn.ModuleDict(
                 {
                     k: MLP(
                         in_size=conv_outsize,
                         hidden_sizes=compressing_layer_sizes,
+                        batch_norm=compressing_layer_batch_norm,
                         activation=compressing_layer_activation,
                     )
-                    for k in feat_types
+                    for k in self.feat_types
                 }
             )
+
             compressor_outsize = compressing_layer_sizes[-1]
         else:
             self.compressor = None
@@ -223,14 +227,13 @@ class ReactionEncoder(nn.Module):
 
         # reaction graph conv layer
         feats = diff_feats
-        for layer in self.reaction_conv_layers:
-            feats = layer(reaction_graphs, feats)
+        if self.reaction_conv_layers:
+            for layer in self.reaction_conv_layers:
+                feats = layer(reaction_graphs, feats)
 
         # compressor
         if self.compressor:
-            feats = {
-                k: self.compressor[k](feats[k]) for k in ["atom", "bond", "global"]
-            }
+            feats = {k: self.compressor[k](feats[k]) for k in self.feat_types}
 
         # readout reaction features, a 1D tensor for each reaction
         reaction_feats = self.readout(molecule_graphs, reaction_graphs, feats, metadata)
