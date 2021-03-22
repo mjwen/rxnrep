@@ -50,10 +50,10 @@ class MLP(nn.Module):
     Args:
         in_size: input feature size
         hidden_sizes: sizes for hidden layers
-        bias: whether to use bias for hidden layers
+        batch_norm: whether to add 1D batch norm
         activation: activation function for hidden layers
         out_size: size of output layer
-        out_bias: whether to use bias for output layer
+        out_batch_norm: whether to add 1D batch norm for output layer
         out_activation: whether to apply activation for output layer
     """
 
@@ -61,10 +61,11 @@ class MLP(nn.Module):
         self,
         in_size: int,
         hidden_sizes: List[int],
-        bias: bool = True,
+        *,
+        batch_norm: bool = False,
         activation: Union[Callable, str] = "ReLU",
         out_size: Optional[int] = None,
-        out_bias: bool = True,
+        out_batch_norm: bool = False,
         out_activation: bool = False,
     ):
         super(MLP, self).__init__()
@@ -73,16 +74,35 @@ class MLP(nn.Module):
         layers = []
 
         # hidden layers
+        if batch_norm:
+            bias = False
+        else:
+            bias = True
+
         for size in hidden_sizes:
             layers.append(nn.Linear(in_size, size, bias=bias))
+
+            if batch_norm:
+                layers.append(nn.BatchNorm1d(size))
+
             if activation is not None:
                 act = get_activation(activation)
                 layers.append(act)
+
             in_size = size
 
         # output layer
+        if out_batch_norm:
+            out_bias = False
+        else:
+            out_bias = True
+
         if out_size is not None:
             layers.append(nn.Linear(in_size, out_size, bias=out_bias))
+
+            if out_batch_norm:
+                layers.append(nn.BatchNorm1d(out_size))
+
             if activation is not None and out_activation:
                 act = get_activation(activation)
                 layers.append(act)
