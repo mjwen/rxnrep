@@ -1,131 +1,122 @@
 """
 Readout (pooling) layers.
 """
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import dgl
 import numpy as np
 import torch
-from dgl import function as fn
 from dgl.ops import segment_reduce, segment_softmax
 from torch import nn
 
 
-class ConcatenateMeanMax(nn.Module):
+class Pooling(nn.Module):
     """
-    Concatenate the mean and max of features of a node type to another node type.
+    Reaction feature pooling.
+
+    Readout reaction features, one 1D tensor for each reaction.
 
     Args:
-        etypes: canonical edge types of a graph of which the features of node
-            `u` are concatenated to the features of node `v`.
-            For example: if `etypes = [('atom', 'a2b', 'bond'), ('global','g2b', 'bond')]`
-            then the mean and max of the features of `atom` as well as  `global` are
-            concatenated to the features of `bond`.
+        in_size: input feature size, i.e. atom/bond/global feature sizes
     """
 
-    def __init__(self, etypes: List[Tuple[str, str, str]]):
-        super(ConcatenateMeanMax, self).__init__()
-        self.etypes = etypes
+    def __init__(
+        self,
+        in_size: int,
+        pooling_method: str,
+        pooling_kwargs: Dict[str, Any],
+        has_global_feats: bool = False,
+    ):
+        super().__init__()
+
+        self.pooling_method = pooling_method
+        self.has_global_feats = has_global_feats
+
+        if pooling_method == "set2set":
+            if pooling_kwargs is None:
+                num_iterations = 6
+                num_layers = 3
+            else:
+                num_iterations = pooling_kwargs["set2set_num_iterations"]
+                num_layers = pooling_kwargs["set2set_num_layers"]
+
+            self.set2set_atom = Set2Set(
+                input_dim=in_size, n_iters=num_iterations, n_layers=num_layers
+            )
+            self.set2set_bond = Set2Set(
+                input_dim=in_size, n_iters=num_iterations, n_layers=num_layers
+            )
+
+            if has_global_feats:
+                pooling_outsize = in_size * 5
+            else:
+                pooling_outsize = in_size * 4
+
+        elif pooling_method == "hop_distance":
+            if pooling_kwargs is None:
+                raise RuntimeError(
+                    "`max_hop_distance` should be provided as `pooling_kwargs` to use "
+                    "`hop_distance_pool`"
+                )
+            else:
+                max_hop_distance = pooling_kwargs["max_hop_distance"]
+                self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
+
+            pooling_outsize = in_size * 3
+
+        elif pooling_method == "global_only":
+            pooling_outsize = in_size
+
+        else:
+            raise ValueError(f"Unsupported pooling method `{pooling_method}`")
+
+        self.reaction_feats_size = pooling_outsize
 
     def forward(
-        self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ) -> torch.Tensor:
         """
-        Args:
-            graph: the graph
-            feats: node features with node type as key and the corresponding
-                features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size.
-
         Returns:
-            updated node features. Each tensor is of shape (N, D) where N is the number
-            of nodes of the corresponding node type, and D is the feature size.
-
+            Reaction features, 2D tensor of shape (B, D), where B is batch size and D
+            is reaction feature size.
         """
-        graph = graph.local_var()
 
-        # assign data
-        for nt, ft in feats.items():
-            graph.nodes[nt].data.update({"ft": ft})
+        # readout reaction features, a 1D tensor for each reaction
+        if self.pooling_method == "set2set":
+            atom_sizes = torch.as_tensor(metadata["num_atoms"]).to(feats["atom"].device)
+            bond_sizes = torch.as_tensor(metadata["num_bonds"]).to(feats["bond"].device)
 
-        for et in self.etypes:
-            # option 1
-            graph[et].update_all(fn.copy_u("ft", "m"), fn.mean("m", "mean"), etype=et)
-            graph[et].update_all(fn.copy_u("ft", "m"), fn.max("m", "max"), etype=et)
+            atom_feats = feats["atom"]
+            bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
 
-            nt = et[2]
-            graph.apply_nodes(self._concatenate_node_feat, ntype=nt)
+            rxn_feats_atom = self.set2set_atom(atom_feats, atom_sizes)
+            rxn_feats_bond = self.set2set_bond(bond_feats, bond_sizes)
 
-            # copy update feature from new_ft to ft
-            graph.nodes[nt].data.update({"ft": graph.nodes[nt].data["new_ft"]})
+            if self.has_global_feats:
+                return torch.cat(
+                    [rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1
+                )
+            else:
+                return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
 
-        return {nt: graph.nodes[nt].data["ft"] for nt in feats}
+        elif self.pooling_method == "hop_distance":
+            hop_dist = {
+                "atom": metadata["atom_hop_dist"],
+                "bond": metadata["bond_hop_dist"],
+            }
+            reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
 
-    @staticmethod
-    def _concatenate_node_feat(nodes):
-        data = nodes.data["ft"]
-        mean = nodes.data["mean"]
-        max = nodes.data["max"]
-        concatenated = torch.cat((data, mean, max), dim=1)
-        return {"new_ft": concatenated}
+        elif self.pooling_method == "global_only":
+            reaction_feats = feats["global"]
 
+        else:
+            raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
 
-class ConcatenateMeanAbsDiff(nn.Module):
-    """
-    Concatenate the mean and max of features of a node type to another node type.
-
-    This is very specific to the scheme that two atoms directed to bond. Others may fail.
-
-    Args:
-        etypes: canonical edge types of a graph of which the features of node `u`
-            are concatenated to the features of node `v`.
-            For example: if `etypes = [('atom', 'a2b', 'bond'), ('global','g2b', 'bond')]`
-            then the mean and max of the features of `atom` and `global` are concatenated
-            to the features of `bond`.
-    """
-
-    def __init__(self, etypes):
-        super(ConcatenateMeanAbsDiff, self).__init__()
-        self.etypes = etypes
-
-    def forward(
-        self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
-
-        """
-        Args:
-            graph: the graph
-            feats: node features with node type as key and the corresponding
-                features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size.
-
-        Returns:
-            updated node features. Each tensor is of shape (N, D) where N is the number
-            of nodes of the corresponding node type, and D is the feature size.
-        """
-        graph = graph.local_var()
-
-        # assign data
-        for nt, ft in feats.items():
-            graph.nodes[nt].data.update({"ft": ft})
-
-        for et in self.etypes:
-            graph[et].update_all(fn.copy_u("ft", "m"), self._concatenate_data, etype=et)
-
-        return {nt: graph.nodes[nt].data["ft"] for nt in feats}
-
-    @staticmethod
-    def _concatenate_data(nodes):
-        message = nodes.mailbox["m"]
-        mean_v = torch.mean(message, dim=1)
-        # NOTE this is very specific to the atom -> bond case
-        # there are two elements along dim=1, since for each bond we have two atoms
-        # directed to it
-        abs_diff = torch.stack([torch.abs(x[0] - x[1]) for x in message])
-        data = nodes.data["ft"]
-
-        concatenated = torch.cat((data, mean_v, abs_diff), dim=1)
-        return {"ft": concatenated}
+        return reaction_feats
 
 
 class Set2Set(nn.Module):
@@ -201,91 +192,6 @@ class Set2Set(nn.Module):
             q_star = torch.cat([q, readout], dim=-1)
 
         return q_star
-
-
-class Set2SetThenCat(nn.Module):
-    """
-    Set2Set for nodes (separate for different node type) and then concatenate the
-    features of different node types to create a representation of the graph.
-
-    Note, this assume the the bond edge is bidirectionally, i.e. two bond edge features
-    for one bond; thus, we only select one of the two exactly the same feature for a
-    bond.
-
-     Args:
-        num_iters: number of LSTM iteration
-        num_layers: number of LSTM layers
-        in_feats: size of input features
-        ntypes: node types to perform Set2Set, e.g. ['atom`].
-        etypes: edge types to perform Set2Set, e.g. ['bond`].
-        ntypes_direct_cat: node types to which not perform Set2Set, whose features are
-            directly concatenated. e.g. ['global']
-    """
-
-    def __init__(
-        self,
-        num_iters: int,
-        num_layers: int,
-        in_feats: int,
-        ntypes: List[str],
-        etypes: List[str],
-        ntypes_direct_cat: Optional[List[str]] = None,
-    ):
-        super(Set2SetThenCat, self).__init__()
-        self.ntypes = ntypes
-        self.etypes = etypes
-        self.ntypes_direct_cat = ntypes_direct_cat
-
-        self.node_layers = nn.ModuleDict()
-        for t in ntypes:
-            self.node_layers[t] = Set2Set(
-                input_dim=in_feats, n_iters=num_iters, n_layers=num_layers
-            )
-
-        self.edge_layers = nn.ModuleDict()
-        for t in etypes:
-            self.edge_layers[t] = Set2Set(
-                input_dim=in_feats, n_iters=num_iters, n_layers=num_layers
-            )
-
-    def forward(
-        self, feats: Dict[str, torch.Tensor], sizes: Dict[str, torch.Tensor]
-    ) -> torch.Tensor:
-        """
-        Args:
-            feats: node (edge) features with node (edge) type as key and the corresponding
-                features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size
-                (D could be different for different node features).
-            sizes: number of atoms (bonds) in each reaction for the node (edge) types
-                of features. (name, size), where size is a 1D int tensor.
-
-        Returns:
-            A tensor representation of the each graph, of shape
-            (N, 2D_1+2D_2+ ... D_{m-1}, D_m),
-            where N is the batch size (number of graphs), and D_1, D_2 ... are the
-            feature sizes of the nodes to perform the set2set aggregation. The `2`
-            shows up because set2set doubles the feature sizes. ... D_{m-1}, D_m are
-            the feature sizes of the nodes not to perform set2set by direct concatenate.
-        """
-        rst = []
-        for t in self.ntypes:
-            ft = self.node_layers[t](feats[t], sizes[t])
-            rst.append(ft)
-
-        for t in self.etypes:
-            ft = feats[t]
-            ft = ft[::2]  # each bond has two edges, we select one
-            ft = self.edge_layers[t](ft, sizes[t])
-            rst.append(ft)
-
-        if self.ntypes_direct_cat is not None:
-            for t in self.ntypes_direct_cat:
-                rst.append(feats[t])
-
-        res = torch.cat(rst, dim=-1)
-
-        return res
 
 
 class HopDistancePooling(nn.Module):

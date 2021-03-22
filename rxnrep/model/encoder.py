@@ -8,7 +8,7 @@ from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.gatedconv2 import GatedGCNConv as GatedGCNConv2
-from rxnrep.model.readout import HopDistancePooling, Set2SetThenCat
+from rxnrep.model.readout import Pooling
 from rxnrep.model.utils import MLP, UnifySize
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ class ReactionEncoder(nn.Module):
         reaction_residual: Optional[bool] = True,
         reaction_dropout: Optional[float] = 0.0,
         conv="GatedGCNConv2",
+        has_global_feats: bool = True,
         # compressing
         compressing_layer_sizes=None,
         compressing_layer_activation=None,
@@ -138,6 +139,9 @@ class ReactionEncoder(nn.Module):
             conv_outsize = molecule_conv_layer_sizes[-1]
 
         # ========== compressor ==========
+        feat_types = ["atom", "bond"]
+        if has_global_feats:
+            feat_types.append("global")
         if compressing_layer_sizes:
             self.compressor = nn.ModuleDict(
                 {
@@ -146,71 +150,21 @@ class ReactionEncoder(nn.Module):
                         hidden_sizes=compressing_layer_sizes,
                         activation=compressing_layer_activation,
                     )
-                    for k in ["atom", "bond", "global"]
+                    for k in feat_types
                 }
             )
             compressor_outsize = compressing_layer_sizes[-1]
         else:
-            self.compressor = nn.ModuleDict(
-                {k: nn.Identity() for k in ["atom", "bond", "global"]}
-            )
+            self.compressor = None
             compressor_outsize = conv_outsize
 
         # ========== reaction feature pooling ==========
-        # readout reaction features, one 1D tensor for each reaction
-
-        self.pooling_method = pooling_method
-
-        if pooling_method == "set2set":
-            if pooling_kwargs is None:
-                set2set_num_iterations = 6
-                set2set_num_layers = 3
-            else:
-                set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
-                set2set_num_layers = pooling_kwargs["set2set_num_layers"]
-
-            in_sizes = compressor_outsize
-
-            if conv == "GatedGCNConv":
-                ntypes = ["atom", "bond"]
-                etypes = []
-            elif conv == "GatedGCNConv2":
-                ntypes = ["atom"]
-                etypes = ["bond"]
-            else:
-                raise ValueError()
-
-            self.set2set = Set2SetThenCat(
-                num_iters=set2set_num_iterations,
-                in_feats=in_sizes,
-                num_layers=set2set_num_layers,
-                ntypes=ntypes,
-                etypes=etypes,
-                ntypes_direct_cat=["global"],
-            )
-
-            pooling_outsize = compressor_outsize * 5
-
-        elif pooling_method == "hop_distance":
-            if pooling_kwargs is None:
-                raise RuntimeError(
-                    "`max_hop_distance` should be provided as `pooling_kwargs` to use "
-                    "`hop_distance_pool`"
-                )
-            else:
-                max_hop_distance = pooling_kwargs["max_hop_distance"]
-                self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
-
-            pooling_outsize = compressor_outsize * 3
-
-        elif pooling_method == "global_only":
-            pooling_outsize = compressor_outsize
-
-        else:
-            raise ValueError(f"Unsupported pooling method `{pooling_method}`")
+        self.readout = Pooling(
+            compressor_outsize, pooling_method, pooling_kwargs, has_global_feats
+        )
 
         self.node_feats_size = compressor_outsize
-        self.reaction_feats_size = pooling_outsize
+        self.reaction_feats_size = self.readout.reaction_feats_size
 
     def forward(
         self,
@@ -273,29 +227,13 @@ class ReactionEncoder(nn.Module):
             feats = layer(reaction_graphs, feats)
 
         # compressor
-        feats = {k: self.compressor[k](feats[k]) for k in ["atom", "bond", "global"]}
+        if self.compressor:
+            feats = {
+                k: self.compressor[k](feats[k]) for k in ["atom", "bond", "global"]
+            }
 
         # readout reaction features, a 1D tensor for each reaction
-        if self.pooling_method == "set2set":
-            sizes = {
-                "atom": torch.as_tensor(metadata["num_atoms"]).to(feats["atom"].device),
-                "bond": torch.as_tensor(metadata["num_bonds"]).to(feats["bond"].device),
-            }
-            reaction_feats = self.set2set(feats, sizes)
-
-        elif self.pooling_method == "hop_distance":
-
-            hop_dist = {
-                "atom": metadata["atom_hop_dist"],
-                "bond": metadata["bond_hop_dist"],
-            }
-            reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
-
-        elif self.pooling_method == "global_only":
-            reaction_feats = feats["global"]
-
-        else:
-            raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
+        reaction_feats = self.readout(molecule_graphs, reaction_graphs, feats, metadata)
 
         return feats, reaction_feats
 
