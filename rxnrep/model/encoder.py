@@ -313,10 +313,8 @@ def create_reaction_features(
     reactant_num_molecules = metadata["reactant_num_molecules"]
     product_num_molecules = metadata["product_num_molecules"]
     num_unchanged_bonds = metadata["num_unchanged_bonds"]
-    num_lost_bonds = metadata["num_lost_bonds"]
-    num_added_bonds = metadata["num_added_bonds"]
-    reactant_num_bonds = [i + j for i, j in zip(num_unchanged_bonds, num_lost_bonds)]
-    product_num_bonds = [i + j for i, j in zip(num_unchanged_bonds, num_added_bonds)]
+    reactant_num_bonds = metadata["num_reactant_bonds"]
+    product_num_bonds = metadata["num_product_bonds"]
 
     # Atom difference feats
     size = len(atom_feats) // 2  # same number of atom nodes in reactants and products

@@ -538,17 +538,15 @@ class BaseDatasetWithLabels(BaseDataset):
     def generate_metadata(self):
 
         for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
-
+            num_unchanged = len(rxn.unchanged_bonds)
             meta = {
                 "reactant_num_molecules": len(rxn.reactants),
                 "product_num_molecules": len(rxn.products),
                 "num_atoms": rxn.num_atoms,
-                "num_bonds": len(rxn.unchanged_bonds)
-                + len(rxn.lost_bonds)
-                + len(rxn.added_bonds),
-                "num_unchanged_bonds": len(rxn.unchanged_bonds),
-                "num_lost_bonds": len(rxn.lost_bonds),
-                "num_added_bonds": len(rxn.added_bonds),
+                "num_bonds": num_unchanged + len(rxn.lost_bonds) + len(rxn.added_bonds),
+                "num_unchanged_bonds": num_unchanged,
+                "num_reactant_bonds": num_unchanged + len(rxn.lost_bonds),
+                "num_product_bonds": num_unchanged + len(rxn.added_bonds),
             }
 
             # add atom/bond hop dist to meta, which is used in hop dist pool
@@ -745,9 +743,6 @@ class BaseContrastiveDataset(BaseDataset):
             meta = {
                 "reactant_num_molecules": len(rxn.reactants),
                 "product_num_molecules": len(rxn.products),
-                "num_unchanged_bonds": len(rxn.unchanged_bonds),
-                "num_lost_bonds": len(rxn.lost_bonds),
-                "num_added_bonds": len(rxn.added_bonds),
             }
 
             self.medadata[i].update(meta)
@@ -757,15 +752,21 @@ class BaseContrastiveDataset(BaseDataset):
 
         meta["num_atoms"] = reactants_g.num_nodes("atom")
 
-        # in data transforms, lost and added are not augmented, only unchanged bonds
-        unchanged = reactants_g.num_edges("bond") // 2 - meta["num_lost_bonds"]
-        changed = meta["num_lost_bonds"] + meta["num_added_bonds"]
+        # Only unchanged bonds are augmented, lost and added bonds are not
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
+        num_unchanged = reactants_g.num_edges("bond") // 2 - num_lost
+        meta["num_bonds"] = num_unchanged + num_lost + num_added
+        meta["num_unchanged_bonds"] = num_unchanged
+        meta["num_reactant_bonds"] = num_unchanged + num_lost
+        meta["num_product_bonds"] = num_unchanged + num_added
 
-        meta["num_bonds"] = unchanged + changed  # number of bonds in reaction graph
-        meta["num_unchanged_bonds"] = unchanged
-        meta["bonds_in_reaction_center"] = [False] * unchanged + [True] * changed
+        # bonds in reaction center?
+        meta["bonds_in_reaction_center"] = [False] * num_unchanged + [True] * (
+            num_lost + num_added
+        )
 
-        # atoms in reaction center
+        # atoms in reaction center?
         atom_hop_dist = np.asarray(reaction.atom_distance_to_reaction_center)
         remaining_atoms = reactants_g.nodes["atom"].data["_ID"]
         atom_hop_dist = atom_hop_dist[remaining_atoms]
