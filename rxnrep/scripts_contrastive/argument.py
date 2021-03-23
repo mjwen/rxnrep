@@ -89,7 +89,7 @@ def training_args(parser):
 
 def get_encoder_out_feats_size(args):
     """
-    output atom/bond/global feature size, before pooling
+    output atom/bond/global feature size, before pool
     """
     if args.mlp_diff_layer_sizes:
         encoder_out_feats_size = args.mlp_diff_layer_sizes[-1]
@@ -130,9 +130,9 @@ def encoder_args(parser):
     )
     parser.add_argument("--mlp_diff_layer_activation", type=str, default="ReLU")
 
-    # pooling
+    # pool
     parser.add_argument(
-        "--pooling_method",
+        "--pool_method",
         type=str,
         default="set2set",
         help="set2set, hop_distance, global_only, sum_cat_all, sum_cat_center",
@@ -162,14 +162,14 @@ def encoder_adjuster(args):
     if args.num_rxn_conv_layers == 0:
         args.reaction_dropout = 0
 
-    # pooling
-    if args.pooling_method in [
+    # pool
+    if args.pool_method in [
         "set2set",
         "global_only",
         "sum_cat_all",
         "sum_cat_center",
     ]:
-        args.pooling_kwargs = None
+        args.pool_kwargs = None
     else:
         raise NotImplementedError
 
@@ -213,7 +213,7 @@ def energy_decoder_helper(parser):
 def reaction_energy_decoder_adjuster(args):
     val = get_encoder_out_feats_size(args)
 
-    if args.pooling_method == "global_only":
+    if args.pool_method == "global_only":
         val = val
     else:
         val = 2 * val
@@ -227,7 +227,7 @@ def reaction_energy_decoder_adjuster(args):
 def activation_energy_decoder_adjuster(args):
     val = get_encoder_out_feats_size(args)
 
-    if args.pooling_method == "global_only":
+    if args.pool_method == "global_only":
         val = val
     else:
         val = 2 * val
@@ -259,7 +259,7 @@ def reaction_type_decoder_helper(parser):
 def reaction_type_decoder_adjuster(args):
     val = get_encoder_out_feats_size(args)
 
-    if args.pooling_method == "global_only":
+    if args.pool_method == "global_only":
         val = val
     else:
         val = 2 * val
@@ -289,7 +289,7 @@ def simclr_decoder_helper(parser):
 def simclr_decoder_adjuster(args):
     val = get_encoder_out_feats_size(args)
 
-    if args.pooling_method == "global_only":
+    if args.pool_method == "global_only":
         val = val
     else:
         val = 2 * val

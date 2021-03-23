@@ -1,5 +1,5 @@
 """
-Readout (pooling) layers.
+Readout (pool) layers.
 """
 from typing import Any, Dict, List
 
@@ -12,7 +12,7 @@ from torch import nn
 
 class Pooling(nn.Module):
     """
-    Reaction feature pooling.
+    Reaction feature pool.
 
     Readout reaction features, one 1D tensor for each reaction.
 
@@ -32,22 +32,22 @@ class Pooling(nn.Module):
     def __init__(
         self,
         in_size: int,
-        pooling_method: str,
-        pooling_kwargs: Dict[str, Any],
+        pool_method: str,
+        pool_kwargs: Dict[str, Any],
         has_global_feats: bool = True,
     ):
         super().__init__()
 
-        self.pooling_method = pooling_method
+        self.pool_method = pool_method
         self.has_global_feats = has_global_feats
 
-        if pooling_method == "set2set":
-            if pooling_kwargs is None:
+        if pool_method == "set2set":
+            if pool_kwargs is None:
                 num_iterations = 6
                 num_layers = 3
             else:
-                num_iterations = pooling_kwargs["set2set_num_iterations"]
-                num_layers = pooling_kwargs["set2set_num_layers"]
+                num_iterations = pool_kwargs["set2set_num_iterations"]
+                num_layers = pool_kwargs["set2set_num_layers"]
 
             self.set2set_atom = Set2Set(
                 input_dim=in_size, n_iters=num_iterations, n_layers=num_layers
@@ -57,35 +57,35 @@ class Pooling(nn.Module):
             )
 
             if has_global_feats:
-                pooling_outsize = in_size * 5
+                pool_outsize = in_size * 5
             else:
-                pooling_outsize = in_size * 4
+                pool_outsize = in_size * 4
 
-        elif pooling_method in ["sum_cat_all", "sum_cat_center"]:
+        elif pool_method in ["sum_cat_all", "sum_cat_center"]:
             if has_global_feats:
-                pooling_outsize = in_size * 3
+                pool_outsize = in_size * 3
             else:
-                pooling_outsize = in_size * 2
+                pool_outsize = in_size * 2
 
-        elif pooling_method == "global_only":
-            pooling_outsize = in_size
+        elif pool_method == "global_only":
+            pool_outsize = in_size
 
-        elif pooling_method == "hop_distance":
-            if pooling_kwargs is None:
+        elif pool_method == "hop_distance":
+            if pool_kwargs is None:
                 raise RuntimeError(
-                    "`max_hop_distance` should be provided as `pooling_kwargs` to use "
+                    "`max_hop_distance` should be provided as `pool_kwargs` to use "
                     "`hop_distance_pool`"
                 )
             else:
-                max_hop_distance = pooling_kwargs["max_hop_distance"]
+                max_hop_distance = pool_kwargs["max_hop_distance"]
                 self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
 
-            pooling_outsize = in_size * 3
+            pool_outsize = in_size * 3
 
         else:
-            raise ValueError(f"Unsupported pooling method `{pooling_method}`")
+            raise ValueError(f"Unsupported pool method `{pool_method}`")
 
-        self.reaction_feats_size = pooling_outsize
+        self.reaction_feats_size = pool_outsize
 
     def forward(
         self,
@@ -101,7 +101,7 @@ class Pooling(nn.Module):
         """
 
         # readout reaction features, a 1D tensor for each reaction
-        if self.pooling_method == "set2set":
+        if self.pool_method == "set2set":
             device = feats["atom"].device
             atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
             bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
@@ -119,7 +119,7 @@ class Pooling(nn.Module):
             else:
                 return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
 
-        elif self.pooling_method == "sum_cat_all":
+        elif self.pool_method == "sum_cat_all":
             device = feats["atom"].device
             atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
             bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
@@ -137,7 +137,7 @@ class Pooling(nn.Module):
             else:
                 return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
 
-        elif self.pooling_method == "sum_cat_center":
+        elif self.pool_method == "sum_cat_center":
             atom_feats = feats["atom"]
             bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
 
@@ -166,18 +166,18 @@ class Pooling(nn.Module):
             else:
                 return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
 
-        elif self.pooling_method == "hop_distance":
+        elif self.pool_method == "hop_distance":
             hop_dist = {
                 "atom": metadata["atom_hop_dist"],
                 "bond": metadata["bond_hop_dist"],
             }
             reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
 
-        elif self.pooling_method == "global_only":
+        elif self.pool_method == "global_only":
             reaction_feats = feats["global"]
 
         else:
-            raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
+            raise ValueError(f"Unsupported pool method `{self.pool_method}`")
 
         return reaction_feats
 
@@ -222,7 +222,7 @@ class Set2Set(nn.Module):
 
     def forward(self, feat: torch.Tensor, sizes=torch.Tensor) -> torch.Tensor:
         """
-        Compute set2set pooling.
+        Compute set2set pool.
 
         Args:
             feat: feature tensor of shape (N, D) where N is the total number of features,

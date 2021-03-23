@@ -66,9 +66,9 @@ class RxnRepLightningModel(pl.LightningModule):
         #     head_hidden_layer_sizes=params.head_hidden_layer_sizes,
         #     num_classes=params.num_reaction_classes,
         #     head_activation=params.head_activation,
-        #     # pooling method
-        #     pooling_method=params.pooling_method,
-        #     pooling_kwargs=params.pooling_kwargs,
+        #     # pool method
+        #     pool_method=params.pool_method,
+        #     pool_kwargs=params.pool_kwargs,
         # )
 
         # load pretrained model
@@ -89,7 +89,7 @@ class RxnRepLightningModel(pl.LightningModule):
         # linear classification head
 
         #
-        # find last pooling layer size of the pretrained model
+        # find last pool layer size of the pretrained model
         #
         # pretrained model have reaction conv layer
         if self.backbone.hparams.reaction_conv_layer_sizes:
@@ -98,13 +98,13 @@ class RxnRepLightningModel(pl.LightningModule):
         else:
             conv_last_layer_size = self.backbone.hparams.molecule_conv_layer_sizes[-1]
 
-        pooling_method = self.backbone.hparams.pooling_method
-        if pooling_method == "set2set":
-            pooling_last_layer_size = conv_last_layer_size * 5
-        elif pooling_method == "hop_distance":
-            pooling_last_layer_size = conv_last_layer_size * 3
+        pool_method = self.backbone.hparams.pool_method
+        if pool_method == "set2set":
+            pool_last_layer_size = conv_last_layer_size * 5
+        elif pool_method == "hop_distance":
+            pool_last_layer_size = conv_last_layer_size * 3
         else:
-            raise ValueError(f"Unsupported pooling method {pooling_method}")
+            raise ValueError(f"Unsupported pool method {pool_method}")
 
         ####################
         # adjust args
@@ -116,7 +116,7 @@ class RxnRepLightningModel(pl.LightningModule):
 
         # decoder
         self.classification_head = FCNNDecoder(
-            pooling_last_layer_size,
+            pool_last_layer_size,
             params.num_reaction_classes,
             params.head_hidden_layer_sizes,
             params.head_activation,
@@ -338,9 +338,9 @@ def parse_args():
     # parser.add_argument("--reaction_residual", type=int, default=1)
     # parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # # ========== pooling ==========
+    # # ========== pool ==========
     # parser.add_argument(
-    #    "--pooling_method",
+    #    "--pool_method",
     #    type=str,
     #    default="set2set",
     #    help="set2set or hop_distance",

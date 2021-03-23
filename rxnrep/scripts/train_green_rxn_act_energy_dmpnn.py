@@ -82,8 +82,8 @@ class RxnRepLightningModel(pl.LightningModule):
             depth=len(params.molecule_conv_layer_sizes),
             activation=params.molecule_activation,
             dropout=params.molecule_dropout,
-            # pooling method
-            pooling_method="sum",
+            # pool method
+            pool_method="sum",
             # property prediction
             reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,

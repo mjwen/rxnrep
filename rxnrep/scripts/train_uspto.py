@@ -50,9 +50,9 @@ class RxnRepLightningModel(pl.LightningModule):
             masked_atom_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             masked_atom_type_decoder_activation=params.node_decoder_activation,
             masked_atom_type_decoder_num_classes=params.masked_atom_type_num_classes,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
+            # pool method
+            pool_method=params.pool_method,
+            pool_kwargs=params.pool_kwargs,
         )
 
         # reaction cluster functions
@@ -477,9 +477,9 @@ def parse_args():
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # ========== pooling ==========
+    # ========== pool ==========
     parser.add_argument(
-        "--pooling_method",
+        "--pool_method",
         type=str,
         default="set2set",
         help="set2set or hop_distance",
@@ -604,11 +604,11 @@ def parse_args():
     ]
     args.num_centroids = [args.prototype_size] * args.num_prototypes
 
-    # adjust for pooling
-    if args.pooling_method == "set2set":
-        args.pooling_kwargs = None
-    elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {"max_hop_distance": args.max_hop_distance}
+    # adjust for pool
+    if args.pool_method == "set2set":
+        args.pool_kwargs = None
+    elif args.pool_method == "hop_distance":
+        args.pool_kwargs = {"max_hop_distance": args.max_hop_distance}
 
     return args
 

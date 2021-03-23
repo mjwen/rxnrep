@@ -6,7 +6,7 @@
 # - diff mol feats
 # - rxn conv layers (could be 0)
 # - compression layers (could be 0)
-# - pooling (set2set, hot distance)
+# - pool (set2set, hot distance)
 #
 # decoders:
 # - atom hop dist
@@ -59,9 +59,9 @@ class ReactionRepresentation(ReactionEncoder):
         # mlp_diff
         mlp_diff_layer_sizes=None,
         mlp_diff_layer_activation=None,
-        # pooling
-        pooling_method="set2set",
-        pooling_kwargs: Dict[str, Any] = None,
+        # pool
+        pool_method="set2set",
+        pool_kwargs: Dict[str, Any] = None,
         # bond hop dist decoder
         bond_hop_dist_decoder_hidden_layer_sizes=None,
         bond_hop_dist_decoder_activation=None,
@@ -86,7 +86,7 @@ class ReactionRepresentation(ReactionEncoder):
         reaction_type_decoder_activation=None,
     ):
 
-        # encoder and pooling
+        # encoder and pool
         super().__init__(
             in_feats,
             embedding_size,
@@ -104,8 +104,8 @@ class ReactionRepresentation(ReactionEncoder):
             reaction_dropout=reaction_dropout,
             mlp_diff_layer_sizes=mlp_diff_layer_sizes,
             mlp_diff_layer_activation=mlp_diff_layer_activation,
-            pooling_method=pooling_method,
-            pooling_kwargs=pooling_kwargs,
+            pool_method=pool_method,
+            pool_kwargs=pool_kwargs,
         )
 
         # ========== node level decoder ==========

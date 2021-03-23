@@ -25,7 +25,7 @@ class ReactionEncoder(nn.Module):
     2. compute the difference features between the products and the reactants.
     3. (optional) update the difference features using the reaction graph.
     4. (optional) update difference features using MLP
-    5. readout reaction features using a pooling, e.g. set2set
+    5. readout reaction features using a pool, e.g. set2set
     6. (optional) update pooled features using MLP
 
     Args:
@@ -56,13 +56,17 @@ class ReactionEncoder(nn.Module):
         reaction_dropout: Optional[float] = 0.0,
         conv="GatedGCNConv2",
         has_global_feats: bool = True,
-        # 4, mlp diff 1
+        # 4, mlp diff
         mlp_diff_layer_sizes: Optional[List[int]] = None,
         mlp_diff_layer_batch_norm: Optional[bool] = True,
         mlp_diff_layer_activation: Optional[str] = "ReLU",
-        # 5, pooling
-        pooling_method: str = "set2set",
-        pooling_kwargs: Dict[str, Any] = None,
+        # 5, pool
+        pool_method: str = "set2set",
+        pool_kwargs: Dict[str, Any] = None,
+        # 4, mlp diff
+        mlp_pool_sizes: Optional[List[int]] = None,
+        mlp_pool_batch_norm: Optional[bool] = True,
+        mlp_pool_activation: Optional[str] = "ReLU",
     ):
         super(ReactionEncoder, self).__init__()
         self.conv = conv
@@ -165,9 +169,9 @@ class ReactionEncoder(nn.Module):
             self.mlp_diff = None
             mlp_diff_outsize = conv_outsize
 
-        # ========== reaction feature pooling ==========
+        # ========== reaction feature pool ==========
         self.readout = Pooling(
-            mlp_diff_outsize, pooling_method, pooling_kwargs, has_global_feats
+            mlp_diff_outsize, pool_method, pool_kwargs, has_global_feats
         )
 
         self.node_feats_size = mlp_diff_outsize

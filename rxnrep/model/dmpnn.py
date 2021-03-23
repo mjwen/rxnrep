@@ -195,11 +195,11 @@ class DMPNNEncoder(nn.Module):
         depth: int = 5,
         activation: Callable = nn.ReLU(),
         dropout: Union[float, None] = None,
-        pooling_method="sum",
+        pool_method="sum",
         conv="BondMessage",
     ):
         super().__init__()
-        self.pooling_method = pooling_method
+        self.pool_method = pool_method
 
         if conv == "BondMessage":
             self.conv_layer = DMPNNConvBondMessage(
@@ -264,10 +264,10 @@ class DMPNNEncoder(nn.Module):
         diff_feats = self.dropout(self.activation(self.mlp(diff_feats)))
 
         #
-        # pooling
+        # pool
         #
         num_atoms = reaction_graphs.batch_num_nodes("atom")
-        rxn_feats = segment_reduce(num_atoms, diff_feats, reducer=self.pooling_method)
+        rxn_feats = segment_reduce(num_atoms, diff_feats, reducer=self.pool_method)
 
         return None, rxn_feats
 
@@ -281,8 +281,8 @@ class DMPNNModel(DMPNNEncoder):
         depth: int = 6,
         activation: Callable = nn.ReLU(),
         dropout: Union[float, None] = None,
-        # pooling
-        pooling_method="sum",
+        # pool
+        pool_method="sum",
         # reaction energy decoder
         reaction_energy_decoder_hidden_layer_sizes=None,
         reaction_energy_decoder_activation=None,
@@ -297,7 +297,7 @@ class DMPNNModel(DMPNNEncoder):
             depth=depth,
             activation=activation,
             dropout=dropout,
-            pooling_method=pooling_method,
+            pool_method=pool_method,
         )
 
         # ========== reaction level decoder ==========

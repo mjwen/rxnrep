@@ -92,9 +92,9 @@ class RxnRepLightningModel(pl.LightningModule):
             # mlp_diff
             mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
             mlp_diff_layer_activation=params.mlp_diff_layer_activation,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
+            # pool method
+            pool_method=params.pool_method,
+            pool_kwargs=params.pool_kwargs,
             # # bond hop distance decoder
             # bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             # bond_hop_dist_decoder_activation=params.node_decoder_activation,
