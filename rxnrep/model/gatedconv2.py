@@ -1,5 +1,6 @@
 """
-GatedConv as in gatedconv.py (where bond is represented as node), but bond as edge graph.
+GatedConv as in gatedconv.py (where bond is represented as node), but here bonds are
+represented as edges.
 """
 
 from typing import Callable, Dict, Union
@@ -23,7 +24,7 @@ class GatedGCNConv(nn.Module):
         residual: bool = False,
         dropout: Union[float, None] = None,
     ):
-        super(GatedGCNConv, self).__init__()
+        super().__init__()
         self.batch_norm = batch_norm
         self.activation = activation
         self.residual = residual
@@ -77,34 +78,27 @@ class GatedGCNConv(nn.Module):
         #
         # update bond feature e
         #
-        g.nodes["atom"].data.update({"Ah": self.A(h)})
-        g.edges["bond"].data.update({"Be": self.B(e)})
-        g.nodes["global"].data.update({"Cu": self.C(u)})
+        g.nodes["atom"].data["Ah"] = self.A(h)
+        g.nodes["global"].data["Cu"] = self.C(u)
 
-        # step 1
-        # global feats to atom node (a simpy copy, sum operates on 1 tensor,
-        # since we have only one global nodes connected to each atom node)
+        # global feats to edge
+        # step 1, a simpy copy to atom node (sum operates on 1 tensor since there is
+        # only 1 global node connected to each atom node)
+        # step 2, copy from atom node to edge, only need to grab from src
         g.update_all(fn.copy_u("Cu", "m"), fn.sum("m", "Cu"), etype="g2a")
+        g.apply_edges(fn.copy_u("Cu", "Cu"), etype="bond")
+        Cu = g.edges["bond"].data.pop("Cu")
 
-        # step 2, aggregate edge features
-        # sum of:
-        # src and dst atom feats,
-        # edge feats,
-        # and global feats (already stored in atom nodes, here we only grab it from src)
-        g.apply_edges(
-            lambda edges: {
-                "e": edges.src["Ah"]
-                + edges.dst["Ah"]
-                + edges.data["Be"]
-                + edges.src["Cu"],
-            },
-            etype="bond",
-        )
-        e = g.edges["bond"].data["e"]
+        # sum of atom feats to edge
+        g.apply_edges(fn.u_add_v("Ah", "Ah", "sum_Ah"), etype="bond")
+        sum_Ah = g.edges["bond"].data.pop("sum_Ah")
+
+        # aggregate
+        e = sum_Ah + self.B(e) + Cu
 
         # del for memory efficiency
         del g.nodes["atom"].data["Ah"]
-        del g.edges["bond"].data["Be"]
+        del g.nodes["atom"].data["Cu"]
         del g.nodes["global"].data["Cu"]
 
         if self.batch_norm:
@@ -116,10 +110,9 @@ class GatedGCNConv(nn.Module):
         #
         # update atom feature h
         #
-
         # step 1
         # edge feats to atom nodes: sum_j e_ij [Had] Eh_j
-        g.nodes["atom"].data.update({"Eh": self.E(h)})
+        g.nodes["atom"].data["Eh"] = self.E(h)
         g.edges["bond"].data["e"] = e
         g.update_all(atom_message_fn, atom_reduce_fn, etype="bond")
         try:
@@ -135,7 +128,7 @@ class GatedGCNConv(nn.Module):
         # step 2
         # global feats to atom node (a simpy copy, sum operates on 1 tensor,
         # since we have only one global nodes connected to each atom node)
-        g.nodes["global"].data.update({"Fu": self.F(u)})
+        g.nodes["global"].data["Fu"] = self.F(u)
         g.update_all(fn.copy_u("Fu", "m"), fn.sum("m", "Fu"), etype="g2a")
         h2 = g.nodes["atom"].data.pop("Fu")
 
