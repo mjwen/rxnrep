@@ -547,6 +547,12 @@ class BaseDatasetWithLabels(BaseDataset):
                 "num_unchanged_bonds": num_unchanged,
                 "num_reactant_bonds": num_unchanged + len(rxn.lost_bonds),
                 "num_product_bonds": num_unchanged + len(rxn.added_bonds),
+                "atoms_in_reaction_center": (
+                    np.asarray(rxn.atom_distance_to_reaction_center) == 0
+                ).tolist(),
+                "bonds_in_reaction_center": (
+                    np.asarray(rxn.bond_distance_to_reaction_center) == 0
+                ).tolist(),
             }
 
             # add atom/bond hop dist to meta, which is used in hop dist pool
