@@ -16,6 +16,15 @@ class Pooling(nn.Module):
 
     Readout reaction features, one 1D tensor for each reaction.
 
+    Supported methods:
+    set2set: set2set for atom/bond features and then concatenate atom, bond, and global
+        features.
+    sum_cat_all: sum all atom, bond features (separately), and then concatenate atom,
+        bond and global features.
+    sum_cat_center: sum atoms, bonds features in reaction center, and then concatenate
+        atom, bond and global features.
+    global_only: only return global features
+
     Args:
         in_size: input feature size, i.e. atom/bond/global feature sizes
     """
@@ -25,7 +34,7 @@ class Pooling(nn.Module):
         in_size: int,
         pooling_method: str,
         pooling_kwargs: Dict[str, Any],
-        has_global_feats: bool = False,
+        has_global_feats: bool = True,
     ):
         super().__init__()
 
@@ -52,6 +61,15 @@ class Pooling(nn.Module):
             else:
                 pooling_outsize = in_size * 4
 
+        elif pooling_method in ["sum_cat_all", "sum_cat_center"]:
+            if has_global_feats:
+                pooling_outsize = in_size * 3
+            else:
+                pooling_outsize = in_size * 2
+
+        elif pooling_method == "global_only":
+            pooling_outsize = in_size
+
         elif pooling_method == "hop_distance":
             if pooling_kwargs is None:
                 raise RuntimeError(
@@ -63,9 +81,6 @@ class Pooling(nn.Module):
                 self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
 
             pooling_outsize = in_size * 3
-
-        elif pooling_method == "global_only":
-            pooling_outsize = in_size
 
         else:
             raise ValueError(f"Unsupported pooling method `{pooling_method}`")
@@ -87,14 +102,62 @@ class Pooling(nn.Module):
 
         # readout reaction features, a 1D tensor for each reaction
         if self.pooling_method == "set2set":
-            atom_sizes = torch.as_tensor(metadata["num_atoms"]).to(feats["atom"].device)
-            bond_sizes = torch.as_tensor(metadata["num_bonds"]).to(feats["bond"].device)
+            device = feats["atom"].device
+            atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
+            bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
 
             atom_feats = feats["atom"]
             bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
 
             rxn_feats_atom = self.set2set_atom(atom_feats, atom_sizes)
             rxn_feats_bond = self.set2set_bond(bond_feats, bond_sizes)
+
+            if self.has_global_feats:
+                return torch.cat(
+                    [rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1
+                )
+            else:
+                return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
+
+        elif self.pooling_method == "sum_cat_all":
+            device = feats["atom"].device
+            atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
+            bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
+
+            atom_feats = feats["atom"]
+            bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+
+            rxn_feats_atom = segment_reduce(atom_sizes, atom_feats, reducer="sum")
+            rxn_feats_bond = segment_reduce(bond_sizes, bond_feats, reducer="sum")
+
+            if self.has_global_feats:
+                return torch.cat(
+                    [rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1
+                )
+            else:
+                return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
+
+        elif self.pooling_method == "sum_cat_center":
+            atom_feats = feats["atom"]
+            bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+
+            # select feats of atoms/bonds in center
+            aic = np.concatenate(metadata["atoms_in_reaction_center"]).tolist()
+            bic = np.concatenate(metadata["bonds_in_reaction_center"]).tolist()
+            atom_feats = atom_feats[aic]
+            bond_feats = bond_feats[bic]
+
+            # number of atoms/bonds in reaction center
+            device = feats["atom"].device
+            atom_sizes = torch.as_tensor(
+                [sum(i) for i in metadata["atoms_in_reaction_center"]], device=device
+            )
+            bond_sizes = torch.as_tensor(
+                [sum(i) for i in metadata["bonds_in_reaction_center"]], device=device
+            )
+
+            rxn_feats_atom = segment_reduce(atom_sizes, atom_feats, reducer="sum")
+            rxn_feats_bond = segment_reduce(bond_sizes, bond_feats, reducer="sum")
 
             if self.has_global_feats:
                 return torch.cat(

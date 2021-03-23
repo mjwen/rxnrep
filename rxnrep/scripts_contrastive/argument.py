@@ -135,19 +135,7 @@ def encoder_args(parser):
         "--pooling_method",
         type=str,
         default="set2set",
-        help="set2set, hop_distance, or global_only",
-    )
-
-    parser.add_argument(
-        "--hop_distance_pooling_max_hop_distance",
-        type=int,
-        default=2,
-        help=(
-            "max hop distance when hop_distance pooling method is used. Ignored when "
-            "`set2set` pooling method is used. This is different from max_hop_distance "
-            "used for node decoder, which is used to create labels for the decoders. "
-            "Also, typically we can set the two to be the same."
-        ),
+        help="set2set, hop_distance, global_only, sum_cat_all, sum_cat_center",
     )
 
     return parser
@@ -175,12 +163,13 @@ def encoder_adjuster(args):
         args.reaction_dropout = 0
 
     # pooling
-    if args.pooling_method in ["set2set", "global_only"]:
+    if args.pooling_method in [
+        "set2set",
+        "global_only",
+        "sum_cat_all",
+        "sum_cat_center",
+    ]:
         args.pooling_kwargs = None
-    elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {
-            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
-        }
     else:
         raise NotImplementedError
 

@@ -770,7 +770,7 @@ class BaseContrastiveDataset(BaseDataset):
         atom_hop_dist = np.asarray(reaction.atom_distance_to_reaction_center)
         remaining_atoms = reactants_g.nodes["atom"].data["_ID"]
         atom_hop_dist = atom_hop_dist[remaining_atoms]
-        in_center = np.argwhere(atom_hop_dist == 0).reshape(-1).tolist()
+        in_center = (atom_hop_dist == 0).tolist()
         meta["atoms_in_reaction_center"] = in_center
 
         return meta
