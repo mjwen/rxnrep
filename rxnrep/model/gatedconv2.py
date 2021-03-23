@@ -74,11 +74,6 @@ class GatedGCNConv(nn.Module):
         e = feats["bond"]
         u = feats["global"]
 
-        # for residual connection
-        h_in = h
-        e_in = e
-        u_in = u
-
         #
         # update bond feature e
         #
@@ -116,7 +111,7 @@ class GatedGCNConv(nn.Module):
             e = self.bn_node_e(e)
         e = self.activation(e)
         if self.residual:
-            e = e_in + e
+            e = feats["bond"] + e
 
         #
         # update atom feature h
@@ -153,34 +148,31 @@ class GatedGCNConv(nn.Module):
             h = self.bn_node_h(h)
         h = self.activation(h)
         if self.residual:
-            h = h_in + h
+            h = feats["atom"] + h
 
         #
         # update global feature u
         #
+        g.nodes["atom"].data["Gh"] = self.G(h)
+        g.edges["bond"].data["He"] = self.H(e)
 
-        # Get the number of bonds of each atom (i.e. in degrees)
-        # For single atom molecule, set the value from 0 to 1; we do this to avoid
-        # divide by 0 error in `global_reduce_fn` below.
-        degrees = g.in_degrees(etype="bond").reshape(-1, 1)
-        degrees[degrees < 1] = 1
-
-        g.nodes["atom"].data.update({"Gh": self.G(h), "degrees": degrees})
-        g.edges["bond"].data.update({"He": self.H(e)})
-        g.nodes["global"].data.update({"Iu": self.I(u)})
-
-        # step 1
-        # edge feats to atom nodes
-        # No need to do the try except block as above for h1, since we use dgl built-in
-        # functions here and fn.sum will always be called because of operation fushion?
-        # But still, the feature He_sum for single atom molecule is initialized to a
-        # zero tensor.
+        # edge feats to global
+        # Each bond has two edges, we do not need to divide 2 since divide by num_edges
+        # already takes care of it
         g.update_all(fn.copy_e("He", "m"), fn.sum("m", "He_sum"), etype="bond")
+        g.update_all(fn.copy_u("He_sum", "m"), fn.sum("m", "He_sum"), etype="a2g")
+        num_edges = g.num_edges("bond")
+        if num_edges == 0:
+            # single atom molecule
+            num_edges = 1
+        mean_He = g.nodes["global"].data.pop("He_sum") / num_edges
 
-        # step 2
-        # aggregate global feats
-        g.update_all(global_message_fn, global_reduce_fn, etype="a2g")
-        u = g.nodes["global"].data.pop("u")
+        # atom nodes to global
+        g.update_all(fn.copy_u("Gh", "m"), fn.mean("m", "Gh_sum"), etype="a2g")
+        mean_Gh = g.nodes["global"].data.pop("Gh_sum")
+
+        # aggregate
+        u = mean_Gh + mean_He + self.I(u)
 
         if self.batch_norm:
             # do not apply batch norm if it there is only one graph and it is in
@@ -191,7 +183,7 @@ class GatedGCNConv(nn.Module):
                 u = self.bn_node_u(u)
         u = self.activation(u)
         if self.residual:
-            u = u_in + u
+            u = feats["global"] + u
 
         # dropout
         h = self.dropout(h)
@@ -218,34 +210,3 @@ def atom_reduce_fn(nodes):
     h1 = torch.sum(sigma_eij * Eh_j, dim=1) / (torch.sum(sigma_eij, dim=1) + 1e-6)
 
     return {"h1": h1}
-
-
-def global_message_fn(edges):
-    return {
-        "Gh": edges.src["Gh"],
-        "He_sum": edges.src["He_sum"],
-        "degrees": edges.src["degrees"],  # in degrees: number of bonds of each atom
-    }
-
-
-def global_reduce_fn(nodes):
-    Gh = nodes.mailbox["Gh"]
-    Iu = nodes.data["Iu"]
-    He_sum = nodes.mailbox["He_sum"]
-    degrees = nodes.mailbox["degrees"]  # in degrees: number of bonds of each atom
-
-    # mean of edge features
-    # He_sum is the sum of bond feats placed on atom nodes. We aggregating to global
-    # nodes, each bond feature will be presented twice. However, we do NOT need to
-    # divide it by 2, since here we use mean aggregation and the double counting is
-    # already taken care of by the `torch.sum(degrees, dim=1)`.
-    #
-    # Also note that, for single atom molecule, degree is set to 1 (see above),
-    # and He_sum is a zero tensors (set by dgl, see above). Then He_mean is a zero
-    # tensor--what we wanted. Manually setting degree to 1 does not change the results.
-    # But if we do not do He_mean and Gh_mean + He_mean + Iu, should be be careful
-    # about whether this still holds as well.
-    He_mean = torch.sum(He_sum, dim=1) / torch.sum(degrees, dim=1)
-    Gh_mean = torch.mean(Gh, dim=1)
-
-    return {"u": Gh_mean + He_mean + Iu}
