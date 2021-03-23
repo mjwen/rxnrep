@@ -102,9 +102,6 @@ def load_uspto_dataset(args):
         num_workers=args.num_workers,
     )
 
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
-
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
 

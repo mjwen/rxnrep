@@ -77,7 +77,7 @@ class LightningModel(BaseLightningModel):
         self.mlp = MLP(
             in_size=model.model.reaction_feats_size,
             hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
-            activation=params.reaction_type_decoder_activation,
+            activation=params.activation,
             out_size=params.num_reaction_classes,
         )
 
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "11t7vtp8"
+    pretrained_model_identifier = "3fxgra68"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

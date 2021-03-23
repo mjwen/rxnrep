@@ -64,9 +64,9 @@ class ReactionEncoder(nn.Module):
         pool_method: str = "set2set",
         pool_kwargs: Dict[str, Any] = None,
         # 4, mlp diff
-        mlp_pool_sizes: Optional[List[int]] = None,
-        mlp_pool_batch_norm: Optional[bool] = True,
-        mlp_pool_activation: Optional[str] = "ReLU",
+        mlp_pool_layer_sizes: Optional[List[int]] = None,
+        mlp_pool_layer_batch_norm: Optional[bool] = True,
+        mlp_pool_layer_activation: Optional[str] = "ReLU",
     ):
         super(ReactionEncoder, self).__init__()
         self.conv = conv
@@ -174,8 +174,22 @@ class ReactionEncoder(nn.Module):
             mlp_diff_outsize, pool_method, pool_kwargs, has_global_feats
         )
 
+        # ========== mlp after pool ==========
+        if mlp_pool_layer_sizes:
+            self.mlp_pool = MLP(
+                in_size=self.readout.reaction_feats_size,
+                hidden_sizes=mlp_pool_layer_sizes,
+                batch_norm=mlp_pool_layer_batch_norm,
+                activation=mlp_pool_layer_activation,
+            )
+
+            mlp_pool_outsize = mlp_pool_layer_sizes[-1]
+        else:
+            self.mlp_pool = None
+            mlp_pool_outsize = self.readout.reaction_feats_size
+
         self.node_feats_size = mlp_diff_outsize
-        self.reaction_feats_size = self.readout.reaction_feats_size
+        self.reaction_feats_size = mlp_pool_outsize
 
     def forward(
         self,
@@ -238,12 +252,16 @@ class ReactionEncoder(nn.Module):
             for layer in self.reaction_conv_layers:
                 feats = layer(reaction_graphs, feats)
 
-        # mlp_diff
+        # mlp diff
         if self.mlp_diff:
             feats = {k: self.mlp_diff[k](feats[k]) for k in self.feat_types}
 
         # readout reaction features, a 1D tensor for each reaction
         reaction_feats = self.readout(molecule_graphs, reaction_graphs, feats, metadata)
+
+        # mlp pool
+        if self.mlp_pool:
+            reaction_feats = self.mlp_pool(reaction_feats)
 
         return feats, reaction_feats
 

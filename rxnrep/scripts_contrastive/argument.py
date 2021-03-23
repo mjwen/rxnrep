@@ -87,19 +87,10 @@ def training_args(parser):
     return parser
 
 
-def get_encoder_out_feats_size(args):
-    """
-    output atom/bond/global feature size, before pool
-    """
-    if args.mlp_diff_layer_sizes:
-        encoder_out_feats_size = args.mlp_diff_layer_sizes[-1]
-    else:
-        encoder_out_feats_size = args.conv_layer_size
-
-    return encoder_out_feats_size
-
-
 def encoder_args(parser):
+
+    # activation for all
+    parser.add_argument("--activation", type=str, default="ReLU")
 
     # embedding
     parser.add_argument("--embedding_size", type=int, default=24)
@@ -110,17 +101,16 @@ def encoder_args(parser):
     )
     parser.add_argument("--molecule_num_fc_layers", type=int, default=2)
     parser.add_argument("--molecule_batch_norm", type=int, default=1)
-    parser.add_argument("--molecule_activation", type=str, default="ReLU")
     parser.add_argument("--molecule_residual", type=int, default=1)
     parser.add_argument("--molecule_dropout", type=float, default="0.0")
+
     parser.add_argument("--reaction_conv_layer_sizes", type=int, nargs="+", default=[])
     parser.add_argument("--reaction_num_fc_layers", type=int, default=2)
     parser.add_argument("--reaction_batch_norm", type=int, default=1)
-    parser.add_argument("--reaction_activation", type=str, default="ReLU")
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # mlp_diff
+    # mlp diff
     parser.add_argument(
         "--mlp_diff_layer_sizes",
         type=int,
@@ -128,7 +118,7 @@ def encoder_args(parser):
         default=None,
         help="`None` to not use it",
     )
-    parser.add_argument("--mlp_diff_layer_activation", type=str, default="ReLU")
+    parser.add_argument("--mlp_diff_layer_batch_norm", type=int, default=1)
 
     # pool
     parser.add_argument(
@@ -137,6 +127,17 @@ def encoder_args(parser):
         default="set2set",
         help="set2set, hop_distance, global_only, sum_cat_all, sum_cat_center",
     )
+    parser.add_argument("--pool_kwargs", type=str, default=None)
+
+    # mlp pool
+    parser.add_argument(
+        "--mlp_pool_layer_sizes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="`None` to not use it",
+    )
+    parser.add_argument("--mlp_pool_layer_batch_norm", type=int, default=1)
 
     return parser
 
@@ -150,6 +151,8 @@ def encoder_helper(parser):
     )
     parser.add_argument("--num_mol_conv_layers", type=int, default=2)
     parser.add_argument("--num_rxn_conv_layers", type=int, default=0)
+    parser.add_argument("--num_mlp_diff_layers", type=int, default=1)
+    parser.add_argument("--num_mlp_pool_layers", type=int, default=1)
 
     return parser
 
@@ -159,19 +162,11 @@ def encoder_adjuster(args):
     args.molecule_conv_layer_sizes = [args.conv_layer_size] * args.num_mol_conv_layers
     args.reaction_conv_layer_sizes = [args.conv_layer_size] * args.num_rxn_conv_layers
 
-    if args.num_rxn_conv_layers == 0:
-        args.reaction_dropout = 0
+    args.mlp_diff_layer_sizes = [args.conv_layer_size] * args.num_mlp_diff_layers
 
-    # pool
-    if args.pool_method in [
-        "set2set",
-        "global_only",
-        "sum_cat_all",
-        "sum_cat_center",
-    ]:
-        args.pool_kwargs = None
-    else:
-        raise NotImplementedError
+    # mlp pool
+    val = determine_layer_size_by_pool_method(args)
+    args.mlp_pool_layer_size = [val] * args.num_mlp_pool_layers
 
     return args
 
@@ -182,9 +177,6 @@ def reaction_energy_decoder_args(parser):
         type=int,
         nargs="+",
         default=[64],
-    )
-    parser.add_argument(
-        "--reaction_energy_decoder_activation", type=str, default="ReLU"
     )
 
     return parser
@@ -198,10 +190,6 @@ def activation_energy_decoder_args(parser):
         default=[64],
     )
 
-    parser.add_argument(
-        "--activation_energy_decoder_activation", type=str, default="ReLU"
-    )
-
     return parser
 
 
@@ -211,12 +199,7 @@ def energy_decoder_helper(parser):
 
 
 def reaction_energy_decoder_adjuster(args):
-    val = get_encoder_out_feats_size(args)
-
-    if args.pool_method == "global_only":
-        val = val
-    else:
-        val = 2 * val
+    val = determine_layer_size_by_pool_method(args)
 
     args.reaction_energy_decoder_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
@@ -225,12 +208,7 @@ def reaction_energy_decoder_adjuster(args):
 
 
 def activation_energy_decoder_adjuster(args):
-    val = get_encoder_out_feats_size(args)
-
-    if args.pool_method == "global_only":
-        val = val
-    else:
-        val = 2 * val
+    val = determine_layer_size_by_pool_method(args)
 
     args.activation_energy_decoder_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.num_energy_decoder_layers)
@@ -245,7 +223,6 @@ def reaction_type_decoder_args(parser):
         nargs="+",
         default=[256, 128],
     )
-    parser.add_argument("--reaction_type_decoder_activation", type=str, default="ReLU")
     parser.add_argument("--num_reaction_classes", type=int, default=46)
 
     return parser
@@ -257,12 +234,7 @@ def reaction_type_decoder_helper(parser):
 
 
 def reaction_type_decoder_adjuster(args):
-    val = get_encoder_out_feats_size(args)
-
-    if args.pool_method == "global_only":
-        val = val
-    else:
-        val = 2 * val
+    val = determine_layer_size_by_pool_method(args)
 
     args.reaction_type_decoder_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.reaction_type_decoder_num_layers)
@@ -275,7 +247,6 @@ def simclr_decoder_args(parser):
     parser.add_argument(
         "--simclr_hidden_layer_sizes", type=int, nargs="+", default=[256, 128]
     )
-    parser.add_argument("--simclr_activation", type=str, default="ReLU")
     parser.add_argument("--simclr_temperature", type=float, default=0.1)
 
     return parser
@@ -287,12 +258,7 @@ def simclr_decoder_helper(parser):
 
 
 def simclr_decoder_adjuster(args):
-    val = get_encoder_out_feats_size(args)
-
-    if args.pool_method == "global_only":
-        val = val
-    else:
-        val = 2 * val
+    val = determine_layer_size_by_pool_method(args)
 
     args.simclr_hidden_layer_sizes = [
         max(val // 2 ** i, 50) for i in range(args.simclr_num_layers)
@@ -354,3 +320,16 @@ def data_augmentation_args(parser):
     parser.add_argument("--augment_mask_value_bond", type=float, default=1.0)
 
     return parser
+
+
+def determine_layer_size_by_pool_method(args):
+    val = args.conv_layer_size
+
+    if args.pool_method in ["set2set", "sum_cat_all", "sum_cat_center"]:
+        val = val * 2
+    elif args.pool_method == "global_only":
+        val = val
+    else:
+        raise NotImplementedError
+
+    return val

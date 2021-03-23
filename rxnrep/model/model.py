@@ -56,12 +56,17 @@ class ReactionRepresentation(ReactionEncoder):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # mlp_diff
+        # mlp diff
         mlp_diff_layer_sizes=None,
+        mlp_diff_batch_norm=None,
         mlp_diff_layer_activation=None,
         # pool
         pool_method="set2set",
         pool_kwargs: Dict[str, Any] = None,
+        # mlp pool
+        mlp_pool_layer_sizes=None,
+        mlp_pool_batch_norm=None,
+        mlp_pool_layer_activation=None,
         # bond hop dist decoder
         bond_hop_dist_decoder_hidden_layer_sizes=None,
         bond_hop_dist_decoder_activation=None,
@@ -103,9 +108,13 @@ class ReactionRepresentation(ReactionEncoder):
             reaction_residual=reaction_residual,
             reaction_dropout=reaction_dropout,
             mlp_diff_layer_sizes=mlp_diff_layer_sizes,
+            mlp_diff_layer_batch_norm=mlp_diff_batch_norm,
             mlp_diff_layer_activation=mlp_diff_layer_activation,
             pool_method=pool_method,
             pool_kwargs=pool_kwargs,
+            mlp_pool_layer_sizes=mlp_pool_layer_sizes,
+            mlp_pool_layer_batch_norm=mlp_pool_batch_norm,
+            mlp_pool_layer_activation=mlp_pool_layer_activation,
         )
 
         # ========== node level decoder ==========
