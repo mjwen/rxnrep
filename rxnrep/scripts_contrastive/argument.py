@@ -349,7 +349,7 @@ def data_augmentation_args(parser):
     parser.add_argument(
         "--augment_2",
         type=str,
-        default="subgraph",
+        default="drop_bond",
         choices=[
             "drop_atom",
             "drop_bond",
