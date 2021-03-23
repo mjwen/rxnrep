@@ -151,8 +151,8 @@ def encoder_helper(parser):
     )
     parser.add_argument("--num_mol_conv_layers", type=int, default=2)
     parser.add_argument("--num_rxn_conv_layers", type=int, default=0)
-    parser.add_argument("--num_mlp_diff_layers", type=int, default=1)
-    parser.add_argument("--num_mlp_pool_layers", type=int, default=1)
+    parser.add_argument("--num_mlp_diff_layers", type=int, default=0)
+    parser.add_argument("--num_mlp_pool_layers", type=int, default=0)
 
     return parser
 

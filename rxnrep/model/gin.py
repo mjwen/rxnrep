@@ -3,7 +3,7 @@ GIN as in Strategies for pretraining graph neural networks.
 This implements the for protein function prediction model.
 """
 
-from typing import Callable, Dict, Union
+from typing import Dict, Union
 
 import dgl
 import torch
@@ -17,6 +17,9 @@ class GINConv(nn.Module):
     """
     The protein function prediction model as in:
     Strategies for pretraining graph neural networks.
+
+    Note, we do not use self-loop edge as in the paper, because it cannot be easily
+    such edges cannot be easily featurized. We do use self-loop atom nodes.
 
     Args:
         out_batch_norm: batch norm for output
@@ -80,7 +83,7 @@ class GINConv(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         """
         Args:
-            g: the graphm bond as edges
+            g: the bond as edges graph
             feats: {name, feats}. Atom, bond, and global features.
 
         Returns:
@@ -92,7 +95,9 @@ class GINConv(nn.Module):
         h = feats["atom"]
         e = feats["bond"]
 
+        #
         # update bond features
+        #
         g.nodes["atom"].data.update({"h": h})
         g.edges["bond"].data.update({"e": e})
 
@@ -109,12 +114,14 @@ class GINConv(nn.Module):
         if self.dropout:
             e = self.dropout(e)
 
+        #
         # update atom features
+        #
         g.edges["bond"].data.update({"e": e})
 
         g.update_all(fn.copy_u("h", "m"), fn.sum("m", "sum_h"), etype="bond")
         g.update_all(fn.copy_e("e", "m"), fn.sum("m", "sum_e"), etype="bond")
-        sum_h = g.nodes["atom"].data.pop("sum_h")
+        sum_h = g.nodes["atom"].data.pop("sum_h") + h  # + h for self loop
         sum_e = g.nodes["atom"].data.pop("sum_e")
         h = self.mlp_atom(torch.cat((sum_h, sum_e), dim=-1))
 
@@ -132,39 +139,74 @@ class GINConv(nn.Module):
         return feats
 
 
-class GINConvWithGlobal(nn.Module):
+class GINConvGlobal(nn.Module):
+    """
+    The protein function prediction model as in:
+    Strategies for pretraining graph neural networks.
+
+    Besides atom and bond features, we add the support of global features.
+
+    Args:
+        out_batch_norm: batch norm for output
+        out_activation: activation for output
+    """
+
     def __init__(
         self,
         input_dim: int,
         output_dim: int,
-        num_hidden_layers: int = 2,
+        num_fc_layers: int = 2,
         batch_norm: bool = True,
-        activation: Callable = nn.ReLU(),
+        activation: str = "ReLU",
+        out_batch_norm: bool = False,
+        out_activation: str = None,
         residual: bool = False,
         dropout: Union[float, None] = None,
-        has_global_feature: bool = False,
     ):
-        self.has_global_feature = has_global_feature
-        self.batch_norm = batch_norm
-        self.residual = residual
+        super().__init__()
 
-        hidden_sizes = [output_dim] * num_hidden_layers
-        self.mlp_atom = MLP(input_dim, hidden_sizes, activation=activation)
-        self.mlp_bond = MLP(input_dim, hidden_sizes, activation=activation)
-        if has_global_feature:
-            self.mlp_bond = MLP(input_dim, hidden_sizes, activation=activation)
+        hidden_sizes = [output_dim * 3] * (num_fc_layers - 1)
+        self.mlp_atom = MLP(
+            3 * input_dim,
+            hidden_sizes,
+            batch_norm=batch_norm,
+            activation=activation,
+            out_size=output_dim,
+        )
+        self.mlp_bond = MLP(
+            3 * input_dim,
+            hidden_sizes,
+            batch_norm=batch_norm,
+            activation=activation,
+            out_size=output_dim,
+        )
+        self.mlp_global = MLP(
+            3 * input_dim,
+            hidden_sizes,
+            batch_norm=batch_norm,
+            activation=activation,
+            out_size=output_dim,
+        )
 
-        if self.batch_norm:
+        if out_batch_norm:
+            self.out_batch_norm = True
             self.bn_atom = nn.BatchNorm1d(output_dim)
             self.bn_bond = nn.BatchNorm1d(output_dim)
-            if has_global_feature:
-                self.bn_global = nn.BatchNorm1d(output_dim)
-
-        delta = 1e-3
-        if dropout is None or dropout < delta:
-            self.dropout = nn.Identity()
         else:
+            self.out_batch_norm = False
+
+        if out_activation:
+            self.out_activation = get_activation(out_activation)
+        else:
+            self.out_activation = False
+
+        self.residual = residual
+
+        delta = 1e-2
+        if dropout and dropout > delta:
             self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = False
 
     def forward(
         self,
@@ -173,7 +215,7 @@ class GINConvWithGlobal(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         """
         Args:
-            g: the graphm bond as edges
+            g: the bond as edges graph
             feats: {name, feats}. Atom, bond, and global features.
 
         Returns:
@@ -184,12 +226,84 @@ class GINConvWithGlobal(nn.Module):
 
         h = feats["atom"]
         e = feats["bond"]
-        if self.has_global_feature:
-            u = feats["global"]
+        u = feats["global"]
 
-        # for residual connection
-        h_in = h
-        e_in = e
-        u_in = u
-
+        #
         # update bond features
+        #
+        g.nodes["atom"].data.update({"h": h})
+        g.edges["bond"].data.update({"e": e})
+        g.nodes["global"].data.update({"u": u})
+
+        # global feats to edge
+        # step 1, a simpy copy to atom node (sum operates on 1 tensor since there is
+        # only 1 global node connected to each atom node)
+        # step 2, copy from atom node to edge, only need to grab from src
+        g.update_all(fn.copy_u("u", "m"), fn.sum("m", "u_node"), etype="g2a")
+        g.apply_edges(fn.copy_u("u_node", "u_edge"), etype="bond")
+        u_edge = g.edges["bond"].data.pop("u_edge")
+
+        # sum of atom feats to edge
+        g.apply_edges(fn.u_add_v("h", "h", "sum_h"), etype="bond")
+        sum_h = g.edges["bond"].data.pop("sum_h")
+
+        # aggregate feats
+        e = self.mlp_bond(torch.cat((sum_h, e, u_edge), dim=-1))
+
+        if self.out_batch_norm:
+            e = self.bn_bond(e)
+        if self.out_activation:
+            e = self.out_activation(e)
+        if self.residual:
+            e = feats["bond"] + e
+        if self.dropout:
+            e = self.dropout(e)
+
+        #
+        # update atom features
+        #
+        g.edges["bond"].data.update({"e": e})
+
+        # sum updated edge feats to atom node
+        g.update_all(fn.copy_e("e", "m"), fn.sum("m", "sum_e"), etype="bond")
+        sum_e = g.nodes["atom"].data["sum_e"]
+
+        # sum neighboring atom node feats to atom node
+        g.update_all(fn.copy_u("h", "m"), fn.sum("m", "sum_h"), etype="bond")
+        sum_h = g.nodes["atom"].data.pop("sum_h") + h  # + h for self loop
+
+        # global feats (u_node already stored in atom node)
+        u_node = g.nodes["atom"].data.pop("u_node")
+
+        # aggregate
+        h = self.mlp_atom(torch.cat((sum_h, sum_e, u_node), dim=-1))
+
+        if self.out_batch_norm:
+            h = self.bn_atom(h)
+        if self.out_activation:
+            h = self.out_activation(h)
+        if self.residual:
+            h = feats["atom"] + h
+        if self.dropout:
+            h = self.dropout(h)
+
+        #
+        # update global feats
+        #
+        g.nodes["atom"].data.update({"h": h})
+
+        # edge features to global (e_sum already stored in atom node)
+        g.update_all(fn.copy_u("sum_e", "m"), fn.sum("m", "sum_e"), etype="a2g")
+        sum_e = g.nodes["global"].data.pop("sum_e")
+        sum_e = 0.5 * sum_e  # 0.5 * because each bond is represented by two edges
+
+        # atom node features to global
+        g.update_all(fn.copy_u("h", "m"), fn.sum("m", "sum_h"), etype="a2g")
+        sum_h = g.nodes["global"].data.pop("sum_h")
+
+        # aggregate
+        u = self.mlp_atom(torch.cat((sum_h, sum_e, u), dim=-1))
+
+        feats = {"atom": h, "bond": e, "global": u}
+
+        return feats
