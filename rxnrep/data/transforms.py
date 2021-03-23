@@ -272,6 +272,22 @@ class Subgraph(Transform):
             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
+class IdentityTransform:
+    """
+    Identity transform that does not modify the graph.
+    """
+
+    def __init__(self, ratio: float):
+        assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
+        self.ratio = ratio
+
+    def __call__(
+        self, reactants_g, products_g, reaction_g, reaction: Reaction
+    ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
+
+        return reactants_g, products_g, reaction_g, reaction
+
+
 def get_edge_subgraph(g, edges: List[int], edge_type: str = "bond"):
     edges_dict = {k: list(range(g.num_edges(k))) for k in g.etypes}
     edges_dict[edge_type] = edges
@@ -357,19 +373,3 @@ def get_node_subgraph(g, nodes: List[int], node_type: str = "atom") -> dgl.DGLGr
         new_g.nodes[t].data.update(feats)
 
     return new_g
-
-
-class IdentityTransform:
-    """
-    Identity transform that does not modify the graph.
-    """
-
-    def __init__(self, ratio: float):
-        assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
-        self.ratio = ratio
-
-    def __call__(
-        self, reactants_g, products_g, reaction_g, reaction: Reaction
-    ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
-
-        return reactants_g, products_g, reaction_g, reaction

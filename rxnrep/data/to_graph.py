@@ -185,6 +185,9 @@ def combine_graphs(
 
         new_g.edges[etype].data.update(new_feats)
 
+    # add _ID to atom feature
+    new_g.nodes["atom"].data["_ID"] = torch.arange(new_g.num_nodes("atom"))
+
     return new_g
 
 

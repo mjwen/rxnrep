@@ -133,7 +133,6 @@ if __name__ == "__main__":
         val_loader,
         test_loader,
         __file__,
-        top_k=2,
         monitor="val/loss",
         monitor_mode="min",
         project=project,
