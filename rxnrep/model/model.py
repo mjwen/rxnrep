@@ -19,7 +19,7 @@
 # - bep activation energy label
 # - reaction type
 
-# By default, the compressing layers and all decoders are set to None, meaning they
+# By default, the mlp_diff layers and all decoders are set to None, meaning they
 # will not be used. Also set the hidden_layer_sizes set an empty list will also not use
 # the decoder.
 #
@@ -56,9 +56,9 @@ class ReactionRepresentation(ReactionEncoder):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # compressing
-        compressing_layer_sizes=None,
-        compressing_layer_activation=None,
+        # mlp_diff
+        mlp_diff_layer_sizes=None,
+        mlp_diff_layer_activation=None,
         # pooling
         pooling_method="set2set",
         pooling_kwargs: Dict[str, Any] = None,
@@ -102,8 +102,8 @@ class ReactionRepresentation(ReactionEncoder):
             reaction_activation=reaction_activation,
             reaction_residual=reaction_residual,
             reaction_dropout=reaction_dropout,
-            compressing_layer_sizes=compressing_layer_sizes,
-            compressing_layer_activation=compressing_layer_activation,
+            mlp_diff_layer_sizes=mlp_diff_layer_sizes,
+            mlp_diff_layer_activation=mlp_diff_layer_activation,
             pooling_method=pooling_method,
             pooling_kwargs=pooling_kwargs,
         )

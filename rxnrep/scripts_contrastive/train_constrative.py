@@ -65,9 +65,9 @@ class LightningModel(BaseLightningModel):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # compressing
-            compressing_layer_sizes=params.compressing_layer_sizes,
-            compressing_layer_activation=params.compressing_layer_activation,
+            # mlp_diff
+            mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
+            mlp_diff_layer_activation=params.mlp_diff_layer_activation,
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
@@ -133,6 +133,7 @@ if __name__ == "__main__":
         val_loader,
         test_loader,
         __file__,
+        top_k=1,
         monitor="val/loss",
         monitor_mode="min",
         project=project,

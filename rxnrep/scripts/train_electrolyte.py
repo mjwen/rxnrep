@@ -62,9 +62,9 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # compressing
-            compressing_layer_sizes=params.compressing_layer_sizes,
-            compressing_layer_activation=params.compressing_layer_activation,
+            # mlp_diff
+            mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
+            mlp_diff_layer_activation=params.mlp_diff_layer_activation,
             # pooling method
             pooling_method=params.pooling_method,
             pooling_kwargs=params.pooling_kwargs,
@@ -637,15 +637,15 @@ def parse_args():
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # ========== compressor ==========
+    # ========== mlp_diff ==========
     parser.add_argument(
-        "--compressing_layer_sizes",
+        "--mlp_diff_layer_sizes",
         type=int,
         nargs="+",
         default=None,
         help="`None` to not use it",
     )
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
+    parser.add_argument("--mlp_diff_layer_activation", type=str, default="ReLU")
 
     # ========== pooling ==========
     parser.add_argument(
@@ -772,8 +772,8 @@ def parse_args():
         args.reaction_dropout = 0
 
     # output atom/bond/global feature size, before pooling
-    if args.compressing_layer_sizes:
-        encoder_out_feats_size = args.compressing_layer_sizes[-1]
+    if args.mlp_diff_layer_sizes:
+        encoder_out_feats_size = args.mlp_diff_layer_sizes[-1]
     else:
         encoder_out_feats_size = args.conv_layer_size
 

@@ -1,5 +1,5 @@
 """
-Arguments for different parts of the model: encoder, compressor, decoder...
+Arguments for different parts of the model: encoder, mlp_diff, decoder...
 """
 
 
@@ -91,8 +91,8 @@ def get_encoder_out_feats_size(args):
     """
     output atom/bond/global feature size, before pooling
     """
-    if args.compressing_layer_sizes:
-        encoder_out_feats_size = args.compressing_layer_sizes[-1]
+    if args.mlp_diff_layer_sizes:
+        encoder_out_feats_size = args.mlp_diff_layer_sizes[-1]
     else:
         encoder_out_feats_size = args.conv_layer_size
 
@@ -120,15 +120,15 @@ def encoder_args(parser):
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # compressor
+    # mlp_diff
     parser.add_argument(
-        "--compressing_layer_sizes",
+        "--mlp_diff_layer_sizes",
         type=int,
         nargs="+",
         default=None,
         help="`None` to not use it",
     )
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
+    parser.add_argument("--mlp_diff_layer_activation", type=str, default="ReLU")
 
     # pooling
     parser.add_argument(

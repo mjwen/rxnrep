@@ -18,7 +18,7 @@ class ReactionEncoder(nn.Module):
     """
     Representation of a reaction.
 
-    This is achieve by:
+    This is achieved by:
 
     1. update atom, bond, and (optionally global) features of molecule graphs for the
        reactants and products with gated graph conv layers.
@@ -26,6 +26,7 @@ class ReactionEncoder(nn.Module):
     3. (optional) update the difference features using the reaction graph.
     4. (optional) update difference features using MLP
     5. readout reaction features using a pooling, e.g. set2set
+    6. (optional) update pooled features using MLP
 
     Args:
         embedding_size: Typically, atom, bond, and global features do not have the same
@@ -39,12 +40,14 @@ class ReactionEncoder(nn.Module):
         self,
         in_feats: Dict[str, int],
         embedding_size: Optional[int] = None,
+        # 1
         molecule_conv_layer_sizes: List[int] = (64, 64),
         molecule_num_fc_layers: int = 2,
         molecule_batch_norm: bool = True,
         molecule_activation: str = "ReLU",
         molecule_residual: bool = True,
         molecule_dropout: float = 0.0,
+        # 3
         reaction_conv_layer_sizes: Optional[List[int]] = None,
         reaction_num_fc_layers: Optional[int] = 2,
         reaction_batch_norm: Optional[bool] = True,
@@ -53,11 +56,11 @@ class ReactionEncoder(nn.Module):
         reaction_dropout: Optional[float] = 0.0,
         conv="GatedGCNConv2",
         has_global_feats: bool = True,
-        # compressing
-        compressing_layer_sizes: Optional[List[int]] = None,
-        compressing_layer_batch_norm: Optional[bool] = True,
-        compressing_layer_activation: Optional[str] = "ReLU",
-        # pooling
+        # 4, mlp diff 1
+        mlp_diff_layer_sizes: Optional[List[int]] = None,
+        mlp_diff_layer_batch_norm: Optional[bool] = True,
+        mlp_diff_layer_activation: Optional[str] = "ReLU",
+        # 5, pooling
         pooling_method: str = "set2set",
         pooling_kwargs: Dict[str, Any] = None,
     ):
@@ -139,35 +142,35 @@ class ReactionEncoder(nn.Module):
             self.reaction_conv_layers = None
             conv_outsize = molecule_conv_layer_sizes[-1]
 
-        # ========== compressor ==========
-        if compressing_layer_sizes:
+        # ========== mlp diff ==========
+        if mlp_diff_layer_sizes:
             self.feat_types = ["atom", "bond"]
             if has_global_feats:
                 self.feat_types.append("global")
 
-            self.compressor = nn.ModuleDict(
+            self.mlp_diff = nn.ModuleDict(
                 {
                     k: MLP(
                         in_size=conv_outsize,
-                        hidden_sizes=compressing_layer_sizes,
-                        batch_norm=compressing_layer_batch_norm,
-                        activation=compressing_layer_activation,
+                        hidden_sizes=mlp_diff_layer_sizes,
+                        batch_norm=mlp_diff_layer_batch_norm,
+                        activation=mlp_diff_layer_activation,
                     )
                     for k in self.feat_types
                 }
             )
 
-            compressor_outsize = compressing_layer_sizes[-1]
+            mlp_diff_outsize = mlp_diff_layer_sizes[-1]
         else:
-            self.compressor = None
-            compressor_outsize = conv_outsize
+            self.mlp_diff = None
+            mlp_diff_outsize = conv_outsize
 
         # ========== reaction feature pooling ==========
         self.readout = Pooling(
-            compressor_outsize, pooling_method, pooling_kwargs, has_global_feats
+            mlp_diff_outsize, pooling_method, pooling_kwargs, has_global_feats
         )
 
-        self.node_feats_size = compressor_outsize
+        self.node_feats_size = mlp_diff_outsize
         self.reaction_feats_size = self.readout.reaction_feats_size
 
     def forward(
@@ -231,9 +234,9 @@ class ReactionEncoder(nn.Module):
             for layer in self.reaction_conv_layers:
                 feats = layer(reaction_graphs, feats)
 
-        # compressor
-        if self.compressor:
-            feats = {k: self.compressor[k](feats[k]) for k in self.feat_types}
+        # mlp_diff
+        if self.mlp_diff:
+            feats = {k: self.mlp_diff[k](feats[k]) for k in self.feat_types}
 
         # readout reaction features, a 1D tensor for each reaction
         reaction_feats = self.readout(molecule_graphs, reaction_graphs, feats, metadata)
