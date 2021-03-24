@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 from dgl.ops import segment_reduce
 
-from rxnrep.model.gatedconv import GatedGCNConv
-from rxnrep.model.gatedconv2 import GatedGCNConv as GatedGCNConv2
+from rxnrep.model.gatedconv2 import GatedGCNConv
+from rxnrep.model.gin import GINConv, GINConvGlobal
 from rxnrep.model.readout import Pooling
 from rxnrep.model.utils import MLP, UnifySize
 
@@ -27,6 +27,11 @@ class ReactionEncoder(nn.Module):
     4. (optional) update difference features using MLP
     5. readout reaction features using a pool, e.g. set2set
     6. (optional) update pooled features using MLP
+
+    Support conv method:
+        GatedGCNConv
+        GINConvGlobal
+        GINConv
 
     Args:
         embedding_size: Typically, atom, bond, and global features do not have the same
@@ -54,7 +59,8 @@ class ReactionEncoder(nn.Module):
         reaction_activation: Optional[str] = "ReLU",
         reaction_residual: Optional[bool] = True,
         reaction_dropout: Optional[float] = 0.0,
-        conv="GatedGCNConv2",
+        #
+        conv="GatedGCNConv",
         has_global_feats: bool = True,
         # 4, mlp diff
         mlp_diff_layer_sizes: Optional[List[int]] = None,
@@ -69,7 +75,6 @@ class ReactionEncoder(nn.Module):
         mlp_pool_layer_activation: Optional[str] = "ReLU",
     ):
         super(ReactionEncoder, self).__init__()
-        self.conv = conv
 
         # set default values
         if isinstance(molecule_activation, str):
@@ -99,18 +104,25 @@ class ReactionEncoder(nn.Module):
         # graph conv layer type
         if conv == "GatedGCNConv":
             conv_class = GatedGCNConv
-        elif conv == "GatedGCNConv2":
-            conv_class = GatedGCNConv2
+            assert has_global_feats, f"Select `{conv}`, but `has_global_feats = False`"
+        elif conv == "GINConvGlobal":
+            conv_class = GINConvGlobal
+            assert has_global_feats, f"Select `{conv}`, but `has_global_feats = False`"
+        elif conv == "GINConv":
+            conv_class = GINConv
+            assert (
+                not has_global_feats
+            ), f"Select `{conv}`, but `has_global_feats = True`"
         else:
-            raise ValueError()
+            raise ValueError(f"Got unexpected conv {conv}")
 
         #
         # graph conv layers to update features of molecule graph
         #
         self.molecule_conv_layers = nn.ModuleList()
         for layer_size in molecule_conv_layer_sizes:
-            self.molecule_conv_layers.append(
-                conv_class(
+            if conv == "GatedGCNConv":
+                la = conv_class(
                     in_size=in_size,
                     out_size=layer_size,
                     num_fc_layers=molecule_num_fc_layers,
@@ -119,7 +131,22 @@ class ReactionEncoder(nn.Module):
                     residual=molecule_residual,
                     dropout=molecule_dropout,
                 )
-            )
+            elif conv in ["GINConv", "GINConvGlobal"]:
+                la = conv_class(
+                    in_size=in_size,
+                    out_size=layer_size,
+                    num_fc_layers=molecule_num_fc_layers,
+                    batch_norm=molecule_batch_norm,
+                    activation=molecule_activation,
+                    out_batch_norm=molecule_batch_norm,
+                    out_activation=molecule_activation,
+                    residual=molecule_residual,
+                    dropout=molecule_dropout,
+                )
+            else:
+                raise ValueError()
+
+            self.molecule_conv_layers.append(la)
             in_size = layer_size
 
         #
@@ -128,8 +155,8 @@ class ReactionEncoder(nn.Module):
         if reaction_conv_layer_sizes:
             self.reaction_conv_layers = nn.ModuleList()
             for layer_size in reaction_conv_layer_sizes:
-                self.reaction_conv_layers.append(
-                    conv_class(
+                if conv == "GatedGCNConv":
+                    la = conv_class(
                         in_size=in_size,
                         out_size=layer_size,
                         num_fc_layers=reaction_num_fc_layers,
@@ -138,7 +165,22 @@ class ReactionEncoder(nn.Module):
                         residual=reaction_residual,
                         dropout=reaction_dropout,
                     )
-                )
+                elif conv in ["GINConv", "GINConvGlobal"]:
+                    la = conv_class(
+                        in_size=in_size,
+                        out_size=layer_size,
+                        num_fc_layers=reaction_num_fc_layers,
+                        batch_norm=reaction_batch_norm,
+                        activation=reaction_activation,
+                        out_batch_norm=reaction_batch_norm,
+                        out_activation=reaction_activation,
+                        residual=reaction_residual,
+                        dropout=reaction_dropout,
+                    )
+                else:
+                    raise ValueError(f"Got unexpected conv {conv}")
+
+                self.reaction_conv_layers.append(la)
                 in_size = layer_size
 
             conv_outsize = reaction_conv_layer_sizes[-1]
@@ -236,15 +278,13 @@ class ReactionEncoder(nn.Module):
 
         # node as edge graph
         # each bond represented by two edges; select one feat for each bond
-        if self.conv == "GatedGCNConv2":
-            feats["bond"] = feats["bond"][::2]
+        feats["bond"] = feats["bond"][::2]
 
         # create difference reaction features from molecule features
         diff_feats = create_reaction_features(feats, metadata)
 
         # node as edge graph; make two edge feats for each bond
-        if self.conv == "GatedGCNConv2":
-            diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
+        diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
 
         # reaction graph conv layer
         feats = diff_feats
@@ -290,15 +330,13 @@ class ReactionEncoder(nn.Module):
 
         # node as edge graph
         # each bond represented by two edges; select one feat for each bond
-        if self.conv == "GatedGCNConv2":
-            feats["bond"] = feats["bond"][::2]
+        feats["bond"] = feats["bond"][::2]
 
         # create difference reaction features from molecule features
         diff_feats = create_reaction_features(feats, metadata)
 
         # node as edge graph; make two edge feats for each bond
-        if self.conv == "GatedGCNConv2":
-            diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
+        diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
 
         return diff_feats
 

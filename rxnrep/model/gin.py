@@ -28,8 +28,8 @@ class GINConv(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
-        output_dim: int,
+        in_size: int,
+        out_size: int,
         num_fc_layers: int = 2,
         batch_norm: bool = True,
         activation: str = "ReLU",
@@ -40,26 +40,26 @@ class GINConv(nn.Module):
     ):
         super().__init__()
 
-        hidden_sizes = [output_dim * 2] * (num_fc_layers - 1)
+        hidden_sizes = [out_size * 2] * (num_fc_layers - 1)
         self.mlp_atom = MLP(
-            2 * input_dim,
+            2 * in_size,
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
-            out_size=output_dim,
+            out_size=out_size,
         )
         self.mlp_bond = MLP(
-            2 * input_dim,
+            2 * in_size,
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
-            out_size=output_dim,
+            out_size=out_size,
         )
 
         if out_batch_norm:
             self.out_batch_norm = True
-            self.bn_atom = nn.BatchNorm1d(output_dim)
-            self.bn_bond = nn.BatchNorm1d(output_dim)
+            self.bn_atom = nn.BatchNorm1d(out_size)
+            self.bn_bond = nn.BatchNorm1d(out_size)
         else:
             self.out_batch_norm = False
 
@@ -153,8 +153,8 @@ class GINConvGlobal(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
-        output_dim: int,
+        in_size: int,
+        out_size: int,
         num_fc_layers: int = 2,
         batch_norm: bool = True,
         activation: str = "ReLU",
@@ -165,33 +165,33 @@ class GINConvGlobal(nn.Module):
     ):
         super().__init__()
 
-        hidden_sizes = [output_dim * 3] * (num_fc_layers - 1)
+        hidden_sizes = [out_size * 3] * (num_fc_layers - 1)
         self.mlp_atom = MLP(
-            3 * input_dim,
+            3 * in_size,
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
-            out_size=output_dim,
+            out_size=out_size,
         )
         self.mlp_bond = MLP(
-            3 * input_dim,
+            3 * in_size,
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
-            out_size=output_dim,
+            out_size=out_size,
         )
         self.mlp_global = MLP(
-            3 * input_dim,
+            3 * in_size,
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
-            out_size=output_dim,
+            out_size=out_size,
         )
 
         if out_batch_norm:
             self.out_batch_norm = True
-            self.bn_atom = nn.BatchNorm1d(output_dim)
-            self.bn_bond = nn.BatchNorm1d(output_dim)
+            self.bn_atom = nn.BatchNorm1d(out_size)
+            self.bn_bond = nn.BatchNorm1d(out_size)
         else:
             self.out_batch_norm = False
 

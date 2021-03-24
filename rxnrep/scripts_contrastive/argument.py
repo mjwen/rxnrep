@@ -92,6 +92,14 @@ def encoder_args(parser):
     # activation for all
     parser.add_argument("--activation", type=str, default="ReLU")
 
+    parser.add_argument(
+        "--conv",
+        type=str,
+        default="GatedGCNConv",
+        choices=["GatedGCNConv", "GINConvGlobal"],
+    )
+    parser.add_argument("--has_global_feats", type=int, default=1)
+
     # embedding
     parser.add_argument("--embedding_size", type=int, default=24)
 

@@ -62,9 +62,12 @@ class LightningModel(BaseLightningModel):
             reaction_activation=params.activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
+            #
+            conv=params.conv,
+            has_global_feats=params.has_global_feats,
             # mlp diff
             mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
-            mlp_diff_batch_norm=params.mlp_diff_layer_batch_norm,
+            mlp_diff_layer_batch_norm=params.mlp_diff_layer_batch_norm,
             mlp_diff_layer_activation=params.activation,
             # pool method
             pool_method=params.pool_method,
