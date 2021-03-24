@@ -41,15 +41,16 @@ class GINConv(nn.Module):
         super().__init__()
 
         hidden_sizes = [out_size * 2] * (num_fc_layers - 1)
-        self.mlp_atom = MLP(
+
+        self.mlp_bond = MLP(
             2 * in_size,
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
             out_size=out_size,
         )
-        self.mlp_bond = MLP(
-            2 * in_size,
+        self.mlp_atom = MLP(
+            in_size + out_size,  # in_size: atom; out_size: bond
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
@@ -69,6 +70,8 @@ class GINConv(nn.Module):
             self.out_activation = False
 
         self.residual = residual
+        if in_size != out_size:
+            self.residual = False
 
         delta = 1e-2
         if dropout and dropout > delta:
@@ -166,13 +169,6 @@ class GINConvGlobal(nn.Module):
         super().__init__()
 
         hidden_sizes = [out_size * 3] * (num_fc_layers - 1)
-        self.mlp_atom = MLP(
-            3 * in_size,
-            hidden_sizes,
-            batch_norm=batch_norm,
-            activation=activation,
-            out_size=out_size,
-        )
         self.mlp_bond = MLP(
             3 * in_size,
             hidden_sizes,
@@ -180,8 +176,17 @@ class GINConvGlobal(nn.Module):
             activation=activation,
             out_size=out_size,
         )
+
+        self.mlp_atom = MLP(
+            2 * in_size + out_size,  # in_size: atom, global; out_size: bond
+            hidden_sizes,
+            batch_norm=batch_norm,
+            activation=activation,
+            out_size=out_size,
+        )
+
         self.mlp_global = MLP(
-            3 * in_size,
+            in_size + 2 * out_size,  # in_size: global; out_size: bond, atom
             hidden_sizes,
             batch_norm=batch_norm,
             activation=activation,
@@ -201,6 +206,8 @@ class GINConvGlobal(nn.Module):
             self.out_activation = False
 
         self.residual = residual
+        if in_size != out_size:
+            self.residual = False
 
         delta = 1e-2
         if dropout and dropout > delta:
@@ -302,7 +309,7 @@ class GINConvGlobal(nn.Module):
         sum_h = g.nodes["global"].data.pop("sum_h")
 
         # aggregate
-        u = self.mlp_atom(torch.cat((sum_h, sum_e, u), dim=-1))
+        u = self.mlp_global(torch.cat((sum_h, sum_e, u), dim=-1))
 
         feats = {"atom": h, "bond": e, "global": u}
 

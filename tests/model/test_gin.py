@@ -206,8 +206,8 @@ def init_net(has_global=False):
     else:
         conv_class = GINConv
     conv = conv_class(
-        input_dim=4,
-        output_dim=4,
+        in_size=4,
+        out_size=4,
         num_fc_layers=1,
         batch_norm=False,
         activation=nn.Identity(),
