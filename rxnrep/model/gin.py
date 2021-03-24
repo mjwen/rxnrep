@@ -197,6 +197,7 @@ class GINConvGlobal(nn.Module):
             self.out_batch_norm = True
             self.bn_atom = nn.BatchNorm1d(out_size)
             self.bn_bond = nn.BatchNorm1d(out_size)
+            self.bn_global = nn.BatchNorm1d(out_size)
         else:
             self.out_batch_norm = False
 
@@ -310,6 +311,20 @@ class GINConvGlobal(nn.Module):
 
         # aggregate
         u = self.mlp_global(torch.cat((sum_h, sum_e, u), dim=-1))
+
+        if self.out_batch_norm:
+            # do not apply batch norm if it there is only one graph and it is in
+            # training mode, BN complains about it
+            if u.shape[0] <= 1 and self.training:
+                pass
+            else:
+                u = self.bn_global(u)
+        if self.out_activation:
+            u = self.out_activation(u)
+        if self.residual:
+            u = feats["global"] + u
+        if self.dropout:
+            u = self.dropout(u)
 
         feats = {"atom": h, "bond": e, "global": u}
 

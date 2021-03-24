@@ -210,7 +210,7 @@ def init_net(has_global=False):
         out_size=4,
         num_fc_layers=1,
         batch_norm=False,
-        activation=nn.Identity(),
+        activation=None,
     )
 
     # set MLP to identify mapping, i.e. identify weight matrix, zero bias

@@ -221,7 +221,12 @@ def init_net():
                 nn.init.zeros_(param)
 
     conv = GatedGCNConv(
-        in_size=4, out_size=4, batch_norm=False, activation=nn.Identity()
+        in_size=4,
+        out_size=4,
+        batch_norm=False,
+        activation=None,
+        out_batch_norm=False,
+        out_activation=None,
     )
 
     # set MLP to identify mapping, i.e. identify weight matrix, zero bias
