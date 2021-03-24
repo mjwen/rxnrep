@@ -10,7 +10,7 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-from rxnrep.model.utils import MLP
+from rxnrep.model.utils import MLP, get_activation
 
 
 class GatedGCNConv(nn.Module):
@@ -21,16 +21,12 @@ class GatedGCNConv(nn.Module):
         num_fc_layers: int = 1,
         batch_norm: bool = True,
         activation: Callable = nn.ReLU(),
+        out_batch_norm: bool = True,
+        out_activation: Callable = nn.ReLU(),
         residual: bool = False,
         dropout: Union[float, None] = None,
     ):
         super().__init__()
-        self.batch_norm = batch_norm
-        self.activation = activation
-        self.residual = residual
-
-        if in_size != out_size:
-            self.residual = False
 
         # A, B, ... I are phi_1, phi_2, ..., phi_9 in the BonDNet paper
         hidden = [out_size] * (num_fc_layers - 1)
@@ -44,16 +40,28 @@ class GatedGCNConv(nn.Module):
         self.H = MLP(out_size, hidden, activation=activation, out_size=out_size)
         self.I = MLP(in_size, hidden, activation=activation, out_size=out_size)
 
-        if self.batch_norm:
+        if out_batch_norm:
+            self.out_batch_norm = True
             self.bn_node_h = nn.BatchNorm1d(out_size)
             self.bn_node_e = nn.BatchNorm1d(out_size)
             self.bn_node_u = nn.BatchNorm1d(out_size)
-
-        delta = 1e-3
-        if dropout is None or dropout < delta:
-            self.dropout = nn.Identity()
         else:
+            self.out_batch_norm = False
+
+        if out_activation:
+            self.out_activation = get_activation(out_activation)
+        else:
+            self.out_activation = False
+
+        self.residual = residual
+        if in_size != out_size:
+            self.residual = False
+
+        delta = 1e-2
+        if dropout and dropout > delta:
             self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = False
 
     def forward(
         self,
@@ -101,9 +109,10 @@ class GatedGCNConv(nn.Module):
         del g.nodes["atom"].data["Cu"]
         del g.nodes["global"].data["Cu"]
 
-        if self.batch_norm:
+        if self.out_batch_norm:
             e = self.bn_node_e(e)
-        e = self.activation(e)
+        if self.out_activation:
+            e = self.out_activation(e)
         if self.residual:
             e = feats["bond"] + e
 
@@ -137,9 +146,10 @@ class GatedGCNConv(nn.Module):
         # del for memory efficiency
         del g.nodes["atom"].data["Eh"]
 
-        if self.batch_norm:
+        if self.out_batch_norm:
             h = self.bn_node_h(h)
-        h = self.activation(h)
+        if self.out_activation:
+            h = self.out_activation(h)
         if self.residual:
             h = feats["atom"] + h
 
@@ -167,21 +177,23 @@ class GatedGCNConv(nn.Module):
         # aggregate
         u = mean_Gh + mean_He + self.I(u)
 
-        if self.batch_norm:
+        if self.out_batch_norm:
             # do not apply batch norm if it there is only one graph and it is in
             # training mode, BN complains about it
             if u.shape[0] <= 1 and self.training:
                 pass
             else:
                 u = self.bn_node_u(u)
-        u = self.activation(u)
+        if self.out_activation:
+            u = self.out_activation(u)
         if self.residual:
             u = feats["global"] + u
 
         # dropout
-        h = self.dropout(h)
-        e = self.dropout(e)
-        u = self.dropout(u)
+        if self.dropout:
+            h = self.dropout(h)
+            e = self.dropout(e)
+            u = self.dropout(u)
 
         feats = {"atom": h, "bond": e, "global": u}
 

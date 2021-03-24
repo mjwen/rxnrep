@@ -101,7 +101,7 @@ def encoder_args(parser):
     parser.add_argument("--has_global_feats", type=int, default=1)
 
     # embedding
-    parser.add_argument("--embedding_size", type=int, default=24)
+    parser.add_argument("--embedding_size", type=int, default=None)
 
     # encoder
     parser.add_argument(
@@ -166,6 +166,11 @@ def encoder_helper(parser):
 
 
 def encoder_adjuster(args):
+
+    # embedding
+    if args.embedding_size is None:
+        args.embedding_size = args.conv_layer_size
+
     # encoder
     args.molecule_conv_layer_sizes = [args.conv_layer_size] * args.num_mol_conv_layers
     args.reaction_conv_layer_sizes = [args.conv_layer_size] * args.num_rxn_conv_layers

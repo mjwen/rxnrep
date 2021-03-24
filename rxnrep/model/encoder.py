@@ -121,18 +121,8 @@ class ReactionEncoder(nn.Module):
         #
         self.molecule_conv_layers = nn.ModuleList()
         for layer_size in molecule_conv_layer_sizes:
-            if conv == "GatedGCNConv":
-                la = conv_class(
-                    in_size=in_size,
-                    out_size=layer_size,
-                    num_fc_layers=molecule_num_fc_layers,
-                    batch_norm=molecule_batch_norm,
-                    activation=molecule_activation,
-                    residual=molecule_residual,
-                    dropout=molecule_dropout,
-                )
-            elif conv in ["GINConv", "GINConvGlobal"]:
-                la = conv_class(
+            self.molecule_conv_layers.append(
+                conv_class(
                     in_size=in_size,
                     out_size=layer_size,
                     num_fc_layers=molecule_num_fc_layers,
@@ -143,10 +133,8 @@ class ReactionEncoder(nn.Module):
                     residual=molecule_residual,
                     dropout=molecule_dropout,
                 )
-            else:
-                raise ValueError()
+            )
 
-            self.molecule_conv_layers.append(la)
             in_size = layer_size
 
         #
@@ -155,18 +143,8 @@ class ReactionEncoder(nn.Module):
         if reaction_conv_layer_sizes:
             self.reaction_conv_layers = nn.ModuleList()
             for layer_size in reaction_conv_layer_sizes:
-                if conv == "GatedGCNConv":
-                    la = conv_class(
-                        in_size=in_size,
-                        out_size=layer_size,
-                        num_fc_layers=reaction_num_fc_layers,
-                        batch_norm=reaction_batch_norm,
-                        activation=reaction_activation,
-                        residual=reaction_residual,
-                        dropout=reaction_dropout,
-                    )
-                elif conv in ["GINConv", "GINConvGlobal"]:
-                    la = conv_class(
+                self.reaction_conv_layers.append(
+                    conv_class(
                         in_size=in_size,
                         out_size=layer_size,
                         num_fc_layers=reaction_num_fc_layers,
@@ -177,10 +155,7 @@ class ReactionEncoder(nn.Module):
                         residual=reaction_residual,
                         dropout=reaction_dropout,
                     )
-                else:
-                    raise ValueError(f"Got unexpected conv {conv}")
-
-                self.reaction_conv_layers.append(la)
+                )
                 in_size = layer_size
 
             conv_outsize = reaction_conv_layer_sizes[-1]
