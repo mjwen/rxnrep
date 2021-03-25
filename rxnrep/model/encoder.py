@@ -75,14 +75,13 @@ class ReactionEncoder(nn.Module):
         mlp_pool_layer_activation: Optional[str] = "ReLU",
     ):
         super(ReactionEncoder, self).__init__()
+        self.has_global_feats = has_global_feats
 
-        # set default values
-        if isinstance(molecule_activation, str):
-            molecule_activation = getattr(nn, molecule_activation)()
-        if isinstance(reaction_activation, str):
-            reaction_activation = getattr(nn, reaction_activation)()
+        # remove global feats (in case the featurizer creates it)
+        if not has_global_feats and "global" in in_feats:
+            in_feats.pop("global")
 
-        # ========== encoding mol features ==========
+        # ========== encoding reaction features ==========
 
         #
         # embedding to unify feature size
@@ -244,22 +243,9 @@ class ReactionEncoder(nn.Module):
                 and D' is the feature size. One row for each reaction.
         """
 
-        # embedding
-        feats = self.embedding(feats)
-
-        # molecule graph conv layer
-        for layer in self.molecule_conv_layers:
-            feats = layer(molecule_graphs, feats)
-
-        # node as edge graph
-        # each bond represented by two edges; select one feat for each bond
-        feats["bond"] = feats["bond"][::2]
-
-        # create difference reaction features from molecule features
-        diff_feats = create_reaction_features(feats, metadata)
-
-        # node as edge graph; make two edge feats for each bond
-        diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
+        diff_feats = self.get_diff_feats(
+            molecule_graphs, reaction_graphs, feats, metadata
+        )
 
         # reaction graph conv layer
         feats = diff_feats
@@ -295,6 +281,9 @@ class ReactionEncoder(nn.Module):
 
         This is the same as the forward function, without the reaction conv layers.
         """
+        # remove global feats (in case the featurizer creates it)
+        if not self.has_global_feats and "global" in feats:
+            feats.pop("global")
 
         # embedding
         feats = self.embedding(feats)
@@ -308,7 +297,7 @@ class ReactionEncoder(nn.Module):
         feats["bond"] = feats["bond"][::2]
 
         # create difference reaction features from molecule features
-        diff_feats = create_reaction_features(feats, metadata)
+        diff_feats = create_reaction_features(feats, metadata, self.has_global_feats)
 
         # node as edge graph; make two edge feats for each bond
         diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
@@ -317,7 +306,9 @@ class ReactionEncoder(nn.Module):
 
 
 def create_reaction_features(
-    molecule_feats: Dict[str, torch.Tensor], metadata: Dict[str, List[int]]
+    molecule_feats: Dict[str, torch.Tensor],
+    metadata: Dict[str, List[int]],
+    has_global_feats=True,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute the difference features between the products and the reactants.
@@ -336,6 +327,7 @@ def create_reaction_features(
         metadata: holds the number of nodes for all reactions. The size of each
             list is equal to the number of reactions, and element `i` gives the info
             for reaction `i`.
+        has_global_feats: whether to compute global features difference
 
     Returns:
         Difference features between the products and the reactants.
@@ -343,16 +335,18 @@ def create_reaction_features(
         Atom and global feature tensors should have the same shape as the reactant
         feature tensors.
     """
+    diff_feats = {
+        "atom": get_atom_diff_feats(molecule_feats, metadata),
+        "bond": get_bond_diff_feats(molecule_feats, metadata),
+    }
+    if has_global_feats:
+        diff_feats["global"] = get_global_diff_feats(molecule_feats, metadata)
 
+    return diff_feats
+
+
+def get_atom_diff_feats(molecule_feats, metadata):
     atom_feats = molecule_feats["atom"]
-    bond_feats = molecule_feats["bond"]
-    global_feats = molecule_feats["global"]
-
-    reactant_num_molecules = metadata["reactant_num_molecules"]
-    product_num_molecules = metadata["product_num_molecules"]
-    num_unchanged_bonds = metadata["num_unchanged_bonds"]
-    reactant_num_bonds = metadata["num_reactant_bonds"]
-    product_num_bonds = metadata["num_product_bonds"]
 
     # Atom difference feats
     size = len(atom_feats) // 2  # same number of atom nodes in reactants and products
@@ -361,6 +355,18 @@ def create_reaction_features(
     reactant_atom_feats = atom_feats[:size]
     product_atom_feats = atom_feats[size:]
     diff_atom_feats = product_atom_feats - reactant_atom_feats
+
+    return diff_atom_feats
+
+
+def get_bond_diff_feats(molecule_feats, metadata):
+    pass
+
+    bond_feats = molecule_feats["bond"]
+
+    num_unchanged_bonds = metadata["num_unchanged_bonds"]
+    reactant_num_bonds = metadata["num_reactant_bonds"]
+    product_num_bonds = metadata["num_product_bonds"]
 
     # Bond difference feats
     total_num_reactant_bonds = sum(reactant_num_bonds)
@@ -382,7 +388,15 @@ def create_reaction_features(
         diff_bond_feats.append(feats)
     diff_bond_feats = torch.cat(diff_bond_feats)
 
-    # Global difference feats
+    return diff_bond_feats
+
+
+def get_global_diff_feats(molecule_feats, metadata):
+
+    global_feats = molecule_feats["global"]
+
+    reactant_num_molecules = metadata["reactant_num_molecules"]
+    product_num_molecules = metadata["product_num_molecules"]
 
     total_num_reactant_molecules = sum(reactant_num_molecules)
     reactant_global_feats = global_feats[:total_num_reactant_molecules]
@@ -406,10 +420,4 @@ def create_reaction_features(
 
     diff_global_feats = mean_product_global_feats - mean_reactant_global_feats
 
-    diff_feats = {
-        "atom": diff_atom_feats,
-        "bond": diff_bond_feats,
-        "global": diff_global_feats,
-    }
-
-    return diff_feats
+    return diff_global_feats
