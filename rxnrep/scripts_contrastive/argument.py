@@ -97,7 +97,7 @@ def encoder_args(parser):
         type=str,
         default="GatedGCNConv",
         # default="GINConvGlobal",
-        choices=["GatedGCNConv", "GINConvGlobal"],
+        choices=["GatedGCNConv", "GINConvGlobal", "GINConv"],
     )
     parser.add_argument("--has_global_feats", type=int, default=None)
 
