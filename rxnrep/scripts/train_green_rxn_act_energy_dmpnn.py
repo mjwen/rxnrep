@@ -19,7 +19,7 @@ from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
 from rxnrep.model.dmpnn import DMPNNModel
 from rxnrep.scripts import argument
-from rxnrep.scripts.load_dataset import load_Green_dataset
+from rxnrep.scripts.load_dataset import load_green_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import TimeMeter, write_running_metadata
 
@@ -716,7 +716,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     # dataset
-    train_loader, val_loader, test_loader = load_Green_dataset(args)
+    train_loader, val_loader, test_loader = load_green_dataset(args)
 
     # model
     model = RxnRepLightningModel(args)

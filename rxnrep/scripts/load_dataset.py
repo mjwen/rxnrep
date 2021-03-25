@@ -20,12 +20,15 @@ def load_dataset(args):
     if "schneider" in args.dataset:
         return load_uspto_dataset(args)
     elif args.dataset == "electrolyte":
-        return load_Electrolyte_dataset(args)
+        return load_electrolyte_dataset(args)
+    elif args.dataset == "green":
+        return load_green_dataset(args)
+
     else:
         raise ValueError(f"Not supported dataset {args.dataset}")
 
 
-def load_Green_dataset(args):
+def load_green_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
 
@@ -288,7 +291,7 @@ def load_uspto_dataset(args):
     return train_loader, val_loader, test_loader
 
 
-def load_Electrolyte_dataset(args):
+def load_electrolyte_dataset(args):
     state_dict_filename = get_state_dict_filename(args)
 
     # adjust args controlling labels

@@ -28,6 +28,12 @@ def dataset_args(parser, dataset: str):
             help="whether the dataset has only breaking bond, i.e. no added bond",
         )
 
+    elif dataset == "green":
+        prefix = "/Users/mjwen/Documents/Dataset/activation_energy_Green/"
+        fname_tr = prefix + "wb97xd3_n200_processed_train.tsv"
+        fname_val = fname_tr
+        fname_test = fname_tr
+
     else:
         raise ValueError(f"Not supported dataset {dataset}")
 
