@@ -99,7 +99,7 @@ def encoder_args(parser):
         # default="GINConvGlobal",
         choices=["GatedGCNConv", "GINConvGlobal"],
     )
-    parser.add_argument("--has_global_feats", type=int, default=1)
+    parser.add_argument("--has_global_feats", type=int, default=None)
 
     # embedding
     parser.add_argument("--embedding_size", type=int, default=None)
@@ -167,6 +167,14 @@ def encoder_helper(parser):
 
 
 def encoder_adjuster(args):
+    # conv
+    if args.has_global_feats is None:
+        if args.conv == "GINConv":
+            args.has_global_feats = 0
+        elif args.conv in ["GINConvGlobal", "GatedGCNConv"]:
+            args.has_global_feats = 1
+        else:
+            raise ValueError("Unsupported conv")
 
     # embedding
     if args.embedding_size is None:
