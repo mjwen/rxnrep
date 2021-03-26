@@ -141,9 +141,6 @@ def load_green_dataset(args):
         num_workers=args.num_workers,
     )
 
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
-
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
     args.label_scaler = trainset.get_label_scaler()
@@ -263,9 +260,6 @@ def load_uspto_dataset(args):
         pin_memory=True,
         num_workers=args.num_workers,
     )
-
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
 
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
@@ -387,9 +381,6 @@ def load_electrolyte_dataset(args):
         num_workers=args.num_workers,
     )
 
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
-
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
     args.label_scaler = trainset.get_label_scaler()
@@ -481,9 +472,6 @@ def load_nrel_dataset(args):
         pin_memory=True,
         num_workers=args.num_workers,
     )
-
-    # Add dataset state dict to args to log it
-    args.dataset_state_dict = state_dict
 
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size

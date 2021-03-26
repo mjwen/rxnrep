@@ -438,9 +438,13 @@ def copy_trained_model(
     checkpoints = sorted(checkpoints)
     shutil.copy(checkpoints[-1], target_dir.joinpath("checkpoint.ckpt"))
 
-    # copy dataset state dict
+    # copy config.yaml file
     run_path = get_wandb_run_path(identifier, source_dir)
     print("wandb run path:", run_path)
 
+    f = to_path(run_path).joinpath("files", "config.yaml")
+    shutil.copy(f, target_dir.joinpath("config.yaml"))
+
+    # copy dataset state dict
     f = to_path(run_path).joinpath("files", "dataset_state_dict.yaml")
     shutil.copy(f, target_dir.joinpath("dataset_state_dict.yaml"))

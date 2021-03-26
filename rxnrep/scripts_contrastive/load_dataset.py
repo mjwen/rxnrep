@@ -6,6 +6,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from rxnrep.data import transforms
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.green import GreenContrastiveDataset
 from rxnrep.data.uspto import USPTOContrastiveDataset
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 def load_dataset(args):
     if "schneider" in args.dataset:
         return load_uspto_dataset(args)
+    elif args.dataset == "green":
+        return load_green_dataset(args)
     else:
         raise ValueError(f"Not supported dataset {args.dataset}")
 
@@ -58,6 +61,99 @@ def load_uspto_dataset(args):
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
         global_featurizer=global_featurizer,
+        init_state_dict=state_dict,
+        num_processes=args.nprocs,
+        transform_features=True,
+        transform1=t1,
+        transform2=t2,
+    )
+
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    logger.info(
+        f"Trainset size: {len(trainset)}, valset size: {len(valset)}: "
+        f"testset size: {len(testset)}."
+    )
+
+    train_loader = DataLoader(
+        trainset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=trainset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    val_loader = DataLoader(
+        valset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=valset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    test_loader = DataLoader(
+        testset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=testset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    # Add info that will be used in the model to args for easy access
+    args.feature_size = trainset.feature_size
+
+    return train_loader, val_loader, test_loader
+
+
+def load_green_dataset(args):
+
+    state_dict_filename = get_state_dict_filename(args)
+
+    atom_featurizer_kwargs = {
+        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
+        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
+        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
+    }
+
+    t1, t2 = init_augmentations(args)
+
+    trainset = GreenContrastiveDataset(
+        filename=args.trainset_filename,
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        init_state_dict=state_dict_filename,
+        num_processes=args.nprocs,
+        transform_features=True,
+        transform1=t1,
+        transform2=t2,
+    )
+
+    state_dict = trainset.state_dict()
+
+    valset = GreenContrastiveDataset(
+        filename=args.valset_filename,
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        init_state_dict=state_dict,
+        num_processes=args.nprocs,
+        transform_features=True,
+        transform1=t1,
+        transform2=t2,
+    )
+
+    testset = GreenContrastiveDataset(
+        filename=args.testset_filename,
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
