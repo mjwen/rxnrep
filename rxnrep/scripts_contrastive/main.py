@@ -19,6 +19,7 @@ def main(
     monitor="val/score",
     monitor_mode="max",
     project="tmp-rxnrep",
+    run_test=True,
 ):
 
     # callbacks
@@ -85,7 +86,9 @@ def main(
 
     # ========== fit and test ==========
     trainer.fit(model, train_loader, val_loader)
-    trainer.test(test_dataloaders=test_loader)
+
+    if run_test:
+        trainer.test(test_dataloaders=test_loader)
 
     # ========== save files to wandb ==========
     # Do not do this before trainer, since this might result in the initialization of

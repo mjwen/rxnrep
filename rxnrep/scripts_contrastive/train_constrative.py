@@ -145,6 +145,7 @@ if __name__ == "__main__":
         monitor="val/loss",
         monitor_mode="min",
         project=project,
+        run_test=False,
     )
 
     logger.info(f"Finish training at: {datetime.now()}")
