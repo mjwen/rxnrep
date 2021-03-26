@@ -294,9 +294,10 @@ def simclr_decoder_helper(parser):
 
 def simclr_decoder_adjuster(args):
     val = determine_layer_size_by_pool_method(args)
+    minimum = args.conv_layer_size
 
     args.simclr_hidden_layer_sizes = [
-        max(val // 2 ** i, 50) for i in range(args.simclr_num_layers)
+        max(val // 2 ** i, minimum) for i in range(args.simclr_num_layers)
     ]
 
     return args
