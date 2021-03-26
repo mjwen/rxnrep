@@ -11,19 +11,53 @@ class Transform:
     """
     Base class for transform.
 
+    Transforms will only be applied to atoms/bonds outside the reaction center.
+
     Args:
-        ratio: the magnitude of augmentation. If a float, it means the portion of
-            atoms/bonds to augment. If an int, it means the number of atoms/bonds to
-            augment.
+        select_mode: ['direct'/'ratio']. This determines how the number of augmented
+            atoms/bonds are selected. if `direct`, ratio should be an integer, meaning
+            the the number of atoms/bonds to augment. If `ratio`, ratio is the portion
+            of atoms/bonds to augment. The portion multiplier is determined by
+            ratio_multiplier. See below.
+        ratio: the magnitude of augmentation.
+        ratio_multiplier: [out_center|in_center]. the set of atoms/bonds used together
+            with ratio to determine the number of atoms to augment. If `select_model =
+            direct`, this is ignored and will selected ratio number of atoms/bonds
+            outside the reaction center to augment. If `select_mode = ratio`:
+            (1) ratio_multiplier = out_center, ratio*num_atoms/bonds_outside_center
+            number of atoms/bonds will be augmented; (2) ratio_multiplier = in_center,
+            ratio*num_atoms/bonds_in_center number of atoms/bonds will be augmented.
+            Again, no matter what ratio_multiplier is, only atoms/bonds outside reaction
+            center is augmented.
     """
 
-    def __init__(self, ratio: Union[float, int]):
-        if isinstance(ratio, float):
-            assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
-            self.float_ratio = True
+    def __init__(
+        self,
+        ratio: Union[float, int],
+        select_mode: str = "ratio",
+        ratio_multiplier: str = "out_center",
+    ):
+        if select_mode == "direct":
+            self.ratio = int(ratio)
+
+        elif select_mode == "ratio":
+            self.ratio = ratio
+
+            supported = ["out_center", "in_center"]
+            if ratio_multiplier not in supported:
+                raise ValueError(
+                    f"Expected ratio_multiplier be {supported}, got {ratio_multiplier}"
+                )
+            self.ratio_multiplier = ratio_multiplier
+
         else:
-            self.float_ratio = False
-        self.ratio = ratio
+            supported = ["direct", "ratio"]
+            if select_mode not in supported:
+                raise ValueError(
+                    f"Expected select_mode be {supported}, got {select_mode}"
+                )
+
+        self.select_mode = select_mode
 
     def __call__(
         self, reactants_g, products_g, reaction_g, reaction: Reaction
@@ -213,9 +247,6 @@ class Subgraph(Transform):
 
     The difference is that we start with all atoms in reaction center, where as in the
     paper, it starts with a randomly chosen atom.
-
-    Args:
-        ratio: the portion or number of non-center atoms to keep.
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
@@ -226,10 +257,18 @@ class Subgraph(Transform):
         num_in_center = len(in_center)
         num_not_in_center = len(distance) - num_in_center
 
-        if self.float_ratio:
-            num_sample = int(self.ratio * num_not_in_center)
+        if self.select_mode == "direct":
+            num_sample = self.ratio
+        elif self.select_mode == "ratio":
+            if self.ratio_multiplier == "out_center":
+                num_sample = int(self.ratio * num_not_in_center)
+            elif self.ratio_multiplier == "in_center":
+                num_sample = int(self.ratio * num_in_center)
+            else:
+                raise ValueError
         else:
-            num_sample = min(self.ratio, num_not_in_center)
+            raise ValueError
+        num_sample = min(num_sample, num_not_in_center)
 
         if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
@@ -288,10 +327,6 @@ class Subgraph(Transform):
 class SubgraphBFS(Transform):
     """
     Reaction center ego-subgraph, breadth first search.
-
-
-    Args:
-        ratio: the portion or number of non-center atoms to keep.
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
@@ -302,10 +337,18 @@ class SubgraphBFS(Transform):
         num_in_center = len(in_center)
         num_not_in_center = len(distance) - num_in_center
 
-        if self.float_ratio:
-            num_sample = int(self.ratio * num_not_in_center)
+        if self.select_mode == "direct":
+            num_sample = self.ratio
+        elif self.select_mode == "ratio":
+            if self.ratio_multiplier == "out_center":
+                num_sample = int(self.ratio * num_not_in_center)
+            elif self.ratio_multiplier == "in_center":
+                num_sample = int(self.ratio * num_in_center)
+            else:
+                raise ValueError
         else:
-            num_sample = min(self.ratio, num_not_in_center)
+            raise ValueError
+        num_sample = min(num_sample, num_not_in_center)
 
         if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
