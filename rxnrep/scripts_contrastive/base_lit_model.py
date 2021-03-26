@@ -55,7 +55,7 @@ class BaseLightningModel(pl.LightningModule):
             )
             return diff_feats
 
-        elif return_mode in ["reaction_energy", "activation_energy", "reaction_type"]:
+        elif return_mode in ["reaction_energy", "activation_energy"]:  # regression
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.decode(feats, reaction_feats, metadata)
 
@@ -65,6 +65,11 @@ class BaseLightningModel(pl.LightningModule):
             preds = preds[return_mode] * std + mean
 
             return preds
+
+        elif return_mode == "reaction_type":  # classification
+            feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            preds = self.decode(feats, reaction_feats, metadata)
+            return preds[return_mode]
 
         else:
             supported = [

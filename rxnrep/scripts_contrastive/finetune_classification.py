@@ -18,6 +18,7 @@ from rxnrep.scripts_contrastive.main import main
 from rxnrep.scripts_contrastive.train_constrative import (
     LightningModel as PretrainedModel,
 )
+from rxnrep.utils import yaml_load
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def parse_args(dataset):
     parser = argument.dataset_args(parser, dataset)
 
     # ========== model ==========
-    parser = argument.encoder_args(parser)
+    parser = argument.general_args(parser)
     parser = argument.reaction_type_decoder_args(parser)
     parser = argument.finetune_args(parser)
 
@@ -37,15 +38,23 @@ def parse_args(dataset):
     parser = argument.training_args(parser)
 
     # ========== helper ==========
-    parser = argument.encoder_helper(parser)
     parser = argument.reaction_type_decoder_helper(parser)
 
     ####################
     args = parser.parse_args()
     ####################
 
+    #
+    # set `--conv_layer_size` to be the value used in pretrained model, which will be
+    # used in many adjusters. Essentially, we can extract this info from the pretrained
+    # model `model.reaction_feats_size`, but here we just extract it from the running
+    # info of the pretrained model.
+    #
+    d = yaml_load(args.pretrained_config_filename)
+    args.conv_layer_size = d["conv_layer_size"]["value"]
+    args.pool_method = d["pool_method"]["value"]
+
     # ========== adjuster ==========
-    args = argument.encoder_adjuster(args)
     args = argument.reaction_type_decoder_adjuster(args)
 
     return args
@@ -123,17 +132,17 @@ if __name__ == "__main__":
     repo_path = "/Users/mjwen/Applications/rxnrep"
     write_running_metadata(filename, repo_path)
 
+    #
+    # pretrained model info
+    #
+    pretrained_model_identifier = "w1sqr85o"
+    target_dir = "pretrained_model"
+    copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
+
     # args
     dataset = "schneider_classification"
     args = parse_args(dataset)
     logger.info(args)
-
-    #
-    # pretrained model info
-    #
-    pretrained_model_identifier = "3fxgra68"
-    target_dir = "pretrained_model"
-    copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 
     # dataset
     train_loader, val_loader, test_loader = load_dataset(args)

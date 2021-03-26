@@ -93,10 +93,15 @@ def training_args(parser):
     return parser
 
 
-def encoder_args(parser):
+def general_args(parser):
 
     # activation for all
     parser.add_argument("--activation", type=str, default="ReLU")
+
+    return parser
+
+
+def encoder_args(parser):
 
     parser.add_argument(
         "--conv",
@@ -300,6 +305,9 @@ def finetune_args(parser):
         "--pretrained_dataset_state_dict_filename",
         type=str,
         default="pretrained_model/dataset_state_dict.yaml",
+    )
+    parser.add_argument(
+        "--pretrained_config_filename", type=str, default="pretrained_model/config.yaml"
     )
     parser.add_argument(
         "--pretrained_ckpt_path", type=str, default="pretrained_model/checkpoint.ckpt"
