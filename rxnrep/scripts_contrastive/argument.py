@@ -331,31 +331,38 @@ def data_augmentation_args(parser):
     parser.add_argument(
         "--augment_1",
         type=str,
-        default="drop_atom",
+        default="subgraph",
         choices=[
             "drop_atom",
             "drop_bond",
             "mask_atom",
             "mask_bond",
             "subgraph",
+            "subgraph_bfs",
             "identity",
         ],
     )
     parser.add_argument(
         "--augment_2",
         type=str,
-        default="drop_bond",
+        default="subgraph_bfs",
         choices=[
             "drop_atom",
             "drop_bond",
             "mask_atom",
             "mask_bond",
             "subgraph",
+            "subgraph_bfs",
             "identity",
         ],
     )
     parser.add_argument("--augment_1_ratio", type=float, default=0.2)
     parser.add_argument("--augment_2_ratio", type=float, default=0.2)
+    parser.add_argument("--augment_1_select_mode", type=str, default="direct")
+    parser.add_argument("--augment_2_select_mode", type=str, default="direct")
+    parser.add_argument("--augment_1_ratio_multiplier", type=str, default="out_center")
+    parser.add_argument("--augment_2_ratio_multiplier", type=str, default="out_center")
+
     parser.add_argument("--augment_mask_value_atom", type=float, default=1.0)
     parser.add_argument("--augment_mask_value_bond", type=float, default=1.0)
 

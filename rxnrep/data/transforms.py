@@ -181,8 +181,14 @@ class MaskAtomAttribute(Transform):
             the input features to mean+std.
     """
 
-    def __init__(self, ratio: float, mask_value: Union[float, torch.Tensor] = 0.0):
-        super().__init__(ratio)
+    def __init__(
+        self,
+        ratio: float,
+        select_mode: str = "ratio",
+        ratio_multiplier: str = "out_center",
+        mask_value: Union[float, torch.Tensor] = 0.0,
+    ):
+        super().__init__(ratio, select_mode, ratio_multiplier)
         self.mask_value = mask_value
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
@@ -217,8 +223,14 @@ class MaskBondAttribute(Transform):
             the input features to mean+std.
     """
 
-    def __init__(self, ratio: float, mask_value: Union[float, torch.Tensor] = 0.0):
-        super().__init__(ratio)
+    def __init__(
+        self,
+        ratio: float,
+        select_mode: str = "ratio",
+        ratio_multiplier: str = "out_center",
+        mask_value: Union[float, torch.Tensor] = 0.0,
+    ):
+        super().__init__(ratio, select_mode, ratio_multiplier)
         self.mask_value = mask_value
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
@@ -384,14 +396,10 @@ class SubgraphBFS(Transform):
             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
-class IdentityTransform:
+class IdentityTransform(Transform):
     """
     Identity transform that does not modify the graph.
     """
-
-    def __init__(self, ratio: float):
-        assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
-        self.ratio = ratio
 
     def __call__(
         self, reactants_g, products_g, reaction_g, reaction: Reaction
