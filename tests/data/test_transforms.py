@@ -11,6 +11,7 @@ from rxnrep.data.transforms import (
     MaskAtomAttribute,
     MaskBondAttribute,
     Subgraph,
+    SubgraphBFS,
     get_node_subgraph,
 )
 from rxnrep.utils import seed_all
@@ -101,6 +102,23 @@ def test_subgraph():
 
     reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
     transform = Subgraph(ratio=0.5)
+    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+        reactants_g, products_g, reaction_g, reaction
+    )
+
+    # atom 3 is selected, atoms 0,2,4 are in center
+    select = [True, False, True, True, True, False]
+
+    # bonds 2, 4 are kept
+    retained_bond_edges = [4, 5, 8, 9]
+
+    assert_atom_subgroup(reactants_g, sub_reactants_g, select, retained_bond_edges)
+    assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
+
+
+def test_subgraph_bfs():
+    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+    transform = SubgraphBFS(ratio=0.5)
     sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
         reactants_g, products_g, reaction_g, reaction
     )

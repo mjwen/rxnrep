@@ -285,6 +285,62 @@ class Subgraph(Transform):
             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
+class SubgraphBFS(Transform):
+    """
+    Reaction center ego-subgraph, breadth first search.
+
+
+    Args:
+        ratio: the portion or number of non-center atoms to keep.
+    """
+
+    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
+        distance = np.asarray(reaction.atom_distance_to_reaction_center)
+        in_center = np.argwhere(distance == 0).reshape(-1).tolist()
+
+        # number of not in center atoms to sample
+        num_in_center = len(in_center)
+        num_not_in_center = len(distance) - num_in_center
+
+        if self.float_ratio:
+            num_sample = int(self.ratio * num_not_in_center)
+        else:
+            num_sample = min(self.ratio, num_not_in_center)
+
+        if num_sample == 0:
+            return reactants_g, products_g, reaction_g, None
+
+        else:
+            num_target = num_in_center + num_sample
+
+            # Initialize subgraph as atoms in the center (shell 0)
+            sub_graph = in_center
+
+            shell = 1
+            while len(sub_graph) < num_target:
+                candidate = np.argwhere(distance == shell).reshape(-1)
+                assert (
+                    candidate.size > 0
+                ), "Cannot find candidate, this should not happen"
+
+                if len(sub_graph) + len(candidate) > num_target:
+                    selected = np.random.choice(
+                        candidate, num_target - len(sub_graph), replace=False
+                    )
+                else:
+                    selected = candidate
+                sub_graph.extend(selected)
+
+                shell += 1
+
+            # extract subgraph
+            selected = sorted(sub_graph)
+            sub_reactants_g = get_node_subgraph(reactants_g, selected)
+            sub_products_g = get_node_subgraph(products_g, selected)
+
+            return sub_reactants_g, sub_products_g, reaction_g, None
+
+
 class IdentityTransform:
     """
     Identity transform that does not modify the graph.
