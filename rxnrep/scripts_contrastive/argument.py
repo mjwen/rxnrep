@@ -110,7 +110,7 @@ def encoder_args(parser):
         type=str,
         default="GatedGCNConv",
         # default="GINConvGlobal",
-        choices=["GatedGCNConv", "GINConvGlobal", "GINConv"],
+        # default="GINConv",
     )
     parser.add_argument("--has_global_feats", type=int, default=None)
 
@@ -147,7 +147,8 @@ def encoder_args(parser):
         "--pool_method",
         type=str,
         default="set2set",
-        help="set2set, hop_distance, global_only, sum_cat_all, sum_cat_center",
+        help="set2set, attention_sum_cat_all, sum_cat_all, sum_cat_center, "
+        "hop_distance, global_only",
     )
     parser.add_argument("--pool_kwargs", type=str, default=None)
 
@@ -364,7 +365,12 @@ def data_augmentation_args(parser):
 def determine_layer_size_by_pool_method(args):
     val = args.conv_layer_size
 
-    if args.pool_method in ["set2set", "sum_cat_all", "sum_cat_center"]:
+    if args.pool_method in [
+        "set2set",
+        "attention_sum_cat_all",
+        "sum_cat_all",
+        "sum_cat_center",
+    ]:
         val = val * 2
     elif args.pool_method == "global_only":
         val = val

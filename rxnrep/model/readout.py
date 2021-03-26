@@ -23,6 +23,8 @@ class Pooling(nn.Module):
         bond and global features.
     sum_cat_center: sum atoms, bonds features in reaction center, and then concatenate
         atom, bond and global features.
+    attention_sum_cat_all: attention_sum for all atom/bond features (separately) and
+        then concatenate atom, bond, and global features.
     global_only: only return global features
 
     Args:
@@ -60,6 +62,15 @@ class Pooling(nn.Module):
                 pool_outsize = in_size * 5
             else:
                 pool_outsize = in_size * 4
+
+        elif pool_method == "attention_sum_cat_all":
+            self.attention_sum_atom = AttentiveSum(in_size=in_size)
+            self.attention_sum_bond = AttentiveSum(in_size=in_size)
+
+            if has_global_feats:
+                pool_outsize = in_size * 3
+            else:
+                pool_outsize = in_size * 2
 
         elif pool_method in ["sum_cat_all", "sum_cat_center"]:
             if has_global_feats:
@@ -102,40 +113,49 @@ class Pooling(nn.Module):
 
         # readout reaction features, a 1D tensor for each reaction
         if self.pool_method == "set2set":
-            device = feats["atom"].device
-            atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
-            bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
-
-            atom_feats = feats["atom"]
-            bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+            (
+                atom_feats,
+                bond_feats,
+                atom_sizes,
+                bond_sizes,
+            ) = self._get_feats_and_sizes(feats, metadata)
 
             rxn_feats_atom = self.set2set_atom(atom_feats, atom_sizes)
             rxn_feats_bond = self.set2set_bond(bond_feats, bond_sizes)
 
-            if self.has_global_feats:
-                return torch.cat(
-                    [rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1
-                )
-            else:
-                return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
+            return self._assemble_feats(
+                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
+            )
+
+        elif self.pool_method == "attention_sum_cat_all":
+            (
+                atom_feats,
+                bond_feats,
+                atom_sizes,
+                bond_sizes,
+            ) = self._get_feats_and_sizes(feats, metadata)
+
+            rxn_feats_atom = self.attention_sum_atom(atom_feats, atom_sizes)
+            rxn_feats_bond = self.attention_sum_bond(bond_feats, bond_sizes)
+
+            return self._assemble_feats(
+                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
+            )
 
         elif self.pool_method == "sum_cat_all":
-            device = feats["atom"].device
-            atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
-            bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
-
-            atom_feats = feats["atom"]
-            bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+            (
+                atom_feats,
+                bond_feats,
+                atom_sizes,
+                bond_sizes,
+            ) = self._get_feats_and_sizes(feats, metadata)
 
             rxn_feats_atom = segment_reduce(atom_sizes, atom_feats, reducer="sum")
             rxn_feats_bond = segment_reduce(bond_sizes, bond_feats, reducer="sum")
 
-            if self.has_global_feats:
-                return torch.cat(
-                    [rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1
-                )
-            else:
-                return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
+            return self._assemble_feats(
+                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
+            )
 
         elif self.pool_method == "sum_cat_center":
             atom_feats = feats["atom"]
@@ -159,12 +179,9 @@ class Pooling(nn.Module):
             rxn_feats_atom = segment_reduce(atom_sizes, atom_feats, reducer="sum")
             rxn_feats_bond = segment_reduce(bond_sizes, bond_feats, reducer="sum")
 
-            if self.has_global_feats:
-                return torch.cat(
-                    [rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1
-                )
-            else:
-                return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
+            return self._assemble_feats(
+                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
+            )
 
         elif self.pool_method == "hop_distance":
             hop_dist = {
@@ -180,6 +197,25 @@ class Pooling(nn.Module):
             raise ValueError(f"Unsupported pool method `{self.pool_method}`")
 
         return reaction_feats
+
+    @staticmethod
+    def _get_feats_and_sizes(feats, metadata):
+
+        device = feats["atom"].device
+        atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
+        bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
+
+        atom_feats = feats["atom"]
+        bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+
+        return atom_feats, bond_feats, atom_sizes, bond_sizes
+
+    @staticmethod
+    def _assemble_feats(feats, rxn_feats_atom, rxn_feats_bond, has_global_feats):
+        if has_global_feats:
+            return torch.cat([rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1)
+        else:
+            return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
 
 
 class Set2Set(nn.Module):
@@ -255,6 +291,54 @@ class Set2Set(nn.Module):
             q_star = torch.cat([q, readout], dim=-1)
 
         return q_star
+
+
+class AttentiveSum(nn.Module):
+    """
+    A pooling layer similar to the GAT:
+
+    parameter vector w:
+
+    hi =leakyrelu(hi*w)
+    alpha_i = softmax(hi)
+    readout = sum_i alpha_i * hi
+
+    in which hi is the feature of atom/bond i.
+
+    This is also very similar to dgl.nn.WeightAndSum, where sigmoid is used, but here
+    we use LeakyRelu.
+
+    We do not use sigmoid because for large molecules there may only be a few atoms
+    that matter. sigmoid forces a score range of 0~1 which may reduce the importance of
+    the atom that really matter when passed through the softmax.
+    """
+
+    def __init__(self, in_size, negative_slope=0.2):
+        super().__init__()
+
+        self.mlp = nn.Sequential(
+            nn.Linear(in_size, 1, bias=False), nn.LeakyReLU(negative_slope)
+        )
+
+    def forward(self, feat: torch.Tensor, sizes=torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            feat: feature tensor of shape (N, D) where N is the total number of features,
+                and D is the feature dimension.
+            sizes: 1D tensor (shape (B,)) of the size of the features for each graph.
+                sum(sizes) should be equal to D.
+        """
+
+        alpha = self.attention_score(feat, sizes)
+        out = segment_reduce(sizes, feat * alpha, reducer="sum")
+
+        return out
+
+    def attention_score(self, feat: torch.Tensor, sizes=torch.Tensor):
+        feat = self.mlp(feat)
+        alpha = segment_softmax(sizes, feat)
+
+        return alpha
 
 
 class HopDistancePooling(nn.Module):
