@@ -279,43 +279,6 @@ class BaseDataset:
         logger.info(f"Feature std: {self._feature_scaler_state_dict['std']}")
         logger.info(f"Finish scaling features...")
 
-    def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
-        """
-        Scale scalar labels.
-
-        Args:
-            values: 1D tensor of the labels
-            name: name of the label
-
-        Returns:
-            1D tensor Scaled label values.
-        """
-        assert (
-            len(values.shape) == 1
-        ), f"Expect 1D tensor as input; got {len(values.shape)}."
-
-        label_scaler = StandardScaler1D()
-
-        if self.init_state_dict is not None:
-            assert self._label_scaler_state_dict is not None, (
-                "Corrupted state_dict. Expect `label_scaler_state_dict` to be a dict, "
-                "got `None`."
-            )
-
-            label_scaler.load_state_dict(self._label_scaler_state_dict[name])
-
-        values = label_scaler.transform(values)
-
-        if self._label_scaler is None:
-            self._label_scaler = {}
-        self._label_scaler[name] = label_scaler
-
-        state_dict = label_scaler.state_dict()
-        logger.info(f"Label `{name}` mean: {state_dict['mean']}")
-        logger.info(f"Label `{name}` std: {state_dict['std']}")
-
-        return values
-
     def state_dict(self):
         if self._label_scaler is not None:
             self._label_scaler_state_dict = {
@@ -448,6 +411,11 @@ class BaseDatasetWithLabels(BaseDataset):
             that the masker is not even created. But `atom_type_masker_use_mask_value`
             be of `False` means that the masker are created, but we simply skip the
             change of the atom type features of the masked atoms.
+        allow_label_scaler_none: when `init_state_dict` is provided, whether to allow
+            label_scaler is None in state dict. If `False`, will use the label scaler
+            mean and std. If `True`, will recompute label mean and std. This is mainly
+            used for the pretrain-finetune case, where the pretrain model does not use
+            labels (e.g. contrastive training).
     """
 
     def __init__(
@@ -464,6 +432,7 @@ class BaseDatasetWithLabels(BaseDataset):
         #
         # args to control labels
         #
+        allow_label_scaler_none: bool = False,
         max_hop_distance: Optional[int] = None,
         atom_type_masker_ratio: Optional[float] = None,
         atom_type_masker_use_masker_value: Optional[bool] = None,
@@ -484,6 +453,8 @@ class BaseDatasetWithLabels(BaseDataset):
         # do not use [{}] * len(self.reactions); update one will change all
         self.labels = [{} for _ in range(len(self.reactions))]
         self.medadata = [{} for _ in range(len(self.reactions))]
+
+        self.allow_label_scaler_none = allow_label_scaler_none
 
         # atom bond hop distance label
         self.max_hop_distance = max_hop_distance
@@ -565,6 +536,43 @@ class BaseDatasetWithLabels(BaseDataset):
                 )
 
             self.medadata[i].update(meta)
+
+    def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
+        """
+        Scale scalar labels.
+
+        Args:
+            values: 1D tensor of the labels
+            name: name of the label
+
+        Returns:
+            1D tensor Scaled label values.
+        """
+        assert (
+            len(values.shape) == 1
+        ), f"Expect 1D tensor as input; got {len(values.shape)}."
+
+        label_scaler = StandardScaler1D()
+
+        if self.init_state_dict is not None and not self.allow_label_scaler_none:
+            assert self._label_scaler_state_dict is not None, (
+                "Corrupted state_dict. Expect `label_scaler_state_dict` to be a dict, "
+                "got `None`."
+            )
+
+            label_scaler.load_state_dict(self._label_scaler_state_dict[name])
+
+        values = label_scaler.transform(values)
+
+        if self._label_scaler is None:
+            self._label_scaler = {}
+        self._label_scaler[name] = label_scaler
+
+        state_dict = label_scaler.state_dict()
+        logger.info(f"Label `{name}` mean: {state_dict['mean']}")
+        logger.info(f"Label `{name}` std: {state_dict['std']}")
+
+        return values
 
     def get_class_weight(self, only_break_bond: bool = False):
         """

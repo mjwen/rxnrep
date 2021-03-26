@@ -45,6 +45,8 @@ def dataset_args(parser, dataset: str):
         "--dataset_state_dict_filename", type=str, default="dataset_state_dict.yaml"
     )
 
+    parser.add_argument("--allow_label_scaler_none", type=int, default=0)
+
     return parser
 
 

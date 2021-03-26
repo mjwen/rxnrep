@@ -35,6 +35,7 @@ class GreenDataset(BaseDatasetWithLabels):
         #
         # args to control labels
         #
+        allow_label_scaler_none: bool = False,
         max_hop_distance: Optional[int] = None,
         atom_type_masker_ratio: Optional[float] = None,
         atom_type_masker_use_masker_value: Optional[bool] = None,
@@ -51,6 +52,7 @@ class GreenDataset(BaseDatasetWithLabels):
             transform_features=transform_features,
             return_index=return_index,
             num_processes=num_processes,
+            allow_label_scaler_none=allow_label_scaler_none,
             max_hop_distance=max_hop_distance,
             atom_type_masker_ratio=atom_type_masker_ratio,
             atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,

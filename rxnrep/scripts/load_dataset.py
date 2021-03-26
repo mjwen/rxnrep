@@ -65,6 +65,7 @@ def load_green_dataset(args):
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         # label args
+        allow_label_scaler_none=args.allow_label_scaler_none,
         max_hop_distance=max_hop_distance,
         atom_type_masker_ratio=atom_type_masker_ratio,
         atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
@@ -82,6 +83,7 @@ def load_green_dataset(args):
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         # label args
+        allow_label_scaler_none=args.allow_label_scaler_none,
         max_hop_distance=max_hop_distance,
         atom_type_masker_ratio=atom_type_masker_ratio,
         atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
@@ -97,6 +99,7 @@ def load_green_dataset(args):
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         # label args
+        allow_label_scaler_none=args.allow_label_scaler_none,
         max_hop_distance=max_hop_distance,
         atom_type_masker_ratio=atom_type_masker_ratio,
         atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
@@ -308,6 +311,7 @@ def load_electrolyte_dataset(args):
         num_processes=args.nprocs,
         transform_features=True,
         # label args
+        allow_label_scaler_none=args.allow_label_scaler_none,
         max_hop_distance=max_hop_distance,
         atom_type_masker_ratio=atom_type_masker_ratio,
         atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
@@ -324,6 +328,7 @@ def load_electrolyte_dataset(args):
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         # label args
+        allow_label_scaler_none=args.allow_label_scaler_none,
         max_hop_distance=max_hop_distance,
         atom_type_masker_ratio=atom_type_masker_ratio,
         atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
@@ -338,6 +343,7 @@ def load_electrolyte_dataset(args):
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         # label args
+        allow_label_scaler_none=args.allow_label_scaler_none,
         max_hop_distance=max_hop_distance,
         atom_type_masker_ratio=atom_type_masker_ratio,
         atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
@@ -411,6 +417,7 @@ def load_nrel_dataset(args):
         transform_features=True,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
+        allow_label_scaler_none=args.allow_label_scaler_none,
     )
 
     state_dict = trainset.state_dict()
@@ -423,6 +430,7 @@ def load_nrel_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        allow_label_scaler_none=args.allow_label_scaler_none,
     )
 
     testset = NRELDataset(
@@ -433,6 +441,7 @@ def load_nrel_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        allow_label_scaler_none=args.allow_label_scaler_none,
     )
 
     # save dataset state dict for retraining or prediction
