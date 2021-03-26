@@ -2,7 +2,6 @@ import copy
 import functools
 import logging
 import multiprocessing
-from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 

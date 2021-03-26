@@ -10,10 +10,19 @@ from rxnrep.core.reaction import Reaction
 class Transform:
     """
     Base class for transform.
+
+    Args:
+        ratio: the magnitude of augmentation. If a float, it means the portion of
+            atoms/bonds to augment. If an int, it means the number of atoms/bonds to
+            augment.
     """
 
-    def __init__(self, ratio: float):
-        assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
+    def __init__(self, ratio: Union[float, int]):
+        if isinstance(ratio, float):
+            assert 0 < ratio < 1, f"expect ratio be 0<ratio<1, got {ratio}"
+            self.float_ratio = True
+        else:
+            self.float_ratio = False
         self.ratio = ratio
 
     def __call__(
@@ -206,7 +215,7 @@ class Subgraph(Transform):
     paper, it starts with a randomly chosen atom.
 
     Args:
-        ratio: the ratio of non-center atoms to keep.
+        ratio: the portion or number of non-center atoms to keep.
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
@@ -216,7 +225,11 @@ class Subgraph(Transform):
         # number of not in center atoms to sample
         num_in_center = len(in_center)
         num_not_in_center = len(distance) - num_in_center
-        num_sample = int(self.ratio * num_not_in_center)
+
+        if self.float_ratio:
+            num_sample = int(self.ratio * num_not_in_center)
+        else:
+            num_sample = min(self.ratio, num_not_in_center)
 
         if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
