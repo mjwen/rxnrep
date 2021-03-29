@@ -263,6 +263,15 @@ def init_augmentations(args):
             t = transforms.Subgraph(ratio, select_mode, ratio_multiplier)
         elif name == "identity":
             t = transforms.IdentityTransform(ratio, select_mode, ratio_multiplier)
+        elif name == "subgraph_or_identity":
+            t1 = transforms.Subgraph(ratio, select_mode, ratio_multiplier)
+            t2 = transforms.IdentityTransform(ratio, select_mode, ratio_multiplier)
+            t = transforms.OneOrTheOtherTransform(t1, t2, first_probability=0.5)
+        elif name == "subgraph_bfs_or_identity":
+            t1 = transforms.SubgraphBFS(ratio, select_mode, ratio_multiplier)
+            t2 = transforms.IdentityTransform(ratio, select_mode, ratio_multiplier)
+            t = transforms.OneOrTheOtherTransform(t1, t2, first_probability=0.5)
+
         else:
             raise ValueError(f"Unsupported augmentation type {name}")
 

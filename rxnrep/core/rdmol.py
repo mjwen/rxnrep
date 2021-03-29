@@ -4,8 +4,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from openbabel import openbabel as ob
-from pymatgen import Molecule
 from pymatgen.analysis.graphs import MoleculeGraph
+from pymatgen.core.structure import Molecule
 from pymatgen.io.babel import BabelMolAdaptor
 from rdkit import Chem
 from rdkit.Chem import BondType

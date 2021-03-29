@@ -12,7 +12,6 @@ from mrnet.core.reactions import Reaction as MrnetReaction
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
-from rxnrep.utils import to_path
 
 
 def read_smiles_tsv_dataset(
@@ -35,7 +34,7 @@ def read_smiles_tsv_dataset(
             entries in the dataset file.
     """
 
-    filename = to_path(filename)
+    filename = Path(filename).expanduser().resolve()
     df = pd.read_csv(filename, sep="\t")
     smiles_reactions = df["reaction"].tolist()
 

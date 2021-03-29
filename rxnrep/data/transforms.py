@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple, Union
+from typing import Any, Callable, List, Tuple, Union
 
 import dgl
 import numpy as np
@@ -105,6 +105,33 @@ class Compose:
             format_string += "    {0}".format(t)
         format_string += "\n)"
         return format_string
+
+
+class OneOrTheOtherTransform:
+    """
+    A wrapper class that chooses one transform with some probability and the other
+    transform with 1-probability.
+
+    Args:
+        transform1: an instance of the first transform, e.g. Subgraph.
+        transform2: an instance of the second transform, e.g. Identity.
+        first_probability: probability of the first transform.
+    """
+
+    def __init__(
+        self, transform1: Callable, transform2: Callable, first_probability: float = 0.5
+    ):
+        self.transform1 = transform1
+        self.transform2 = transform2
+        self.p1 = first_probability
+
+    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
+        v = np.random.choice([0, 1], p=[self.p1, 1 - self.p1])
+        if v == 0:
+            transform = self.transform1
+        else:
+            transform = self.transform2
+        return transform(reactants_g, products_g, reaction_g, reaction)
 
 
 class DropAtom(Transform):

@@ -340,12 +340,14 @@ def data_augmentation_args(parser):
             "subgraph",
             "subgraph_bfs",
             "identity",
+            "subgraph_or_identity",
+            "subgraph_bfs_or_identity",
         ],
     )
     parser.add_argument(
         "--augment_2",
         type=str,
-        default="subgraph_bfs",
+        default="subgraph_or_identity",
         choices=[
             "drop_atom",
             "drop_bond",
@@ -354,6 +356,8 @@ def data_augmentation_args(parser):
             "subgraph",
             "subgraph_bfs",
             "identity",
+            "subgraph_or_identity",
+            "subgraph_bfs_or_identity",
         ],
     )
     parser.add_argument("--augment_1_ratio", type=float, default=0.2)
