@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def load_dataset(args):
-    if "schneider" in args.dataset or args.dataset == "tpl":
+    if "schneider" in args.dataset or "tpl" in args.dataset:
         return load_uspto_dataset(args)
     elif args.dataset == "green":
         return load_green_dataset(args)

@@ -17,7 +17,7 @@ from rxnrep.data.uspto import USPTODataset
 
 
 def load_dataset(args):
-    if "schneider" in args.dataset or args.dataset == "tpl":
+    if "schneider" in args.dataset or "tpl" in args.dataset:
         return load_uspto_dataset(args)
     elif args.dataset == "electrolyte":
         return load_electrolyte_dataset(args)

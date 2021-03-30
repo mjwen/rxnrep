@@ -15,11 +15,15 @@ def dataset_args(parser, dataset: str):
         if "classification" in dataset:
             parser.add_argument("--has_class_label", type=int, default=1)
 
-    elif dataset == "tpl":
+    elif "tpl" in dataset:
         prefix = "/Users/mjwen/Documents/Dataset/uspto/TPL/"
         fname_tr = prefix + "uspto_1k_TPL_200_processed.tsv"
         fname_val = fname_tr
         fname_test = fname_tr
+
+        # to require labels for classification
+        if "classification" in dataset:
+            parser.add_argument("--has_class_label", type=int, default=1)
 
     elif dataset == "electrolyte":
         prefix = "/Users/mjwen/Documents/Dataset/electrolyte/"
