@@ -13,7 +13,7 @@ from rxnrep.scripts.utils import (
     write_running_metadata,
 )
 from rxnrep.scripts_contrastive import argument
-from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
+from rxnrep.scripts_contrastive.base_finetune_lit_model import BaseLightningModel
 from rxnrep.scripts_contrastive.main import main
 from rxnrep.scripts_contrastive.train_constrative import (
     LightningModel as PretrainedModel,
@@ -70,7 +70,7 @@ class LightningModel(BaseLightningModel):
         )
 
         # select parameters to freeze
-        if params.pretrained_tune_encoder:
+        if params.finetune_tune_encoder:
             # only fix parameters in the decoder
             for name, p in model.named_parameters():
                 if "decoder" in name:
@@ -83,7 +83,9 @@ class LightningModel(BaseLightningModel):
         # decoder to predict classes
         #
         # model.model is the model created in init_model() of the pretrained model
-        self.mlp = MLP(
+        # The name SHOULD be self.prediction_head, as we specifically uses this in
+        # optimizer to get the parameters
+        self.prediction_head = MLP(
             in_size=model.model.reaction_feats_size,
             hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
             activation=params.activation,
@@ -101,7 +103,7 @@ class LightningModel(BaseLightningModel):
         }
 
     def decode(self, feats, reaction_feats, metadata):
-        preds = {"reaction_type": self.mlp(reaction_feats)}
+        preds = {"reaction_type": self.prediction_head(reaction_feats)}
         return preds
 
     def compute_loss(self, preds, labels):
@@ -119,7 +121,7 @@ class LightningModel(BaseLightningModel):
         # Although model.eval() is called in mode.freeze() when calling init_model(),
         # we call it explicitly at each train epoch in case lightning calls
         # self.train() internally to change the states of dropout and batch norm
-        if not self.hparams.pretrained_tune_encoder:
+        if not self.hparams.finetune_tune_encoder:
             self.model.eval()
 
 
@@ -135,7 +137,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "w1sqr85o"
+    pretrained_model_identifier = "ccxraqd7"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

@@ -317,11 +317,18 @@ def finetune_args(parser):
         "--pretrained_ckpt_path", type=str, default="pretrained_model/checkpoint.ckpt"
     )
     parser.add_argument(
-        "--pretrained_tune_encoder",
+        "--finetune_tune_encoder",
         type=int,
         default=0,
         help="Whether to optimize params in the encoder of the pretrained model. "
         "Note, parameters in the decoders are set to be fixed (since they are not used).",
+    )
+
+    parser.add_argument(
+        "--finetune_lr_encoder",
+        type=float,
+        default=1e-4,
+        help="learning rate for the encoder part if `finetune_tune_encoder` is true",
     )
 
     return parser
@@ -362,8 +369,8 @@ def data_augmentation_args(parser):
     )
     parser.add_argument("--augment_1_ratio", type=float, default=0.2)
     parser.add_argument("--augment_2_ratio", type=float, default=0.2)
-    parser.add_argument("--augment_1_select_mode", type=str, default="direct")
-    parser.add_argument("--augment_2_select_mode", type=str, default="direct")
+    parser.add_argument("--augment_1_select_mode", type=str, default="ratio")
+    parser.add_argument("--augment_2_select_mode", type=str, default="ratio")
     parser.add_argument("--augment_1_ratio_multiplier", type=str, default="out_center")
     parser.add_argument("--augment_2_ratio_multiplier", type=str, default="out_center")
 
