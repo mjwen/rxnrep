@@ -118,7 +118,7 @@ if __name__ == "__main__":
     write_running_metadata(filename, repo_path)
 
     # args
-    dataset = "schneider_nclassification"
+    dataset = "schneider_classification"
     args = parse_args(dataset)
     logger.info(args)
     # args.num_reaction_classes = 1000

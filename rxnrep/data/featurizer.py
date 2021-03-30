@@ -129,7 +129,7 @@ def atom_total_valence(atom):
 
 def atom_num_radical_electrons_one_hot(atom, allowable_set=None, encode_unknown=False):
     if allowable_set is None:
-        allowable_set = list(range(6))
+        allowable_set = list(range(3))
     return one_hot_encoding(
         atom.GetNumRadicalElectrons(), allowable_set, encode_unknown
     )
