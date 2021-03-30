@@ -17,7 +17,7 @@ from rxnrep.data.uspto import USPTODataset
 
 
 def load_dataset(args):
-    if "schneider" in args.dataset:
+    if "schneider" in args.dataset or args.dataset == "tpl":
         return load_uspto_dataset(args)
     elif args.dataset == "electrolyte":
         return load_electrolyte_dataset(args)
@@ -56,11 +56,17 @@ def load_green_dataset(args):
         "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
     }
 
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
+
     trainset = GreenDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
@@ -79,6 +85,7 @@ def load_green_dataset(args):
         atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
@@ -95,6 +102,7 @@ def load_green_dataset(args):
         atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
@@ -179,11 +187,18 @@ def load_uspto_dataset(args):
 
     has_class_label = args.has_class_label if "has_class_label" in args else False
 
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
+
+
     trainset = USPTODataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         transform_features=True,
@@ -201,6 +216,7 @@ def load_uspto_dataset(args):
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
@@ -216,6 +232,7 @@ def load_uspto_dataset(args):
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
@@ -302,11 +319,18 @@ def load_electrolyte_dataset(args):
         else None
     )
 
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
+
+
     trainset = ElectrolyteDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         transform_features=True,
@@ -324,6 +348,7 @@ def load_electrolyte_dataset(args):
         atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
@@ -339,6 +364,7 @@ def load_electrolyte_dataset(args):
         atom_featurizer=AtomFeaturizerMinimum2(),
         bond_featurizer=BondFeaturizerMinimum(),
         global_featurizer=GlobalFeaturizer(allowable_charge=[-1, 0, 1]),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
@@ -409,11 +435,17 @@ def load_nrel_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
 
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
+
     trainset = NRELDataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
@@ -427,6 +459,7 @@ def load_nrel_dataset(args):
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
@@ -438,6 +471,7 @@ def load_nrel_dataset(args):
         atom_featurizer=AtomFeaturizer(),
         bond_featurizer=BondFeaturizer(),
         global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,

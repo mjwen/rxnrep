@@ -5,7 +5,7 @@ Build dgl graphs from molecules.
 import itertools
 import logging
 from collections import defaultdict
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 
 import dgl
 import torch
@@ -290,7 +290,8 @@ def build_graph_and_featurize_reaction(
     bond_featurizer: Callable,
     global_featurizer: Optional[Callable] = None,
     num_global_nodes: int = 1,
-) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph]:
+    build_reaction_graph: bool = True,
+) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, Union[dgl.DGLGraph, None]]:
     """
     Build dgl graphs for the reactants and products in a reaction and featurize them.
 
@@ -302,6 +303,8 @@ def build_graph_and_featurize_reaction(
             features for the global nodes.
         num_global_nodes: Number of global nodes to create. Each global will be
             bi-directionally connected to all atom nodes.
+        build_reaction_graph: whether to create reaction graph. If False, reaction
+            graph is set to None.
 
     Returns:
         reactants_g: dgl graph for the reactants. One graph for all reactants; each
@@ -351,14 +354,17 @@ def build_graph_and_featurize_reaction(
         num_lost = len(reaction.lost_bonds)
         num_added = len(reaction.added_bonds)
 
-        reaction_g = create_reaction_graph(
-            reactants_g,
-            products_g,
-            num_unchanged,
-            num_lost,
-            num_added,
-            num_global_nodes,
-        )
+        if build_reaction_graph:
+            reaction_g = create_reaction_graph(
+                reactants_g,
+                products_g,
+                num_unchanged,
+                num_lost,
+                num_added,
+                num_global_nodes,
+            )
+        else:
+            reaction_g = None
 
     except Exception as e:
         logger.error(f"Error build graph and featurize for reaction: {reaction.id}")

@@ -84,9 +84,7 @@ def encoder_adjuster(args):
     if args.pool_method in ["set2set", "global_only"]:
         args.pool_kwargs = None
     elif args.pool_method == "hop_distance":
-        args.pool_kwargs = {
-            "max_hop_distance": args.hop_distance_pool_max_hop_distance
-        }
+        args.pool_kwargs = {"max_hop_distance": args.hop_distance_pool_max_hop_distance}
     else:
         raise NotImplementedError
 

@@ -30,7 +30,8 @@ class BaseLightningModel(LitModel):
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs1 = mol_graphs1.to(self.device)
         mol_graphs2 = mol_graphs2.to(self.device)
-        rxn_graphs = rxn_graphs.to(self.device)
+        if rxn_graphs is not None:
+            rxn_graphs = rxn_graphs.to(self.device)
 
         z1 = self.compute_z(mol_graphs1, rxn_graphs, metadata1)
         z2 = self.compute_z(mol_graphs2, rxn_graphs, metadata2)

@@ -50,9 +50,13 @@ def parse_args(dataset):
     # model `model.reaction_feats_size`, but here we just extract it from the running
     # info of the pretrained model.
     #
+    # conv_layer_size: determine prediction head size
+    # pool_method: determine prediction head size
+    # reaction_conv_layer_sizes: determine whether to build reaction graphs
     d = yaml_load(args.pretrained_config_filename)
     args.conv_layer_size = d["conv_layer_size"]["value"]
     args.pool_method = d["pool_method"]["value"]
+    args.reaction_conv_layer_sizes = d["reaction_conv_layer_sizes"]["value"]
 
     # ========== adjuster ==========
     args = argument.reaction_type_decoder_adjuster(args)
@@ -137,7 +141,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "ccxraqd7"
+    pretrained_model_identifier = "38ijcs14"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

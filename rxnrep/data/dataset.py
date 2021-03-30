@@ -39,6 +39,7 @@ class BaseDataset:
         atom_featurizer: function to create atom features
         bond_featurizer: function to create bond features
         global_featurizer: function to create global features
+        build_reaction_graph: whether to create reaction graph.
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -57,6 +58,7 @@ class BaseDataset:
         bond_featurizer: Callable[[Chem.Mol], torch.Tensor],
         global_featurizer: Callable[[Chem.Mol], torch.Tensor],
         *,
+        build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
@@ -65,6 +67,7 @@ class BaseDataset:
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
+        self.build_reaction_graph = build_reaction_graph
         self.init_state_dict = init_state_dict
         self.return_index = return_index
         self.nprocs = num_processes
@@ -217,6 +220,7 @@ class BaseDataset:
                     atom_featurizer=atom_featurizer,
                     bond_featurizer=self.bond_featurizer,
                     global_featurizer=self.global_featurizer,
+                    build_reaction_graph=self.build_reaction_graph,
                 )
                 for rxn in self.reactions
             ]
@@ -226,6 +230,7 @@ class BaseDataset:
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
+                need_reaction_graph=self.build_reaction_graph,
             )
             with multiprocessing.Pool(self.nprocs) as p:
                 dgl_graphs = p.map(func, self.reactions)
@@ -239,6 +244,7 @@ class BaseDataset:
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
+                build_reaction_graph=self.build_reaction_graph,
             )
 
         # log feature name and size
@@ -424,6 +430,7 @@ class BaseDatasetWithLabels(BaseDataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         *,
+        build_reaction_graph=True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
@@ -442,6 +449,7 @@ class BaseDatasetWithLabels(BaseDataset):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
+            build_reaction_graph=build_reaction_graph,
             init_state_dict=init_state_dict,
             transform_features=transform_features,
             return_index=return_index,
@@ -642,7 +650,11 @@ class BaseDatasetWithLabels(BaseDataset):
         batched_indices = torch.as_tensor(indices)
 
         batched_molecule_graphs = dgl.batch(reactants_g + products_g)
-        batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+
+        if reaction_g[0] is None:
+            batched_reaction_graphs = None
+        else:
+            batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
 
         # labels
         keys = labels[0].keys()
@@ -677,8 +689,9 @@ class BaseContrastiveDataset(BaseDataset):
         filename: Union[str, Path],
         atom_featurizer: Callable,
         bond_featurizer: Callable,
-        global_featurizer: Callable,
+        global_featurizer: callable,
         *,
+        build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
@@ -695,6 +708,7 @@ class BaseContrastiveDataset(BaseDataset):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
+            build_reaction_graph=build_reaction_graph,
             init_state_dict=init_state_dict,
             transform_features=transform_features,
             return_index=return_index,
@@ -877,7 +891,11 @@ class BaseContrastiveDataset(BaseDataset):
 
         batched_molecule_graphs1 = dgl.batch(reactants_g1 + products_g1)
         batched_molecule_graphs2 = dgl.batch(reactants_g2 + products_g2)
-        batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+
+        if reaction_g[0] is None:
+            batched_reaction_graphs = None
+        else:
+            batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
 
         # labels
         keys = labels[0].keys()

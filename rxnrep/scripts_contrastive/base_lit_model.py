@@ -126,7 +126,8 @@ class BaseLightningModel(pl.LightningModule):
 
         # lightning cannot move dgl graphs to gpu, so do it manually
         mol_graphs = mol_graphs.to(self.device)
-        rxn_graphs = rxn_graphs.to(self.device)
+        if rxn_graphs is not None:
+            rxn_graphs = rxn_graphs.to(self.device)
 
         nodes = ["atom", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}

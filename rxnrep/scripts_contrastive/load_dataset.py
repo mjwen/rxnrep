@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def load_dataset(args):
-    if "schneider" in args.dataset:
+    if "schneider" in args.dataset or args.dataset == "tpl":
         return load_uspto_dataset(args)
     elif args.dataset == "green":
         return load_green_dataset(args)
@@ -29,6 +29,11 @@ def load_uspto_dataset(args):
     bond_featurizer = BondFeaturizer()
     global_featurizer = GlobalFeaturizer()
 
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
+
     t1, t2 = init_augmentations(args)
 
     trainset = USPTOContrastiveDataset(
@@ -36,6 +41,7 @@ def load_uspto_dataset(args):
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
         global_featurizer=global_featurizer,
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         transform_features=True,
@@ -49,6 +55,7 @@ def load_uspto_dataset(args):
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
         global_featurizer=global_featurizer,
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
@@ -61,6 +68,7 @@ def load_uspto_dataset(args):
         atom_featurizer=atom_featurizer,
         bond_featurizer=bond_featurizer,
         global_featurizer=global_featurizer,
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
@@ -120,14 +128,23 @@ def load_green_dataset(args):
         "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
         "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
     }
+    atom_featurizer = AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs)
+    bond_featurizer = BondFeaturizer()
+    global_featurizer = GlobalFeaturizer()
+
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
 
     t1, t2 = init_augmentations(args)
 
     trainset = GreenContrastiveDataset(
         filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=atom_featurizer,
+        bond_featurizer=bond_featurizer,
+        global_featurizer=global_featurizer,
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
         transform_features=True,
@@ -139,9 +156,10 @@ def load_green_dataset(args):
 
     valset = GreenContrastiveDataset(
         filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=atom_featurizer,
+        bond_featurizer=bond_featurizer,
+        global_featurizer=global_featurizer,
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
@@ -151,9 +169,10 @@ def load_green_dataset(args):
 
     testset = GreenContrastiveDataset(
         filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
+        atom_featurizer=atom_featurizer,
+        bond_featurizer=bond_featurizer,
+        global_featurizer=global_featurizer,
+        build_reaction_graph=build_reaction_graph,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
         transform_features=True,
