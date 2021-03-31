@@ -48,6 +48,7 @@ class GINConv(nn.Module):
             batch_norm=batch_norm,
             activation=activation,
             out_size=out_size,
+            out_bias=not out_batch_norm,
         )
         self.mlp_atom = MLP(
             in_size + out_size,  # in_size: atom; out_size: bond
@@ -55,6 +56,7 @@ class GINConv(nn.Module):
             batch_norm=batch_norm,
             activation=activation,
             out_size=out_size,
+            out_bias=not out_batch_norm,
         )
 
         if out_batch_norm:
@@ -175,6 +177,7 @@ class GINConvGlobal(nn.Module):
             batch_norm=batch_norm,
             activation=activation,
             out_size=out_size,
+            out_bias=not out_batch_norm,
         )
 
         self.mlp_atom = MLP(
@@ -183,6 +186,7 @@ class GINConvGlobal(nn.Module):
             batch_norm=batch_norm,
             activation=activation,
             out_size=out_size,
+            out_bias=not out_batch_norm,
         )
 
         self.mlp_global = MLP(
@@ -191,6 +195,7 @@ class GINConvGlobal(nn.Module):
             batch_norm=batch_norm,
             activation=activation,
             out_size=out_size,
+            out_bias=not out_batch_norm,
         )
 
         if out_batch_norm:

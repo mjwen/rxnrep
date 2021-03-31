@@ -290,9 +290,7 @@ def reaction_type_decoder_adjuster(args):
 
 
 def simclr_decoder_args(parser):
-    parser.add_argument(
-        "--simclr_hidden_layer_sizes", type=int, nargs="+", default=[256, 128]
-    )
+    parser.add_argument("--simclr_layer_sizes", type=int, nargs="+", default=[256, 128])
     parser.add_argument("--simclr_temperature", type=float, default=0.1)
 
     return parser
@@ -307,7 +305,7 @@ def simclr_decoder_adjuster(args):
     val = determine_layer_size_by_pool_method(args)
     minimum = args.conv_layer_size
 
-    args.simclr_hidden_layer_sizes = [
+    args.simclr_layer_sizes = [
         max(val // 2 ** i, minimum) for i in range(args.simclr_num_layers)
     ]
 

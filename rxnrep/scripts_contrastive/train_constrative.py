@@ -88,8 +88,9 @@ class LightningModel(BaseLightningModel):
         # name this `.._decoder` so that we can easily freeze it when finetune
         self.projection_decoder = MLP(
             in_size=model.reaction_feats_size,
-            hidden_sizes=params.simclr_hidden_layer_sizes,
+            hidden_sizes=params.simclr_layer_sizes[:-1],
             activation=params.activation,
+            out_size=params.simclr_layer_sizes[-1],
         )
 
         return model

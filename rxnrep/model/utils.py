@@ -46,6 +46,12 @@ class MLP(nn.Module):
     By default, activation is applied to each hidden layer. Optionally, one can asking
     for an output layer by setting out_size.
 
+    For hidden layers:
+    Linear -> BN (default to False) -> Activation
+    For output layer:
+    Linear with the option to use bias of not
+
+
 
     Args:
         in_size: input feature size
@@ -53,8 +59,8 @@ class MLP(nn.Module):
         batch_norm: whether to add 1D batch norm
         activation: activation function for hidden layers
         out_size: size of output layer
-        out_batch_norm: whether to add 1D batch norm for output layer
-        out_activation: whether to apply activation for output layer
+        out_bias: bias for output layer, this use set to False internally if
+            out_batch_norm is used.
     """
 
     def __init__(
@@ -65,10 +71,9 @@ class MLP(nn.Module):
         batch_norm: bool = False,
         activation: Union[Callable, str] = "ReLU",
         out_size: Optional[int] = None,
-        out_batch_norm: bool = False,
-        out_activation: bool = False,
+        out_bias: bool = True,
     ):
-        super(MLP, self).__init__()
+        super().__init__()
         self.num_hidden_layers = len(hidden_sizes)
         self.has_out_layer = out_size is not None
 
@@ -92,19 +97,8 @@ class MLP(nn.Module):
             in_size = size
 
         # output layer
-        if out_batch_norm:
-            out_bias = False
-        else:
-            out_bias = True
-
         if out_size is not None:
             layers.append(nn.Linear(in_size, out_size, bias=out_bias))
-
-            if out_batch_norm:
-                layers.append(nn.BatchNorm1d(out_size))
-
-            if activation is not None and out_activation:
-                layers.append(get_activation(activation))
 
         self.mlp = nn.Sequential(*layers)
 
