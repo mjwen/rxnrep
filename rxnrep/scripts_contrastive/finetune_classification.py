@@ -15,7 +15,7 @@ from rxnrep.scripts.utils import (
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_finetune_lit_model import BaseLightningModel
 from rxnrep.scripts_contrastive.main import main
-from rxnrep.scripts_contrastive.train_constrative import (
+from rxnrep.scripts_contrastive.train_contrastive import (
     LightningModel as PretrainedModel,
 )
 from rxnrep.utils import yaml_load

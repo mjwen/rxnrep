@@ -198,6 +198,35 @@ class Pooling(nn.Module):
 
         return reaction_feats
 
+    def get_attention_score(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ):
+
+        if self.pool_method == "attention_sum_cat_all":
+            (
+                atom_feats,
+                bond_feats,
+                atom_sizes,
+                bond_sizes,
+            ) = self._get_feats_and_sizes(feats, metadata)
+
+            atom_attn_score = self.attention_sum_atom.attention_score(
+                atom_feats, atom_sizes
+            )
+            bond_attn_score = self.attention_sum_bond.attention_score(
+                bond_feats, bond_sizes
+            )
+
+            return atom_attn_score, bond_attn_score
+        else:
+            raise ValueError(
+                f"Not supported pool method {self.pool_method} to get attention score"
+            )
+
     @staticmethod
     def _get_feats_and_sizes(feats, metadata):
 
@@ -334,7 +363,7 @@ class AttentiveSum(nn.Module):
 
         return out
 
-    def attention_score(self, feat: torch.Tensor, sizes=torch.Tensor):
+    def attention_score(self, feat: torch.Tensor, sizes: torch.Tensor):
         feat = self.mlp(feat)
         alpha = segment_softmax(sizes, feat)
 

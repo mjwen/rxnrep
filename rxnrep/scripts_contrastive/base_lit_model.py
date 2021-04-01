@@ -55,6 +55,13 @@ class BaseLightningModel(pl.LightningModule):
             )
             return diff_feats
 
+        elif return_mode == "pool_attention_score":
+            atom_attn_score, bond_attn_score = self.model.get_pool_attention_score(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
+
+            return atom_attn_score, bond_attn_score
+
         elif return_mode in ["reaction_energy", "activation_energy"]:  # regression
             feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
             preds = self.decode(feats, reaction_feats, metadata)

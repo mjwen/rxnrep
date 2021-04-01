@@ -266,6 +266,35 @@ class ReactionEncoder(nn.Module):
 
         return feats, reaction_feats
 
+    def get_pool_attention_score(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ):
+
+        diff_feats = self.get_diff_feats(
+            molecule_graphs, reaction_graphs, feats, metadata
+        )
+
+        # reaction graph conv layer
+        feats = diff_feats
+        if self.reaction_conv_layers:
+            for layer in self.reaction_conv_layers:
+                feats = layer(reaction_graphs, feats)
+
+        # mlp diff
+        if self.mlp_diff:
+            feats = {k: self.mlp_diff[k](feats[k]) for k in self.feat_types}
+
+        # readout reaction features, a 1D tensor for each reaction
+        atom_attn_score, bond_attn_score = self.readout.get_attention_score(
+            molecule_graphs, reaction_graphs, feats, metadata
+        )
+
+        return atom_attn_score, bond_attn_score
+
     def get_diff_feats(
         self,
         molecule_graphs: dgl.DGLGraph,

@@ -363,18 +363,23 @@ def save_files_to_wandb(wandb_logger, files: List[str] = None):
             wandb.save(str(fname), policy="now")
 
 
-def load_lightning_pretrained_model(PretrainedModel, ckpt_path: Path):
+def load_lightning_pretrained_model(
+    PretrainedModel, ckpt_path: Path, map_location=None
+):
     """
     Load the pretrained model.
 
     Args:
         PretrainedModel: pretrained model class
         ckpt_path: path to the checkpoint
+        map_location: None to load it to the original location. 'cpu' to load it on CPU.
     """
     ckpt_path = Path(ckpt_path).expanduser().resolve()
     if not ckpt_path.exists():
         raise Exception(f"Cannot load pretrained mode; {ckpt_path} does not exists.")
-    model = PretrainedModel.load_from_checkpoint(str(ckpt_path))
+    model = PretrainedModel.load_from_checkpoint(
+        str(ckpt_path), map_location=map_location
+    )
 
     return model
 
