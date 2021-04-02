@@ -45,7 +45,7 @@ def parse_args(dataset):
 
 
 class LightningModel(BaseLightningModel):
-    def init_model(self, params):
+    def init_backbone(self, params):
 
         model = ReactionRepresentation(
             in_feats=params.feature_size,
@@ -93,7 +93,7 @@ class LightningModel(BaseLightningModel):
         }
 
     def decode(self, feats, reaction_feats, metadata):
-        return self.model.decode(feats, reaction_feats, metadata)
+        return self.backbone.decode(feats, reaction_feats, metadata)
 
     def compute_loss(self, preds, labels):
 

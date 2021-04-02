@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 import pytorch_lightning as pl
-from torch.nn import functional as F
+import torch.nn.functional as F
 
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.utils import MLP
@@ -48,7 +48,7 @@ def parse_args(dataset):
 
 
 class LightningModel(BaseLightningModel):
-    def init_model(self, params):
+    def init_backbone(self, params):
 
         model = ReactionEncoder(
             in_feats=params.feature_size,

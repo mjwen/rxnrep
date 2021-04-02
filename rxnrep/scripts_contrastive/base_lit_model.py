@@ -19,7 +19,7 @@ class BaseLightningModel(pl.LightningModule):
 
         self.save_hyperparameters(params)
 
-        self.model = self.init_model(self.hparams)
+        self.backbone = self.init_backbone(self.hparams)
 
         self.classification_tasks = {}
         self.regression_tasks = {}
@@ -47,23 +47,25 @@ class BaseLightningModel(pl.LightningModule):
         """
 
         if return_mode is None:
-            return self.model(mol_graphs, rxn_graphs, feats, metadata)
+            return self.backbone(mol_graphs, rxn_graphs, feats, metadata)
 
         elif return_mode == "diff_feature_before_rxn_conv":
-            diff_feats = self.model.get_diff_feats(
+            diff_feats = self.backbone.get_diff_feats(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
 
         elif return_mode == "pool_attention_score":
-            atom_attn_score, bond_attn_score = self.model.get_pool_attention_score(
+            atom_attn_score, bond_attn_score = self.backbone.get_pool_attention_score(
                 mol_graphs, rxn_graphs, feats, metadata
             )
 
             return atom_attn_score, bond_attn_score
 
         elif return_mode in ["reaction_energy", "activation_energy"]:  # regression
-            feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            feats, reaction_feats = self.backbone(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
             preds = self.decode(feats, reaction_feats, metadata)
 
             state_dict = self.hparams.label_scaler[return_mode].state_dict()
@@ -74,7 +76,9 @@ class BaseLightningModel(pl.LightningModule):
             return preds
 
         elif return_mode == "reaction_type":  # classification
-            feats, reaction_feats = self.model(mol_graphs, rxn_graphs, feats, metadata)
+            feats, reaction_feats = self.backbone(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
             preds = self.decode(feats, reaction_feats, metadata)
             return preds[return_mode]
 
@@ -297,7 +301,7 @@ class BaseLightningModel(pl.LightningModule):
 
         return score
 
-    def init_model(self, params):
+    def init_backbone(self, params):
         """
         Create backbone model.
 

@@ -65,7 +65,7 @@ def parse_args(dataset):
 
 
 class LightningModel(BaseLightningModel):
-    def init_model(self, params):
+    def init_backbone(self, params):
         #
         # backbone model
         #
@@ -86,11 +86,10 @@ class LightningModel(BaseLightningModel):
         #
         # decoder to predict classes
         #
-        # model.model is the model created in init_model() of the pretrained model
         # The name SHOULD be self.prediction_head, as we specifically uses this in
         # optimizer to get the parameters
         self.prediction_head = MLP(
-            in_size=model.model.reaction_feats_size,
+            in_size=model.backbone.reaction_feats_size,
             hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
             activation=params.activation,
             out_size=params.num_reaction_classes,
@@ -122,11 +121,11 @@ class LightningModel(BaseLightningModel):
         return {"reaction_type": loss}
 
     def on_train_epoch_start(self):
-        # Although model.eval() is called in mode.freeze() when calling init_model(),
+        # Although model.eval() is called in mode.freeze() when calling init_backbone(),
         # we call it explicitly at each train epoch in case lightning calls
         # self.train() internally to change the states of dropout and batch norm
         if not self.hparams.finetune_tune_encoder:
-            self.model.eval()
+            self.backbone.eval()
 
 
 if __name__ == "__main__":
@@ -141,7 +140,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "38ijcs14"
+    pretrained_model_identifier = "aa66gkun"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

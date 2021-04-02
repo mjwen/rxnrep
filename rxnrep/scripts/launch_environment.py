@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import psutil
-from pytorch_lightning.cluster_environments import ClusterEnvironment
+from pytorch_lightning.plugins.environments import ClusterEnvironment
 
 
 class PyTorchLaunch(ClusterEnvironment):

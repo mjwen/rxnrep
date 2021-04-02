@@ -33,7 +33,7 @@ class BaseLightningModel(LitModel):
             params_group.append(
                 {
                     "params": filter(
-                        lambda p: p.requires_grad, self.model.parameters()
+                        lambda p: p.requires_grad, self.backbone.parameters()
                     ),
                     "lr": self.hparams.finetune_lr_encoder,
                     "weight_decay": self.hparams.weight_decay,
