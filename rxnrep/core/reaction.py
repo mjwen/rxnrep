@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem.Draw import rdMolDraw2D
 from sklearn.utils import class_weight
 
 from rxnrep.core.molecule import Molecule
@@ -706,6 +707,44 @@ class Reaction:
             image = Chem.Draw.ReactionToImage(rxn, **kwargs)
             image.save(str(filename))
         return rxn
+
+    def draw2(
+        self, filename: Path = None, image_size=(800, 300), format="svg", font_scale=1.5
+    ):
+        """
+        The returned image can be viewed in Jupyter with display(SVG(image)).
+
+        Args:
+            filename:
+            font_scale:
+            image_size:
+            format:
+
+        Returns:
+        """
+
+        rxn = AllChem.ReactionFromSmarts(str(self), useSmiles=True)
+
+        if format == "png":
+            d2d = rdMolDraw2D.MolDraw2DCairo(*image_size)
+        elif format == "svg":
+            d2d = rdMolDraw2D.MolDraw2DSVG(*image_size)
+        else:
+            supported = ["png", "svg"]
+            raise ValueError(f"Supported format are {supported}; got {format}")
+
+        # d2d.SetFontSize(font_scale * d2d.FontSize())
+
+        d2d.DrawReaction(rxn)
+        d2d.FinishDrawing()
+
+        img = d2d.GetDrawingText()
+
+        if filename is not None:
+            with open(filename, "wb") as f:
+                f.write(img)
+
+        return img
 
     def __str__(self):
         """Smiles representation of reaction."""

@@ -412,9 +412,13 @@ class Molecule:
         note: Dict[Tuple[int, int], str],
         filename: Optional[Union[Path]] = None,
         with_atom_index: bool = False,
+        image_size=(400, 300),
+        format: bool = "svg",
     ):
         """
         Draw molecule and show a note along bond.
+
+        The returned image can be viewed in Jupyter with display(SVG(image)).
 
         Args:
             note: {bond_index: note}. The note to show for the corresponding bond.
@@ -422,6 +426,7 @@ class Molecule:
             filename: path to the save the generated image. If `None`,
                 image will not be generated, but instead, will show in Jupyter notebook.
             with_atom_index: whether to show the atom index in the image.
+            format: format of the image, `png` or `svg`
         """
         m = self.draw(with_atom_index=with_atom_index)
 
@@ -437,7 +442,13 @@ class Molecule:
         # set highlight color
         bond_colors = {b: (192 / 255, 192 / 255, 192 / 255) for b in highlight_bonds}
 
-        d = rdMolDraw2D.MolDraw2DCairo(400, 300)
+        if format == "png":
+            d = rdMolDraw2D.MolDraw2DCairo(*image_size)
+        elif format == "svg":
+            d = rdMolDraw2D.MolDraw2DSVG(*image_size)
+        else:
+            supported = ["png", "svg"]
+            raise ValueError(f"Supported format are {supported}; got {format}")
 
         # smaller font size
         d.SetFontSize(0.8 * d.FontSize())
@@ -446,14 +457,13 @@ class Molecule:
             d, m, highlightBonds=highlight_bonds, highlightBondColors=bond_colors
         )
         d.FinishDrawing()
+        img = d.GetDrawingText()
 
         if filename is not None:
             with open(filename, "wb") as f:
-                f.write(d.GetDrawingText())
+                f.write(img)
 
-        # TODO the returned d may not show in Jupyter notebooks
-        #  write to /tmp or using tempfile, and then display it using Ipython.display
-        #  Also, check whether it is jupyter kernel
+        return img
 
     def sanitize(self):
         """
