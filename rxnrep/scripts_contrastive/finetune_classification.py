@@ -7,11 +7,7 @@ import torch.nn.functional as F
 
 from rxnrep.model.utils import MLP
 from rxnrep.scripts.load_dataset import load_dataset
-from rxnrep.scripts.utils import (
-    copy_trained_model,
-    load_lightning_pretrained_model,
-    write_running_metadata,
-)
+from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_finetune_lit_model import BaseLightningModel
 from rxnrep.scripts_contrastive.main import main
@@ -69,9 +65,7 @@ class LightningModel(BaseLightningModel):
         #
         # backbone model
         #
-        model = load_lightning_pretrained_model(
-            PretrainedModel, params.pretrained_ckpt_path
-        )
+        model = PretrainedModel.load_from_checkpoint(params.pretrained_ckpt_path)
 
         # select parameters to freeze
         if params.finetune_tune_encoder:
@@ -140,7 +134,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "aa66gkun"
+    pretrained_model_identifier = "19pgi7h0"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

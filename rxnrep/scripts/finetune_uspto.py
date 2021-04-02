@@ -33,7 +33,6 @@ from rxnrep.scripts.utils import (
     TimeMeter,
     get_repo_git_commit,
     load_checkpoint_wandb,
-    load_lightning_pretrained_model,
     save_files_to_wandb,
 )
 
@@ -72,8 +71,8 @@ class RxnRepLightningModel(pl.LightningModule):
         # )
 
         # load pretrained model
-        self.backbone = load_lightning_pretrained_model(
-            PretrainedModel, params.pretrained_ckpt_path
+        self.backbone = PretrainedModel.load_from_checkpoint(
+            params.pretrained_ckpt_path
         )
 
         if self.hparams.pretrained_tune_encoder:
