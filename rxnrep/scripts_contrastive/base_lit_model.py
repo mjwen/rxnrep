@@ -237,12 +237,18 @@ class BaseLightningModel(pl.LightningModule):
         """
         mode = "metric_" + mode
 
-        for task_name in list(self.classification_tasks.keys()) + list(
-            self.regression_tasks.keys()
-        ):
+        # regression metrics
+        for task_name in self.regression_tasks:
             for metric in self.metrics[mode][task_name]:
                 metric_obj = self.metrics[mode][task_name][metric]
                 metric_obj(preds[task_name], labels[task_name])
+
+        # classification metrics
+        for task_name in self.classification_tasks:
+            for metric in self.metrics[mode][task_name]:
+                metric_obj = self.metrics[mode][task_name][metric]
+                p = torch.softmax(preds[task_name], dim=1)
+                metric_obj(p, labels[task_name])
 
     def compute_metrics(self, mode):
         """
