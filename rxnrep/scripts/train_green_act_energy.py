@@ -204,7 +204,7 @@ class RxnRepLightningModel(pl.LightningModule):
             return diff_feats
 
         elif returns == "diff_feature_before_rxn_conv":
-            diff_feats = self.model.get_diff_feats(
+            diff_feats = self.model.get_difference_feature(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats

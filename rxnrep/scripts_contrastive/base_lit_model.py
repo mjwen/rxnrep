@@ -49,18 +49,13 @@ class BaseLightningModel(pl.LightningModule):
         if return_mode is None:
             return self.backbone(mol_graphs, rxn_graphs, feats, metadata)
 
-        elif return_mode == "diff_feature_before_rxn_conv":
-            diff_feats = self.backbone.get_diff_feats(
-                mol_graphs, rxn_graphs, feats, metadata
-            )
-            return diff_feats
+        elif return_mode == "difference_feature":
+            return self.get_difference_feature(mol_graphs, rxn_graphs, feats, metadata)
 
         elif return_mode == "pool_attention_score":
-            atom_attn_score, bond_attn_score = self.backbone.get_pool_attention_score(
+            return self.get_pool_attention_score(
                 mol_graphs, rxn_graphs, feats, metadata
             )
-
-            return atom_attn_score, bond_attn_score
 
         elif return_mode in ["reaction_energy", "activation_energy"]:  # regression
             feats, reaction_feats = self.backbone(
@@ -85,7 +80,8 @@ class BaseLightningModel(pl.LightningModule):
         else:
             supported = [
                 None,
-                "diff_feature_before_rxn_conv",
+                "difference_feature",
+                "poll_attention_score",
                 "reaction_energy",
                 "activation_energy",
                 "reaction_type",
@@ -419,3 +415,25 @@ class BaseLightningModel(pl.LightningModule):
             {task_name, loss}
         """
         raise NotImplementedError
+
+    def get_pool_attention_score(self, mol_graphs, rxn_graphs, feats, metadata):
+        """
+        Returns:
+            atom_attn_score:
+
+        """
+        atom_attn_score, bond_attn_score = self.backbone.get_pool_attention_score(
+            mol_graphs, rxn_graphs, feats, metadata
+        )
+        return atom_attn_score, bond_attn_score
+
+    def get_difference_feature(self, mol_graphs, rxn_graphs, feats, metadata):
+        """
+        Returns:
+            2D tensor of shape (B, D), where B is batch size and D is feature dim.
+            Each row for a reaction.
+        """
+        diff_feat = self.backbone.get_difference_feature(
+            mol_graphs, rxn_graphs, feats, metadata
+        )
+        return diff_feat

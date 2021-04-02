@@ -243,7 +243,7 @@ class ReactionEncoder(nn.Module):
                 and D' is the feature size. One row for each reaction.
         """
 
-        diff_feats = self.get_diff_feats(
+        diff_feats = self.get_difference_feature(
             molecule_graphs, reaction_graphs, feats, metadata
         )
 
@@ -274,7 +274,7 @@ class ReactionEncoder(nn.Module):
         metadata: Dict[str, List[int]],
     ):
 
-        diff_feats = self.get_diff_feats(
+        diff_feats = self.get_difference_feature(
             molecule_graphs, reaction_graphs, feats, metadata
         )
 
@@ -295,7 +295,7 @@ class ReactionEncoder(nn.Module):
 
         return atom_attn_score, bond_attn_score
 
-    def get_diff_feats(
+    def get_difference_feature(
         self,
         molecule_graphs: dgl.DGLGraph,
         reaction_graphs: dgl.DGLGraph,
