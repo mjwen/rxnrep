@@ -1,7 +1,7 @@
 """
 Readout (pool) layers.
 """
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
 import dgl
 import numpy as np
@@ -10,93 +10,54 @@ from dgl.ops import segment_reduce, segment_softmax
 from torch import nn
 
 
-class Pooling(nn.Module):
+class BasePooling(nn.Module):
     """
-    Reaction feature pool.
-
-    Readout reaction features, one 1D tensor for each reaction.
-
-    Supported methods:
-    set2set: set2set for atom/bond features and then concatenate atom, bond, and global
-        features.
-    sum_cat_all: sum all atom, bond features (separately), and then concatenate atom,
-        bond and global features.
-    sum_cat_center: sum atoms, bonds features in reaction center, and then concatenate
-        atom, bond and global features.
-    attention_sum_cat_all: attention_sum for all atom/bond features (separately) and
-        then concatenate atom, bond, and global features.
-    global_only: only return global features
-
     Args:
         in_size: input feature size, i.e. atom/bond/global feature sizes
+        pool_atom/bond/global_feats: whether to include atom/bond/global features in the
+            final representation.
+        reducer: method to aggregate feats
     """
 
     def __init__(
         self,
         in_size: int,
-        pool_method: str,
-        pool_kwargs: Dict[str, Any],
-        has_global_feats: bool = True,
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        reducer="sum",
     ):
+
         super().__init__()
 
-        self.pool_method = pool_method
-        self.has_global_feats = has_global_feats
-
-        if pool_method == "set2set":
-            if pool_kwargs is None:
-                num_iterations = 6
-                num_layers = 3
-            else:
-                num_iterations = pool_kwargs["set2set_num_iterations"]
-                num_layers = pool_kwargs["set2set_num_layers"]
-
-            self.set2set_atom = Set2Set(
-                input_dim=in_size, n_iters=num_iterations, n_layers=num_layers
+        if not any([pool_atom_feats, pool_bond_feats, pool_global_feats]):
+            raise ValueError(
+                "Expect one of atom/bond/global pool to be true; got False for all"
             )
-            self.set2set_bond = Set2Set(
-                input_dim=in_size, n_iters=num_iterations, n_layers=num_layers
-            )
+        if reducer not in ["sum", "mean"]:
+            raise ValueError(f"Expect reducer be sum or mean; got {reducer}")
 
-            if has_global_feats:
-                pool_outsize = in_size * 5
-            else:
-                pool_outsize = in_size * 4
+        self.in_size = in_size
+        self.reducer = reducer
+        self.out_size = 0
 
-        elif pool_method == "attention_sum_cat_all":
-            self.attention_sum_atom = AttentiveSum(in_size=in_size)
-            self.attention_sum_bond = AttentiveSum(in_size=in_size)
-
-            if has_global_feats:
-                pool_outsize = in_size * 3
-            else:
-                pool_outsize = in_size * 2
-
-        elif pool_method in ["sum_cat_all", "sum_cat_center"]:
-            if has_global_feats:
-                pool_outsize = in_size * 3
-            else:
-                pool_outsize = in_size * 2
-
-        elif pool_method == "global_only":
-            pool_outsize = in_size
-
-        elif pool_method == "hop_distance":
-            if pool_kwargs is None:
-                raise RuntimeError(
-                    "`max_hop_distance` should be provided as `pool_kwargs` to use "
-                    "`hop_distance_pool`"
-                )
-            else:
-                max_hop_distance = pool_kwargs["max_hop_distance"]
-                self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
-
-            pool_outsize = in_size * 3
-
+        if pool_atom_feats:
+            self.pool_atom, size = self.init_atom_pool_method()
+            self.out_size += size
         else:
-            raise ValueError(f"Unsupported pool method `{pool_method}`")
+            self.pool_atom = None
 
-        self.reaction_feats_size = pool_outsize
+        if pool_bond_feats:
+            self.pool_bond, size = self.init_bond_pool_method()
+            self.out_size += size
+        else:
+            self.pool_bond = None
+
+        if pool_global_feats:
+            self.pool_global, size = self.init_global_pool_method()
+            self.out_size += size
+        else:
+            self.pool_global = None
 
     def forward(
         self,
@@ -108,95 +69,140 @@ class Pooling(nn.Module):
         """
         Returns:
             Reaction features, 2D tensor of shape (B, D), where B is batch size and D
-            is reaction feature size.
+            is output size (self.out_size), typically reaction feature size.
         """
+        pooled = []
+        if self.pool_atom:
+            atom_feats, atom_sizes = self.get_atom_feats_and_sizes(feats, metadata)
+            atom_feats_pooled = self.pool_atom(atom_feats, atom_sizes)
+            pooled.append(atom_feats_pooled)
 
-        # readout reaction features, a 1D tensor for each reaction
-        if self.pool_method == "set2set":
-            (
-                atom_feats,
-                bond_feats,
-                atom_sizes,
-                bond_sizes,
-            ) = self._get_feats_and_sizes(feats, metadata)
+        if self.pool_bond:
+            bond_feats, bond_sizes = self.get_bond_feats_and_sizes(feats, metadata)
+            bond_feats_pooled = self.pool_bond(bond_feats, bond_sizes)
+            pooled.append(bond_feats_pooled)
 
-            rxn_feats_atom = self.set2set_atom(atom_feats, atom_sizes)
-            rxn_feats_bond = self.set2set_bond(bond_feats, bond_sizes)
+        if self.pool_global:
+            global_feats_pooled = feats["global"]
+            pooled.append(global_feats_pooled)
 
-            return self._assemble_feats(
-                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
-            )
+        # concatenate atom, bond, global feats
+        return torch.cat(pooled, dim=-1)
 
-        elif self.pool_method == "attention_sum_cat_all":
-            (
-                atom_feats,
-                bond_feats,
-                atom_sizes,
-                bond_sizes,
-            ) = self._get_feats_and_sizes(feats, metadata)
+    @staticmethod
+    def get_atom_feats_and_sizes(feats, metadata):
+        atom_feats = feats["atom"]
+        atom_sizes = torch.as_tensor(metadata["num_atoms"], device=atom_feats.device)
 
-            rxn_feats_atom = self.attention_sum_atom(atom_feats, atom_sizes)
-            rxn_feats_bond = self.attention_sum_bond(bond_feats, bond_sizes)
+        return atom_feats, atom_sizes
 
-            return self._assemble_feats(
-                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
-            )
+    @staticmethod
+    def get_bond_feats_and_sizes(feats, metadata):
+        bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+        bond_sizes = torch.as_tensor(metadata["num_bonds"], device=bond_feats.device)
 
-        elif self.pool_method == "sum_cat_all":
-            (
-                atom_feats,
-                bond_feats,
-                atom_sizes,
-                bond_sizes,
-            ) = self._get_feats_and_sizes(feats, metadata)
+        return bond_feats, bond_sizes
 
-            rxn_feats_atom = segment_reduce(atom_sizes, atom_feats, reducer="sum")
-            rxn_feats_bond = segment_reduce(bond_sizes, bond_feats, reducer="sum")
+    def init_atom_pool_method(self) -> Tuple[Callable, int]:
+        """
+        Returns:
+            pool: a method to pool atom feats
+            size: out size of pooled atom feats
 
-            return self._assemble_feats(
-                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
-            )
+        """
+        raise NotImplementedError
 
-        elif self.pool_method == "sum_cat_center":
-            atom_feats = feats["atom"]
-            bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+    def init_bond_pool_method(self):
+        """
+        Returns:
+            pool: a method to pool bond feats
+            size: out size of pooled bond feats
 
-            # select feats of atoms/bonds in center
-            aic = np.concatenate(metadata["atoms_in_reaction_center"]).tolist()
-            bic = np.concatenate(metadata["bonds_in_reaction_center"]).tolist()
-            atom_feats = atom_feats[aic]
-            bond_feats = bond_feats[bic]
+        """
+        raise NotImplementedError
 
-            # number of atoms/bonds in reaction center
-            device = feats["atom"].device
-            atom_sizes = torch.as_tensor(
-                [sum(i) for i in metadata["atoms_in_reaction_center"]], device=device
-            )
-            bond_sizes = torch.as_tensor(
-                [sum(i) for i in metadata["bonds_in_reaction_center"]], device=device
-            )
+    def init_global_pool_method(self):
+        """
+        Returns:
+            pool: a method to pool bond feats
+            size: out size of pooled bond feats
 
-            rxn_feats_atom = segment_reduce(atom_sizes, atom_feats, reducer="sum")
-            rxn_feats_bond = segment_reduce(bond_sizes, bond_feats, reducer="sum")
+        """
+        return True, self.in_size
 
-            return self._assemble_feats(
-                feats, rxn_feats_atom, rxn_feats_bond, self.has_global_feats
-            )
 
-        elif self.pool_method == "hop_distance":
-            hop_dist = {
-                "atom": metadata["atom_hop_dist"],
-                "bond": metadata["bond_hop_dist"],
-            }
-            reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
+class ReducePool(BasePooling):
+    """
+    Sum/mean reduce pool of all atom/bond/global features.
+    """
 
-        elif self.pool_method == "global_only":
-            reaction_feats = feats["global"]
+    def init_atom_pool_method(self):
+        def method(feats, sizes):
+            return segment_reduce(sizes, feats, reducer=self.reducer)
 
-        else:
-            raise ValueError(f"Unsupported pool method `{self.pool_method}`")
+        out_size = self.in_size
 
-        return reaction_feats
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
+
+
+class CenterReducePool(BasePooling):
+    """
+    Sum/mean reduce pool of the features of atom/bond/global in the reaction center.
+    """
+
+    @staticmethod
+    def get_atom_feats_and_sizes(feats, metadata):
+        # atoms in center
+        atom_feats = feats["atom"]
+        aic = np.concatenate(metadata["atoms_in_reaction_center"]).tolist()
+        atom_feats = atom_feats[aic]
+        atom_sizes = torch.as_tensor(
+            [sum(i) for i in metadata["atoms_in_reaction_center"]],
+            device=atom_feats.device,
+        )
+
+        return atom_feats, atom_sizes
+
+    @staticmethod
+    def get_bond_feats_and_sizes(feats, metadata):
+        # bonds in center
+        bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+        bic = np.concatenate(metadata["bonds_in_reaction_center"]).tolist()
+        bond_feats = bond_feats[bic]
+        bond_sizes = torch.as_tensor(
+            [sum(i) for i in metadata["bonds_in_reaction_center"]],
+            device=bond_feats.device,
+        )
+        return bond_feats, bond_sizes
+
+    def init_atom_pool_method(self):
+        def method(feats, sizes):
+            return segment_reduce(sizes, feats, reducer=self.reducer)
+
+        out_size = self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
+
+
+class AttentiveReducePool(BasePooling):
+    """
+    Attentive sum/mean reduce pool of all atom/bond/global features.
+    """
+
+    def init_atom_pool_method(self):
+        method = AttentiveReduce(in_size=self.in_size, reducer=self.reducer)
+        out_size = self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
 
     def get_attention_score(
         self,
@@ -205,46 +211,67 @@ class Pooling(nn.Module):
         feats: Dict[str, torch.Tensor],
         metadata: Dict[str, List[int]],
     ):
+        """
 
-        if self.pool_method == "attention_sum_cat_all":
-            (
-                atom_feats,
-                bond_feats,
-                atom_sizes,
-                bond_sizes,
-            ) = self._get_feats_and_sizes(feats, metadata)
+        Args:
+            molecule_graphs:
+            reaction_graphs:
+            feats:
+            metadata:
 
-            atom_attn_score = self.attention_sum_atom.attention_score(
-                atom_feats, atom_sizes
-            )
-            bond_attn_score = self.attention_sum_bond.attention_score(
-                bond_feats, bond_sizes
-            )
+        Returns:
+            Attention score dict. {name: torch.Tensor}, where name is atom or bond.
+            The tensor if of shape (N, D), where N is the total number of atoms/bonds
+            in the batch and D is feature dimension.
 
-            return atom_attn_score, bond_attn_score
-        else:
-            raise ValueError(
-                f"Not supported pool method {self.pool_method} to get attention score"
-            )
+        """
+        attn_score = {}
+        if self.pool_atom:
+            atom_feats, atom_sizes = self.get_atom_feats_and_sizes(feats, metadata)
+            atom_attn_score = self.pool_atom.get_attention_score(atom_feats, atom_sizes)
+            attn_score["atom"] = atom_attn_score
 
-    @staticmethod
-    def _get_feats_and_sizes(feats, metadata):
+        if self.pool_bond:
+            bond_feats, bond_sizes = self.get_bond_feats_and_sizes(feats, metadata)
+            bond_attn_score = self.pool_bond.get_attention_score(bond_feats, bond_sizes)
+            attn_score["bond"] = bond_attn_score
 
-        device = feats["atom"].device
-        atom_sizes = torch.as_tensor(metadata["num_atoms"], device=device)
-        bond_sizes = torch.as_tensor(metadata["num_bonds"], device=device)
+        return attn_score
 
-        atom_feats = feats["atom"]
-        bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
 
-        return atom_feats, bond_feats, atom_sizes, bond_sizes
+class Set2SetPool(BasePooling):
+    """
+    Set to set sum/mean reduce pool of all atom/bond/global features.
+    """
 
-    @staticmethod
-    def _assemble_feats(feats, rxn_feats_atom, rxn_feats_bond, has_global_feats):
-        if has_global_feats:
-            return torch.cat([rxn_feats_atom, rxn_feats_bond, feats["global"]], dim=-1)
-        else:
-            return torch.cat([rxn_feats_atom, rxn_feats_bond], dim=-1)
+    def __init__(
+        self,
+        in_size: int,
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        reducer="mean",
+        num_iterations=6,
+        num_layers=3,
+    ):
+        self.num_iterations = num_iterations
+        self.num_layers = num_layers
+        super().__init__(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
+    def init_atom_pool_method(self):
+        method = Set2Set(
+            input_dim=self.in_size,
+            n_iters=self.num_iterations,
+            n_layers=self.num_layers,
+        )
+        out_size = 2 * self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
 
 
 class Set2Set(nn.Module):
@@ -322,7 +349,7 @@ class Set2Set(nn.Module):
         return q_star
 
 
-class AttentiveSum(nn.Module):
+class AttentiveReduce(nn.Module):
     """
     A pooling layer similar to the GAT:
 
@@ -340,16 +367,25 @@ class AttentiveSum(nn.Module):
     We do not use sigmoid because for large molecules there may only be a few atoms
     that matter. sigmoid forces a score range of 0~1 which may reduce the importance of
     the atom that really matter when passed through the softmax.
+
+    Args:
+        reducer: reduce method. If `sum`, do exactly the above. If `mean`, the readout
+            is obtained as the weighted mean, not weight sum.
     """
 
-    def __init__(self, in_size, negative_slope=0.2):
+    def __init__(self, in_size, negative_slope=0.2, reducer="sum"):
         super().__init__()
+        assert reducer in [
+            "sum",
+            "mean",
+        ], f"Expect reducer be sum or mean; got {reducer}"
+        self.reducer = reducer
 
         self.mlp = nn.Sequential(
             nn.Linear(in_size, 1, bias=False), nn.LeakyReLU(negative_slope)
         )
 
-    def forward(self, feat: torch.Tensor, sizes=torch.Tensor) -> torch.Tensor:
+    def forward(self, feat: torch.Tensor, sizes: torch.Tensor) -> torch.Tensor:
         """
         Args:
             feat: feature tensor of shape (N, D) where N is the total number of features,
@@ -357,13 +393,16 @@ class AttentiveSum(nn.Module):
             sizes: 1D tensor (shape (B,)) of the size of the features for each graph.
                 sum(sizes) should be equal to D.
         """
-
-        alpha = self.attention_score(feat, sizes)
-        out = segment_reduce(sizes, feat * alpha, reducer="sum")
+        alpha = self.get_attention_score(feat, sizes)
+        out = segment_reduce(sizes, feat * alpha, reducer=self.reducer)
 
         return out
 
-    def attention_score(self, feat: torch.Tensor, sizes: torch.Tensor):
+    def get_attention_score(self, feat: torch.Tensor, sizes: torch.Tensor):
+        """
+        Returns:
+            2D tensor of shape (N, 1), each is an attention score for an atom/bond.
+        """
         feat = self.mlp(feat)
         alpha = segment_softmax(sizes, feat)
 
@@ -439,3 +478,64 @@ class HopDistancePooling(nn.Module):
         weighted_sum = dgl.sum_nodes(graph, "r", ntype=ntype)
 
         return weighted_sum
+
+
+def get_reaction_feature_pooling(
+    pool_method,
+    in_size: int,
+    pool_atom_feats: bool = True,
+    pool_bond_feats: bool = True,
+    pool_global_feats: bool = True,
+    pool_kwargs: Dict[str, Any] = None,
+) -> BasePooling:
+    """
+
+    Args:
+        pool_method:
+        in_size:
+        pool_atom_feats:
+        pool_bond_feats:
+        pool_global_feats:
+        pool_kwargs: extra kwargs for pooling method. Currently, only set2set uses it.
+
+    Returns:
+        A callable to return pooled reaction features
+    """
+
+    if pool_method in ["reduce_sum", "reduce_mean"]:
+        reducer = pool_method.split("_")[-1]
+        return ReducePool(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
+    elif pool_method in ["center_reduce_sum", "center_reduce_mean"]:
+        reducer = pool_method.split("_")[-1]
+        return CenterReducePool(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
+    elif pool_method in ["attentive_reduce_sum", "attentive_reduce_mean"]:
+        reducer = pool_method.split("_")[-1]
+        return AttentiveReducePool(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
+    elif pool_method == "set2set":
+        if pool_kwargs is None:
+            num_iterations = 6
+            num_layers = 3
+        else:
+            num_iterations = pool_kwargs["set2set_num_iterations"]
+            num_layers = pool_kwargs["set2set_num_layers"]
+
+        return Set2SetPool(
+            in_size,
+            pool_atom_feats,
+            pool_bond_feats,
+            pool_global_feats,
+            num_iterations=num_iterations,
+            num_layers=num_layers,
+        )
+
+    else:
+        raise ValueError(f"Unaccepted pooling method {pool_method}")
