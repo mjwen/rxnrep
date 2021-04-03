@@ -156,10 +156,13 @@ def encoder_args(parser):
     parser.add_argument(
         "--pool_method",
         type=str,
-        default="set2set",
-        help="set2set, attention_sum_cat_all, sum_cat_all, sum_cat_center, "
-        "hop_distance, global_only",
+        default="attentive_reduce_sum",
+        help="attentive_reduce_sum/mean, reduce_sum/mean, center_reduce_sum/mean, "
+        "set2set",
     )
+    parser.add_argument("--pool_atom_feats", type=int, default=1)
+    parser.add_argument("--pool_bond_feats", type=int, default=1)
+    parser.add_argument("--pool_global_feats", type=int, default=1)
     parser.add_argument("--pool_kwargs", type=str, default=None)
 
     # mlp pool
@@ -208,9 +211,14 @@ def encoder_adjuster(args):
     args.molecule_conv_layer_sizes = [args.conv_layer_size] * args.num_mol_conv_layers
     args.reaction_conv_layer_sizes = [args.conv_layer_size] * args.num_rxn_conv_layers
 
+    # mlp after diff
     args.mlp_diff_layer_sizes = [args.conv_layer_size] * args.num_mlp_diff_layers
 
-    # mlp pool
+    # pool
+    if not args.has_global_feats:
+        args.pool_global_feats = 0
+
+    # mlp after pool
     val = determine_layer_size_by_pool_method(args)
     args.mlp_pool_layer_size = [val] * args.num_mlp_pool_layers
 
@@ -389,18 +397,17 @@ def data_augmentation_args(parser):
 
 
 def determine_layer_size_by_pool_method(args):
-    val = args.conv_layer_size
+    # if args.pool_method == "set2set":
+    #     # in set2set, atom and bond feats are doubled
+    #     x = sum(
+    #         [
+    #             int(args.pool_atom_feats) * 2,
+    #             int(args.pool_bond_feats) * 2,
+    #             args.pool_global_feats,
+    #         ]
+    #     )
 
-    if args.pool_method in [
-        "set2set",
-        "attention_sum_cat_all",
-        "sum_cat_all",
-        "sum_cat_center",
-    ]:
-        val = val * 2
-    elif args.pool_method == "global_only":
-        val = val
-    else:
-        raise NotImplementedError
+    x = sum([args.pool_atom_feats, args.pool_bond_feats, args.pool_global_feats])
+    val = args.conv_layer_size * x
 
     return val

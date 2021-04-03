@@ -63,11 +63,14 @@ class ReactionRepresentation(ReactionEncoder):
         mlp_diff_layer_batch_norm=None,
         mlp_diff_layer_activation=None,
         # pool
-        pool_method="set2set",
+        pool_method: str = "set2set",
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
         pool_kwargs: Dict[str, Any] = None,
         # mlp pool
         mlp_pool_layer_sizes=None,
-        mlp_pool_batch_norm=None,
+        mlp_pool_layer_batch_norm=None,
         mlp_pool_layer_activation=None,
         # bond hop dist decoder
         bond_hop_dist_decoder_hidden_layer_sizes=None,
@@ -115,9 +118,12 @@ class ReactionRepresentation(ReactionEncoder):
             mlp_diff_layer_batch_norm=mlp_diff_layer_batch_norm,
             mlp_diff_layer_activation=mlp_diff_layer_activation,
             pool_method=pool_method,
+            pool_atom_feats=pool_atom_feats,
+            pool_bond_feats=pool_bond_feats,
+            pool_global_feats=pool_global_feats,
             pool_kwargs=pool_kwargs,
             mlp_pool_layer_sizes=mlp_pool_layer_sizes,
-            mlp_pool_layer_batch_norm=mlp_pool_batch_norm,
+            mlp_pool_layer_batch_norm=mlp_pool_layer_batch_norm,
             mlp_pool_layer_activation=mlp_pool_layer_activation,
         )
 

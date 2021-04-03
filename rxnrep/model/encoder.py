@@ -8,7 +8,7 @@ from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv2 import GatedGCNConv
 from rxnrep.model.gin import GINConv, GINConvGlobal
-from rxnrep.model.readout import Pooling
+from rxnrep.model.readout import get_reaction_feature_pooling
 from rxnrep.model.utils import MLP, UnifySize
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,14 @@ class ReactionEncoder(nn.Module):
             `None`, the embedding layer is not applied.
         molecule_conv_layer_sizes: Hidden layer size of the graph conv layers for molecule
             feature update. There will be `len(molecule_hidden_size)` graph conv layers.
+
+        has_global_feats: whether to use global feats in feature update. Note the
+            difference between this and pool_global_feats.
+        pool_global_feats: whether to add global features to final reaction
+            representation. Note the difference between this and has_global_feats. If
+            has_global_feats is False, this much be False as well since there is no
+            global feats to be used. If has_global_feats is True, this can be either
+            True or False.
     """
 
     def __init__(
@@ -62,19 +70,27 @@ class ReactionEncoder(nn.Module):
         #
         conv="GatedGCNConv",
         has_global_feats: bool = True,
-        # 4, mlp diff
+        # 4, mlp after diff
         mlp_diff_layer_sizes: Optional[List[int]] = None,
         mlp_diff_layer_batch_norm: Optional[bool] = True,
         mlp_diff_layer_activation: Optional[str] = "ReLU",
         # 5, pool
         pool_method: str = "set2set",
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
         pool_kwargs: Dict[str, Any] = None,
-        # 4, mlp diff
+        # 4, mlp after pool
         mlp_pool_layer_sizes: Optional[List[int]] = None,
         mlp_pool_layer_batch_norm: Optional[bool] = True,
         mlp_pool_layer_activation: Optional[str] = "ReLU",
     ):
         super(ReactionEncoder, self).__init__()
+
+        # check input
+        if not has_global_feats and pool_global_feats:
+            raise ValueError("pool_global_feats=True, while has_global_feats=False")
+
         self.has_global_feats = has_global_feats
 
         # remove global feats (in case the featurizer creates it)
@@ -186,14 +202,20 @@ class ReactionEncoder(nn.Module):
             mlp_diff_outsize = conv_outsize
 
         # ========== reaction feature pool ==========
-        self.readout = Pooling(
-            mlp_diff_outsize, pool_method, pool_kwargs, has_global_feats
+        self.readout = get_reaction_feature_pooling(
+            pool_method,
+            mlp_diff_outsize,
+            pool_atom_feats,
+            pool_bond_feats,
+            pool_global_feats,
+            pool_kwargs,
         )
+        pool_out_size = self.readout.out_size
 
         # ========== mlp after pool ==========
         if mlp_pool_layer_sizes:
             self.mlp_pool = MLP(
-                in_size=self.readout.reaction_feats_size,
+                in_size=pool_out_size,
                 hidden_sizes=mlp_pool_layer_sizes,
                 batch_norm=mlp_pool_layer_batch_norm,
                 activation=mlp_pool_layer_activation,
@@ -202,7 +224,7 @@ class ReactionEncoder(nn.Module):
             mlp_pool_outsize = mlp_pool_layer_sizes[-1]
         else:
             self.mlp_pool = None
-            mlp_pool_outsize = self.readout.reaction_feats_size
+            mlp_pool_outsize = pool_out_size
 
         self.node_feats_size = mlp_diff_outsize
         self.reaction_feats_size = mlp_pool_outsize
@@ -289,11 +311,11 @@ class ReactionEncoder(nn.Module):
             feats = {k: self.mlp_diff[k](feats[k]) for k in self.feat_types}
 
         # readout reaction features, a 1D tensor for each reaction
-        atom_attn_score, bond_attn_score = self.readout.get_attention_score(
+        attn_score = self.readout.get_attention_score(
             molecule_graphs, reaction_graphs, feats, metadata
         )
 
-        return atom_attn_score, bond_attn_score
+        return attn_score
 
     def get_difference_feature(
         self,

@@ -74,10 +74,13 @@ class LightningModel(BaseLightningModel):
             mlp_diff_layer_activation=params.activation,
             # pool method
             pool_method=params.pool_method,
+            pool_atom_feats=params.pool_atom_feats,
+            pool_bond_feats=params.pool_bond_feats,
+            pool_global_feats=params.pool_global_feats,
             pool_kwargs=params.pool_kwargs,
             # mlp pool
             mlp_pool_layer_sizes=params.mlp_pool_layer_sizes,
-            mlp_pool_batch_norm=params.mlp_pool_layer_batch_norm,
+            mlp_pool_layer_batch_norm=params.mlp_pool_layer_batch_norm,
             mlp_pool_layer_activation=params.activation,
             # energy decoder
             reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,

@@ -1,5 +1,5 @@
 """
-Base model for Constrative representation learning.
+Base model for contrastive representation learning.
 """
 
 from typing import Dict, Optional
@@ -419,13 +419,13 @@ class BaseLightningModel(pl.LightningModule):
     def get_pool_attention_score(self, mol_graphs, rxn_graphs, feats, metadata):
         """
         Returns:
-            atom_attn_score:
+            Dict of attention score
 
         """
-        atom_attn_score, bond_attn_score = self.backbone.get_pool_attention_score(
+        attn_score = self.backbone.get_pool_attention_score(
             mol_graphs, rxn_graphs, feats, metadata
         )
-        return atom_attn_score, bond_attn_score
+        return attn_score
 
     def get_difference_feature(self, mol_graphs, rxn_graphs, feats, metadata):
         """
