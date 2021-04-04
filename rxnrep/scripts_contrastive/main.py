@@ -4,7 +4,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from rxnrep.scripts.launch_environment import PyTorchLaunch
 from rxnrep.scripts.utils import load_checkpoint_wandb, save_files_to_wandb
 
 
@@ -54,12 +53,8 @@ def main(
             pass
     wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
 
-    # cluster environment to use torch.distributed.launch, e.g.
-    # python -m torch.distributed.launch --use_env --nproc_per_node=2 <this_script.py>
-    cluster = PyTorchLaunch()
-
     #
-    # To run ddp on cpu, comment out `gpus` and `plugins`, and then set
+    # To run ddp on cpu, comment out `gpus`, and then set
     # `num_processes=2`, and `accelerator="ddp_cpu"`. Also note, for this script to
     # work, size of val (test) set should be larger than
     # `--num_centroids*num_processes`; otherwise clustering will raise an error,
@@ -71,7 +66,6 @@ def main(
         num_nodes=args.num_nodes,
         gpus=args.gpus,
         accelerator=args.accelerator,
-        plugins=[cluster],
         callbacks=[checkpoint_callback, early_stop_callback],
         logger=wandb_logger,
         resume_from_checkpoint=checkpoint_path,
@@ -93,11 +87,7 @@ def main(
     # ========== save files to wandb ==========
     # Do not do this before trainer, since this might result in the initialization of
     # multiple wandb object when training in distribution mode
-    if (
-        args.gpus is None
-        or args.gpus == 1
-        or (args.gpus > 1 and cluster.local_rank() == 0)
-    ):
+    if trainer.is_global_zero:
         save_files_to_wandb(
             wandb_logger,
             [
