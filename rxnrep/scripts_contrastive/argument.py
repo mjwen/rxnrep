@@ -165,6 +165,14 @@ def encoder_args(parser):
     parser.add_argument("--pool_global_feats", type=int, default=1)
     parser.add_argument("--pool_kwargs", type=str, default=None)
 
+    # only used by attentive reduce
+    parser.add_argument(
+        "--pool_attentive_reduce_activation",
+        type=str,
+        default="LeakyReLU",
+        help="Activation used for attentive reduce `LeakyReLU` or `Sigmoid`",
+    )
+
     # mlp pool
     parser.add_argument(
         "--mlp_pool_layer_sizes",
@@ -217,6 +225,8 @@ def encoder_adjuster(args):
     # pool
     if not args.has_global_feats:
         args.pool_global_feats = 0
+    if "attentive_reduce" in args.pool_method:
+        args.pool_kwargs = {"activation": args.pool_attentive_reduce_activation}
 
     # mlp after pool
     val = determine_layer_size_by_pool_method(args)

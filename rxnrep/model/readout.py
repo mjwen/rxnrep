@@ -195,8 +195,24 @@ class AttentiveReducePool(BasePooling):
     Attentive sum/mean reduce pool of all atom/bond/global features.
     """
 
+    def __init__(
+        self,
+        in_size: int,
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        reducer="mean",
+        activation: str = "LeakyReLU",
+    ):
+        self.activation = activation
+        super().__init__(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
     def init_atom_pool_method(self):
-        method = AttentiveReduce(in_size=self.in_size, reducer=self.reducer)
+        method = AttentiveReduce(
+            in_size=self.in_size, activation=self.activation, reducer=self.reducer
+        )
         out_size = self.in_size
 
         return method, out_size
@@ -355,7 +371,7 @@ class AttentiveReduce(nn.Module):
 
     parameter vector w:
 
-    hi =leakyrelu(hi*w)
+    hi = leakyrelu(hi*w) or hi = sigmoid(hi*w)
     alpha_i = softmax(hi)
     readout = sum_i alpha_i * hi
 
@@ -373,7 +389,7 @@ class AttentiveReduce(nn.Module):
             is obtained as the weighted mean, not weight sum.
     """
 
-    def __init__(self, in_size, negative_slope=0.2, reducer="sum"):
+    def __init__(self, in_size, activation: str = "LeakyReRU", reducer="sum"):
         super().__init__()
         assert reducer in [
             "sum",
@@ -381,9 +397,17 @@ class AttentiveReduce(nn.Module):
         ], f"Expect reducer be sum or mean; got {reducer}"
         self.reducer = reducer
 
-        self.mlp = nn.Sequential(
-            nn.Linear(in_size, 1, bias=False), nn.LeakyReLU(negative_slope)
-        )
+        if activation == "LeakyReLU":
+            act = nn.LeakyReLU(negative_slope=0.2)
+        elif activation == "Sigmoid":
+            act = nn.Sigmoid()
+        else:
+            raise ValueError(
+                "Expect activation for AttentiveReduce is `LeakyReLU` or `Sigmoid`;"
+                f"got {activation}"
+            )
+
+        self.mlp = nn.Sequential(nn.Linear(in_size, 1, bias=False), act)
 
     def forward(self, feat: torch.Tensor, sizes: torch.Tensor) -> torch.Tensor:
         """
@@ -496,7 +520,7 @@ def get_reaction_feature_pooling(
         pool_atom_feats:
         pool_bond_feats:
         pool_global_feats:
-        pool_kwargs: extra kwargs for pooling method. Currently, only set2set uses it.
+        pool_kwargs: extra kwargs for pooling method. e.g. Set2Set and AttentiveReduce.
 
     Returns:
         A callable to return pooled reaction features
@@ -516,8 +540,19 @@ def get_reaction_feature_pooling(
 
     elif pool_method in ["attentive_reduce_sum", "attentive_reduce_mean"]:
         reducer = pool_method.split("_")[-1]
+
+        if pool_kwargs is None:
+            activation = "LeakyReLU"
+        else:
+            activation = pool_kwargs["activation"]
+
         return AttentiveReducePool(
-            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+            in_size,
+            pool_atom_feats,
+            pool_bond_feats,
+            pool_global_feats,
+            reducer=reducer,
+            activation=activation,
         )
 
     elif pool_method == "set2set":
