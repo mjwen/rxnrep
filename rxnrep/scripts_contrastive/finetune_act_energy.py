@@ -11,9 +11,7 @@ from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_finetune_lit_model import BaseLightningModel
 from rxnrep.scripts_contrastive.main import main
-from rxnrep.scripts_contrastive.train_contrastive import (
-    LightningModel as PretrainedModel,
-)
+from rxnrep.scripts_contrastive.train_simclr import LightningModel as PretrainedModel
 from rxnrep.utils import yaml_load
 
 logger = logging.getLogger(__name__)
@@ -46,12 +44,18 @@ def parse_args(dataset):
     # model `model.reaction_feats_size`, but here we just extract it from the running
     # info of the pretrained model.
     #
+    #
     # conv_layer_size: determine prediction head size
-    # pool_method: determine prediction head size
-    # reaction_conv_layer_sizes: determine whether to build reaction graphs
+    # pool_method, pool_atom_feats, pool_bond_feats, pool_global_feats:
+    # determine prediction head size
+    # reaction_conv_layer_sizes: determine whether to build reaction graphs (used in
+    # load_dataset)
     d = yaml_load(args.pretrained_config_filename)
     args.conv_layer_size = d["conv_layer_size"]["value"]
     args.pool_method = d["pool_method"]["value"]
+    args.pool_atom_feats = d["pool_atom_feats"]["value"]
+    args.pool_bond_feats = d["pool_bond_feats"]["value"]
+    args.pool_global_feats = d["pool_global_feats"]["value"]
     args.reaction_conv_layer_sizes = d["reaction_conv_layer_sizes"]["value"]
 
     # ========== adjuster ==========
