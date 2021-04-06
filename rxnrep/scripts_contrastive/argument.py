@@ -204,7 +204,7 @@ def encoder_helper(parser):
 def encoder_adjuster(args):
     # conv
     if args.has_global_feats is None:
-        if args.conv == "GINConv":
+        if args.conv in ["GINConv", "GINConvOriginal"]:
             args.has_global_feats = 0
         elif args.conv in ["GINConvGlobal", "GatedGCNConv"]:
             args.has_global_feats = 1

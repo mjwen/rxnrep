@@ -7,7 +7,7 @@ import torch.nn as nn
 from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv2 import GatedGCNConv
-from rxnrep.model.gin import GINConv, GINConvGlobal
+from rxnrep.model.gin import GINConv, GINConvGlobal, GINConvOriginal
 from rxnrep.model.readout import get_reaction_feature_pooling
 from rxnrep.model.utils import MLP, UnifySize
 
@@ -88,7 +88,7 @@ class ReactionEncoder(nn.Module):
         super(ReactionEncoder, self).__init__()
 
         # check input
-        if not has_global_feats and pool_global_feats:
+        if pool_global_feats and not has_global_feats:
             raise ValueError("pool_global_feats=True, while has_global_feats=False")
 
         self.has_global_feats = has_global_feats
@@ -125,6 +125,11 @@ class ReactionEncoder(nn.Module):
             assert has_global_feats, f"Select `{conv}`, but `has_global_feats = False`"
         elif conv == "GINConv":
             conv_class = GINConv
+            assert (
+                not has_global_feats
+            ), f"Select `{conv}`, but `has_global_feats = True`"
+        elif conv == "GINConvOriginal":
+            conv_class = GINConvOriginal
             assert (
                 not has_global_feats
             ), f"Select `{conv}`, but `has_global_feats = True`"
@@ -180,8 +185,13 @@ class ReactionEncoder(nn.Module):
 
         # ========== mlp diff ==========
         if mlp_diff_layer_sizes:
-            self.feat_types = ["atom", "bond"]
-            if has_global_feats:
+
+            self.feat_types = []
+            if pool_atom_feats:
+                self.feat_types.append("atom")
+            if pool_bond_feats:
+                self.feat_types.append("bond")
+            if pool_global_feats:
                 self.feat_types.append("global")
 
             self.mlp_diff = nn.ModuleDict(
