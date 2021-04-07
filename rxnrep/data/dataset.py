@@ -1,5 +1,6 @@
 import copy
 import functools
+import itertools
 import logging
 import multiprocessing
 from pathlib import Path
@@ -21,7 +22,15 @@ from rxnrep.data.augmentation import AtomTypeFeatureMasker
 from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
 from rxnrep.data.to_graph import build_graph_and_featurize_reaction
 from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
-from rxnrep.utils import tensor_to_list, to_path, to_tensor, yaml_dump, yaml_load
+from rxnrep.utils import (
+    pickle_dump,
+    pickle_load,
+    tensor_to_list,
+    to_path,
+    to_tensor,
+    yaml_dump,
+    yaml_load,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +81,26 @@ class BaseDataset:
         self.return_index = return_index
         self.nprocs = num_processes
 
-        # read input files
-        self.reactions, self._failed = self.read_file(filename)
+        filename = to_path(filename)
+        basename = filename.parent.joinpath(filename.stem)  # i.e. name without suffix
+
+        # ===== read reactions =====
+        if (
+            basename.joinpath("reactions.pkl").exists()
+            and basename.joinpath("failed_reactions.pkl").exists()
+        ):
+            # pickle file exists
+            self.reactions = pickle_load(basename.joinpath("reactions.pkl"))
+            self._failed = pickle_load(basename.joinpath("failed_reactions.pkl"))
+
+        else:
+            # read input files
+            self.reactions, self._failed = self.read_file(filename)
+
+            # save the info to disk
+            basename.mkdir()
+            pickle_dump(self.reactions, basename.joinpath("reactions.pkl"))
+            pickle_dump(self._failed, basename.joinpath("failed_reactions.pkl"))
 
         # ===== build graph and features =====
         # will recover from state dict if it is not None
@@ -91,12 +118,55 @@ class BaseDataset:
             else:
                 self.load_state_dict_file(init_state_dict)
 
-        # convert reactions to dgl graphs (should do this after recovering state dict,
-        # since the species, feature mean and stdev might be recovered there)
-        self.dgl_graphs = self.build_graph_and_featurize()
+        if basename.joinpath("graphs.dgl").exists():
+            # load previously saved graphs
 
-        if transform_features:
-            self.scale_features()
+            graphs, _ = dgl.load_graphs(basename.joinpath("graphs.dgl").as_posix())
+
+            if self.build_reaction_graph:
+                self.dgl_graphs = []
+                for i in range(len(graphs) // 3):
+                    self.dgl_graphs.append(graphs[i * 3 : i * 3 + 3])
+
+            else:
+                self.dgl_graphs = []
+                for i in range(len(graphs) // 2):
+                    gg = graphs[i * 2 : i * 2 + 2]
+                    gg.append(None)  # reaction graph
+                    self.dgl_graphs.append(gg)
+
+            # init featurizer (call build_graph_and_featurize_reaction for one reaction)
+            # featurizers are used in state_dict()
+            if self._species is None:
+                self._species = self.get_species()
+            atom_featurizer = functools.partial(
+                self.atom_featurizer, allowable_atom_type=self._species
+            )
+            build_graph_and_featurize_reaction(
+                self.reactions[0],
+                atom_featurizer=atom_featurizer,
+                bond_featurizer=self.bond_featurizer,
+                global_featurizer=self.global_featurizer,
+                build_reaction_graph=self.build_reaction_graph,
+            )
+
+        else:
+            # convert reactions to dgl graphs (should do this after recovering state dict,
+            # since the species, feature mean and stdev might be recovered there)
+            self.dgl_graphs = self.build_graph_and_featurize()
+
+            if self.build_reaction_graph:
+                graphs = [i for i in itertools.chain.from_iterable(self.dgl_graphs)]
+            else:
+                # reaction_g is None, can remove save by dgl
+                # so remove it from the graph list
+                graphs = []
+                for reactant_g, product_g, reaction_g in self.dgl_graphs:
+                    graphs.extend([reactant_g, product_g])
+            dgl.save_graphs(basename.joinpath("graphs.dgl").as_posix(), graphs)
+
+            if transform_features:
+                self.scale_features()
 
     @property
     def feature_size(self) -> Dict[str, int]:
