@@ -1,3 +1,4 @@
+import logging
 import warnings
 from pathlib import Path
 
@@ -10,10 +11,13 @@ from rxnrep.data.featurizer import (
     BondFeaturizer,
     BondFeaturizerMinimum,
     GlobalFeaturizer,
+    MorganFeaturizer,
 )
 from rxnrep.data.green import GreenDataset
 from rxnrep.data.nrel import NRELDataset
-from rxnrep.data.uspto import USPTODataset
+from rxnrep.data.uspto import USPTOClassicalFeaturesDataset, USPTODataset
+
+logger = logging.getLogger(__name__)
 
 
 def load_dataset(args):
@@ -192,7 +196,6 @@ def load_uspto_dataset(args):
     else:
         build_reaction_graph = False
 
-
     trainset = USPTODataset(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(),
@@ -323,7 +326,6 @@ def load_electrolyte_dataset(args):
         build_reaction_graph = True
     else:
         build_reaction_graph = False
-
 
     trainset = ElectrolyteDataset(
         filename=args.trainset_filename,
@@ -558,3 +560,64 @@ def get_state_dict_filename(args):
             state_dict_filename = None
 
     return state_dict_filename
+
+
+def load_uspto_classical_feature_dataset(args):
+
+    featurizer = MorganFeaturizer(
+        radius=args.morgan_radius,
+        size=args.morgan_size,
+    )
+
+    trainset = USPTOClassicalFeaturesDataset(
+        filename=args.trainset_filename,
+        featurizer=featurizer,
+        feature_type=args.feature_pool_type,
+        num_processes=args.nprocs,
+    )
+    valset = USPTOClassicalFeaturesDataset(
+        filename=args.valset_filename,
+        featurizer=featurizer,
+        feature_type=args.feature_pool_type,
+        num_processes=args.nprocs,
+    )
+    testset = USPTOClassicalFeaturesDataset(
+        filename=args.testset_filename,
+        featurizer=featurizer,
+        feature_type=args.feature_pool_type,
+        num_processes=args.nprocs,
+    )
+
+    logger.info(
+        f"Trainset size: {len(trainset)}, valset size: {len(valset)}: "
+        f"testset size: {len(testset)}."
+    )
+
+    train_loader = DataLoader(
+        trainset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    val_loader = DataLoader(
+        valset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    test_loader = DataLoader(
+        testset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    return train_loader, val_loader, test_loader

@@ -6,7 +6,11 @@ from typing import Callable, Dict, Optional, Union
 import torch
 from sklearn.utils import class_weight
 
-from rxnrep.data.dataset import BaseContrastiveDataset, BaseDatasetWithLabels
+from rxnrep.data.dataset import (
+    BaseContrastiveDataset,
+    BaseDatasetWithLabels,
+    ClassicalFeatureDataset,
+)
 from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
@@ -142,3 +146,35 @@ class USPTOContrastiveDataset(BaseContrastiveDataset):
         )
 
         return succeed_reactions, failed
+
+
+class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
+    def read_file(self, filename: Path):
+        logger.info("Start reading dataset ...")
+
+        succeed_reactions, failed = read_smiles_tsv_dataset(
+            filename, remove_H=True, nprocs=self.nprocs
+        )
+
+        counter = Counter(failed)
+        logger.info(
+            f"Finish reading dataset. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
+        )
+
+        return succeed_reactions, failed
+
+    def generate_labels(self):
+        """
+        Labels for all reactions.
+
+        Add `reaction_type`.
+        """
+
+        labels = []
+        for i, rxn in enumerate(self.reactions):
+            rxn_class = rxn.get_property("reaction_type")
+            labels.append(
+                {"reaction_type": torch.as_tensor(int(rxn_class), dtype=torch.int64)}
+            )
+        return labels

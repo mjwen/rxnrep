@@ -985,3 +985,75 @@ class BaseContrastiveDataset(BaseDataset):
             batched_labels,
             (batched_metadata1, batched_metadata2),
         )
+
+
+class ClassicalFeatureDataset:
+    """
+    Reaction dataset use RDKit featurizers.
+
+    Args:
+        feature_type: how the reaction feature should be obtained from molecule features.
+            `difference`: take the difference of the sum of the molecule features of
+            the reactants and the differences.
+            `concatenate`: concatenate the sum of reactants features and the products
+            features.
+
+    """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        featurizer: Callable[[Chem.Mol], torch.Tensor],
+        feature_type: str = "difference",
+        num_processes: int = 1,
+    ):
+        self.featurizer = featurizer
+        self.feature_type = feature_type
+        self.nprocs = num_processes
+
+        # read input files
+        self.reactions, self._failed = self.read_file(filename)
+
+        # get features
+        self.features = self.featurize_reaction()
+
+        # generate labels
+        self.labels = self.generate_labels()
+
+    def featurize_reaction(self):
+
+        features = []
+        for rxn in self.reactions:
+            rct_feats = torch.sum(
+                torch.stack([self.featurizer(m.rdkit_mol) for m in rxn.reactants]),
+                dim=0,
+            )
+            prdt_feats = torch.sum(
+                torch.stack([self.featurizer(m.rdkit_mol) for m in rxn.products]), dim=0
+            )
+
+            if self.feature_type == "difference":
+                feats = prdt_feats - rct_feats
+            elif self.feature_type == "concatenate":
+                feats = torch.cat((rct_feats, prdt_feats))
+            else:
+                raise ValueError(f"Unsupported feature type {self.feature_type}")
+
+            features.append(feats)
+
+        return features
+
+    def read_file(self, filename: Path) -> Tuple[List[Reaction], List[bool]]:
+        raise NotImplementedError
+
+    def generate_labels(self)->List[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def __len__(self) -> int:
+        return len(self.reactions)
+
+    def __getitem__(self, item):
+        label = self.labels[item]
+        feats = self.features[item]
+
+        return feats, label
