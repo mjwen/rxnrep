@@ -58,6 +58,7 @@ class BaseDataset:
             by the standard deviation.
         return_index: whether to return the index of the sample in the dataset
         num_processes: number of processes used to load and process the dataset.
+        pickle_graphs: save the loaded graphs for later use
     """
 
     def __init__(
@@ -72,6 +73,7 @@ class BaseDataset:
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
+        pickle_graphs=False,
     ):
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
@@ -86,7 +88,8 @@ class BaseDataset:
 
         # ===== read reactions =====
         if (
-            basename.joinpath("reactions.pkl").exists()
+            pickle_graphs
+            and basename.joinpath("reactions.pkl").exists()
             and basename.joinpath("failed_reactions.pkl").exists()
         ):
             # pickle file exists
@@ -98,9 +101,10 @@ class BaseDataset:
             self.reactions, self._failed = self.read_file(filename)
 
             # save the info to disk
-            basename.mkdir()
-            pickle_dump(self.reactions, basename.joinpath("reactions.pkl"))
-            pickle_dump(self._failed, basename.joinpath("failed_reactions.pkl"))
+            if pickle_graphs:
+                basename.mkdir()
+                pickle_dump(self.reactions, basename.joinpath("reactions.pkl"))
+                pickle_dump(self._failed, basename.joinpath("failed_reactions.pkl"))
 
         # ===== build graph and features =====
         # will recover from state dict if it is not None
@@ -118,7 +122,7 @@ class BaseDataset:
             else:
                 self.load_state_dict_file(init_state_dict)
 
-        if basename.joinpath("graphs.dgl").exists():
+        if pickle_graphs and basename.joinpath("graphs.dgl").exists():
             # load previously saved graphs
 
             graphs, _ = dgl.load_graphs(basename.joinpath("graphs.dgl").as_posix())
@@ -155,18 +159,22 @@ class BaseDataset:
             # since the species, feature mean and stdev might be recovered there)
             self.dgl_graphs = self.build_graph_and_featurize()
 
-            if self.build_reaction_graph:
-                graphs = [i for i in itertools.chain.from_iterable(self.dgl_graphs)]
-            else:
-                # reaction_g is None, can remove save by dgl
-                # so remove it from the graph list
-                graphs = []
-                for reactant_g, product_g, reaction_g in self.dgl_graphs:
-                    graphs.extend([reactant_g, product_g])
-            dgl.save_graphs(basename.joinpath("graphs.dgl").as_posix(), graphs)
+            if pickle_graphs:
+                if self.build_reaction_graph:
+                    graphs = [i for i in itertools.chain.from_iterable(self.dgl_graphs)]
+                else:
+                    # reaction_g is None, can remove save by dgl
+                    # so remove it from the graph list
+                    graphs = []
+                    for reactant_g, product_g, reaction_g in self.dgl_graphs:
+                        graphs.extend([reactant_g, product_g])
+                dgl.save_graphs(basename.joinpath("graphs.dgl").as_posix(), graphs)
 
-            if transform_features:
-                self.scale_features()
+        # Do not scale features in one of the if basename.joinpath("graphs.dgl").exists():
+        # so as to save unscaled features.
+        # This enables reuse of the save graph in case the read-in state dict can vary.
+        if transform_features:
+            self.scale_features()
 
     @property
     def feature_size(self) -> Dict[str, int]:
@@ -1046,7 +1054,7 @@ class ClassicalFeatureDataset:
     def read_file(self, filename: Path) -> Tuple[List[Reaction], List[bool]]:
         raise NotImplementedError
 
-    def generate_labels(self)->List[Dict[str, Any]]:
+    def generate_labels(self) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
     def __len__(self) -> int:
