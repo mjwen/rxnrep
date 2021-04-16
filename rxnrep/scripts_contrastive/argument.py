@@ -403,6 +403,19 @@ def data_augmentation_args(parser):
     parser.add_argument("--augment_mask_value_atom", type=float, default=1.0)
     parser.add_argument("--augment_mask_value_bond", type=float, default=1.0)
 
+    # only for subgraph with functional group
+    parser.add_argument("--augment_1_center_mode", type=str, default="altered_bonds")
+    parser.add_argument("--augment_2_center_mode", type=str, default="altered_bonds")
+    parser.add_argument(
+        "--augment_functional_group_smarts_files",
+        type=str,
+        nargs="+",
+        # default=None,
+        default=[
+            "/Users/mjwen/Applications/rxnrep_analysis/rxnrep_analysis/data_cleaning/smarts_daylight.tsv"
+        ],
+    )
+
     return parser
 
 

@@ -261,31 +261,59 @@ def get_state_dict_filename(args):
 
 def init_augmentations(args):
     def select_transform(
-        name, ratio, select_mode, ratio_multiplier, mask_value_atom, mask_value_bond
+        name,
+        ratio,
+        select_mode,
+        center_mode,
+        ratio_multiplier,
+        mask_value_atom,
+        mask_value_bond,
+        functional_group_smarts_files,
     ):
 
         if name == "drop_atom":
             t = transforms.DropAtom(ratio, select_mode, ratio_multiplier)
+
         elif name == "drop_bond":
             t = transforms.DropBond(ratio, select_mode, ratio_multiplier)
+
         elif name == "mask_atom":
             t = transforms.MaskAtomAttribute(
                 ratio, select_mode, ratio_multiplier, mask_value=mask_value_atom
             )
+
         elif name == "mask_bond":
             t = transforms.MaskBondAttribute(
                 ratio, select_mode, ratio_multiplier, mask_value=mask_value_bond
             )
+
         elif name == "subgraph":
-            t = transforms.Subgraph(ratio, select_mode, ratio_multiplier)
+
+            t = transforms.Subgraph(
+                ratio,
+                select_mode,
+                ratio_multiplier,
+                center_mode,
+                functional_group_smarts_files,
+            )
+
         elif name == "subgraph_bfs":
-            t = transforms.Subgraph(ratio, select_mode, ratio_multiplier)
+            t = transforms.SubgraphBFS(ratio, select_mode, ratio_multiplier)
+
         elif name == "identity":
             t = transforms.IdentityTransform(ratio, select_mode, ratio_multiplier)
+
         elif name == "subgraph_or_identity":
-            t1 = transforms.Subgraph(ratio, select_mode, ratio_multiplier)
+            t1 = transforms.Subgraph(
+                ratio,
+                select_mode,
+                ratio_multiplier,
+                center_mode,
+                functional_group_smarts_files,
+            )
             t2 = transforms.IdentityTransform(ratio, select_mode, ratio_multiplier)
             t = transforms.OneOrTheOtherTransform(t1, t2, first_probability=0.5)
+
         elif name == "subgraph_bfs_or_identity":
             t1 = transforms.SubgraphBFS(ratio, select_mode, ratio_multiplier)
             t2 = transforms.IdentityTransform(ratio, select_mode, ratio_multiplier)
@@ -300,17 +328,21 @@ def init_augmentations(args):
         args.augment_1,
         args.augment_1_ratio,
         args.augment_1_select_mode,
+        args.augment_1_center_mode,
         args.augment_1_ratio_multiplier,
         args.augment_mask_value_atom,
         args.augment_mask_value_bond,
+        args.augment_functional_group_smarts_files,
     )
     t2 = select_transform(
         args.augment_2,
         args.augment_2_ratio,
         args.augment_2_select_mode,
+        args.augment_2_center_mode,
         args.augment_2_ratio_multiplier,
         args.augment_mask_value_atom,
         args.augment_mask_value_bond,
+        args.augment_functional_group_smarts_files,
     )
 
     return t1, t2

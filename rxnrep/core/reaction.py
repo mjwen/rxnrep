@@ -457,7 +457,7 @@ class Reaction:
 
                 all_fg_atoms.update(fg_atoms)
                 if include_center_atoms:
-                    all_fg_atoms.update(center_atom)
+                    all_fg_atoms.update([atom_map[i] for i in center_atom])
 
             self._reaction_center_atom_functional_group = list(all_fg_atoms)
 

@@ -1,8 +1,11 @@
+from pathlib import Path
 from typing import Any, Callable, List, Tuple, Union
 
 import dgl
 import numpy as np
+import pandas as pd
 import torch
+from rdkit import Chem
 
 from rxnrep.core.reaction import Reaction
 
@@ -14,12 +17,12 @@ class Transform:
     Transforms will only be applied to atoms/bonds outside the reaction center.
 
     Args:
+        ratio: the magnitude of augmentation.
         select_mode: ['direct'/'ratio']. This determines how the number of augmented
             atoms/bonds are selected. if `direct`, ratio should be an integer, meaning
             the the number of atoms/bonds to augment. If `ratio`, ratio is the portion
             of atoms/bonds to augment. The portion multiplier is determined by
             ratio_multiplier. See below.
-        ratio: the magnitude of augmentation.
         ratio_multiplier: [out_center|in_center]. the set of atoms/bonds used together
             with ratio to determine the number of atoms to augment. If `select_model =
             direct`, this is ignored and will selected ratio number of atoms/bonds
@@ -70,8 +73,8 @@ class Transform:
             reaction:
         Returns:
             augmented_reactants_g:
-            agumented_products_g:
-            agumented_reaction_g:
+            augmented_products_g:
+            augmented_reaction_g:
             metadata:
         """
         raise NotImplementedError
@@ -286,11 +289,46 @@ class Subgraph(Transform):
 
     The difference is that we start with all atoms in reaction center, where as in the
     paper, it starts with a randomly chosen atom.
+
+    Args:
+        reaction_center_mode: [`altered_bonds`|`functional_group`]. How to determine
+            reaction center. If `altered_bonds`, atoms associated with broken and
+            formed bonds in the reaction are regarded as center. If `functional_group`,
+            functional groups associated with alternated bonds are regarded as center.
+        functional_group_smarts_filenames: a list of tsv files containing the smarts of
+            the functional groups. Should have a column named `smarts`. Only effective
+            when reaction_center_mode = `functional_group`.
     """
+
+    def __init__(
+        self,
+        ratio: float,
+        select_mode: str = "ratio",
+        ratio_multiplier: str = "out_center",
+        reaction_center_mode: str = "altered_bonds",
+        functional_group_smarts_filenames: List[Path] = None,
+    ):
+        super().__init__(ratio, select_mode, ratio_multiplier)
+        self.reaction_center_mode = reaction_center_mode
+
+        # init all functional group
+        if self.reaction_center_mode == "functional_group":
+            dfs = [pd.read_csv(f, sep="\t") for f in functional_group_smarts_filenames]
+            df = pd.concat(dfs)
+            self.functional_groups = [Chem.MolFromSmarts(m) for m in df["smarts"]]
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
         distance = np.asarray(reaction.atom_distance_to_reaction_center)
-        in_center = np.argwhere(distance == 0).reshape(-1).tolist()
+
+        if self.reaction_center_mode == "altered_bonds":
+            in_center = np.argwhere(distance == 0).reshape(-1).tolist()
+
+        elif self.reaction_center_mode == "functional_group":
+            in_center = reaction.get_reaction_center_atom_functional_group(
+                func_groups=self.functional_groups, include_center_atoms=True
+            )
+        else:
+            raise ValueError(f"Not supported center mode {self.reaction_center_mode}")
 
         # number of not in center atoms to sample
         num_in_center = len(in_center)
