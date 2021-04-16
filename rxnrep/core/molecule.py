@@ -542,6 +542,55 @@ def generate_3D_coords(m: Chem.Mol) -> Chem.Mol:
     return m
 
 
+def find_functional_group(
+    mol: Chem.Mol, atoms: List[int], func_groups: Union[Path, List]
+) -> List[int]:
+    """
+    Find the largest functional group associated with the give atoms.
+
+    This will loop over all the given functional groups, check whether a functional
+    group contains (some of or all) the given atoms. If yes, then
+    1. if the number of given atoms it contains is larger than the present one,
+    this functional group is selected.
+    2. if the number of given atoms it contains is the same but the number of atoms in
+    the functional group is larger than the already selected one, this new functional
+    group is selected.
+
+
+    Args:
+        mol: rdkit mol
+        atoms: a list of atoms index (index of rdkit atoms, not map number) starting
+            from 0.
+        func_groups: if a Path, should be a Path to a tsv file containing the SMARTS
+            of the functional group. Or it could be a list of rdkit mols
+            created by MolFromSmarts.
+
+    Returns:
+        functional group, specified by a list of atom indexes. Note the functional
+            group may not include all the given atoms.
+    """
+
+    fg_atoms = []  # atom index of functional group
+    num_in_fg = 0  # number of given atoms in functional group
+
+    atoms = set(atoms)
+
+    for fg in func_groups:
+        sub = mol.GetSubstructMatch(fg)
+        intersect = atoms.intersection(sub)
+
+        if intersect:
+            if len(intersect) > num_in_fg:
+                fg_atoms = sub
+                num_in_fg = len(intersect)
+
+            elif len(intersect) == num_in_fg:
+                if len(sub) > len(fg_atoms):
+                    fg_atoms = sub
+
+    return fg_atoms
+
+
 class MoleculeError(Exception):
     def __init__(self, msg=None):
         super(MoleculeError, self).__init__(msg)

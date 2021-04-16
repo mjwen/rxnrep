@@ -14,7 +14,7 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.Draw import rdMolDraw2D
 from sklearn.utils import class_weight
 
-from rxnrep.core.molecule import Molecule
+from rxnrep.core.molecule import Molecule, find_functional_group
 from rxnrep.typing import BondIndex
 
 logger = logging.getLogger(__name__)
@@ -413,6 +413,48 @@ class Reaction:
             number of the two atoms forming the bond.
         """
         return self._get_bond_map_number("products", for_changed, as_dict)
+
+    def get_reaction_center_atom_functional_group(
+        self, func_groups: Union[Path, List], include_center_atoms: bool = True
+    ) -> List[int]:
+        """
+        The functional groups associated with atoms in reaction center.
+
+        For each molecule, get largest functional group associated with atoms in
+        reaction center and take the union of functional group of all molecules.
+
+        Args:
+            func_groups: if a Path, should be a Path to a tsv file containing the SMARTS
+                of the functional group. Or it could be a list of rdkit mols
+                created by MolFromSmarts.
+            include_center_atoms: whether to include center atoms in the returned
+                functional group atoms.
+
+        Returns:
+            func_atom_indexes: functional group atoms associated with
+                atoms in reaction center. The returned atoms are nide
+        """
+
+        reactants = [m.rdkit_mol for m in self.reactants]
+        products = [m.rdkit_mol for m in self.products]
+        dist = self.atom_distance_to_reaction_center
+
+        rct_atom_map = self.get_reactants_atom_map_number()
+        prdt_atom_mapping = self.get_products_atom_map_number()
+
+        all_fg_atoms = set()
+        for m, atom_map in zip(reactants + products, rct_atom_map + prdt_atom_mapping):
+            center_atom = [i for i, m in enumerate(atom_map) if dist[m] == 0]
+            fg_atoms = find_functional_group(m, center_atom, func_groups)
+
+            # change atom index to map number index
+            fg_atoms = [atom_map[i] for i in fg_atoms]
+
+            all_fg_atoms.update(fg_atoms)
+            if include_center_atoms:
+                all_fg_atoms.update(center_atom)
+
+        return list(all_fg_atoms)
 
     def get_unchanged_lost_and_added_bonds(
         self, zero_based: bool = True
