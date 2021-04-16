@@ -169,7 +169,7 @@ def mol_to_pmg_mol_graph(m: Molecule) -> MoleculeGraph:
     """
     Convert a rxnrep molecule to pymatgen molecule graph.
     """
-    pmg_m = pymatgen.Molecule(m.species, m.coords, m.charge)
+    pmg_m = pymatgen.core.Molecule(m.species, m.coords, m.charge)
     bonds = {tuple(sorted(b)): None for b in m.bonds}
 
     mol_graph = MoleculeGraph.with_edges(pmg_m, bonds)

@@ -192,6 +192,7 @@ def init_net(has_global=False):
         """
         for name, param in layer.named_parameters():
             if "weight" in name:
+                param.requires_grad = False
                 for i in range(4):
                     param[i, :] = 0
                     param[i, i] = 1

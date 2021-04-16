@@ -59,6 +59,7 @@ class Reaction:
 
         self._atom_distance_to_reaction_center = None
         self._bond_distance_to_reaction_center = None
+        self._reaction_center_atom_functional_group = None
 
         if sanity_check:
             self.check_composition()
@@ -190,7 +191,7 @@ class Reaction:
             # row of distances: atoms in the center;
             # column of distances: distance to other atoms
             VAL = 10000000000
-            distances = VAL * np.ones((self.num_atoms, self.num_atoms), dtype=np.int)
+            distances = VAL * np.ones((self.num_atoms, self.num_atoms), dtype=np.int32)
 
             # distance from center atoms to other atoms
             nx_graph = nx.Graph(incoming_graph_data=all_bonds)
@@ -435,26 +436,32 @@ class Reaction:
                 atoms in reaction center. The returned atoms are nide
         """
 
-        reactants = [m.rdkit_mol for m in self.reactants]
-        products = [m.rdkit_mol for m in self.products]
-        dist = self.atom_distance_to_reaction_center
+        if self._reaction_center_atom_functional_group is None:
 
-        rct_atom_map = self.get_reactants_atom_map_number()
-        prdt_atom_mapping = self.get_products_atom_map_number()
+            reactants = [m.rdkit_mol for m in self.reactants]
+            products = [m.rdkit_mol for m in self.products]
+            dist = self.atom_distance_to_reaction_center
 
-        all_fg_atoms = set()
-        for m, atom_map in zip(reactants + products, rct_atom_map + prdt_atom_mapping):
-            center_atom = [i for i, m in enumerate(atom_map) if dist[m] == 0]
-            fg_atoms = find_functional_group(m, center_atom, func_groups)
+            rct_atom_map = self.get_reactants_atom_map_number()
+            prdt_atom_mapping = self.get_products_atom_map_number()
 
-            # change atom index to map number index
-            fg_atoms = [atom_map[i] for i in fg_atoms]
+            all_fg_atoms = set()
+            for m, atom_map in zip(
+                reactants + products, rct_atom_map + prdt_atom_mapping
+            ):
+                center_atom = [i for i, m in enumerate(atom_map) if dist[m] == 0]
+                fg_atoms = find_functional_group(m, center_atom, func_groups)
 
-            all_fg_atoms.update(fg_atoms)
-            if include_center_atoms:
-                all_fg_atoms.update(center_atom)
+                # change atom index to map number index
+                fg_atoms = [atom_map[i] for i in fg_atoms]
 
-        return list(all_fg_atoms)
+                all_fg_atoms.update(fg_atoms)
+                if include_center_atoms:
+                    all_fg_atoms.update(center_atom)
+
+            self._reaction_center_atom_functional_group = list(all_fg_atoms)
+
+        return self._reaction_center_atom_functional_group
 
     def get_unchanged_lost_and_added_bonds(
         self, zero_based: bool = True
