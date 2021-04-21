@@ -19,11 +19,13 @@ jobs:
       with:
         auto-update-conda: true
         python-version: ${{ matrix.python-version }}
+        # activate-environment should be the same name as in environment.yml
+        activate-environment: rxnrep
+        environment-file: environment.yml
 
     - name: Install dependencies
       shell: bash -l {0}
       run: |
-        conda env update --file environment.yml
         python -m pip install --upgrade pip
         pip install flake8 pytest
         pip install -e .
