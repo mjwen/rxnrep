@@ -68,6 +68,8 @@ class ReactionRepresentation(ReactionEncoder):
         pool_bond_feats: bool = True,
         pool_global_feats: bool = True,
         pool_kwargs: Dict[str, Any] = None,
+        #
+        combine_reactants_products="difference",
         # mlp pool
         mlp_pool_layer_sizes=None,
         mlp_pool_layer_batch_norm=None,
@@ -114,6 +116,7 @@ class ReactionRepresentation(ReactionEncoder):
             reaction_dropout=reaction_dropout,
             conv=conv,
             has_global_feats=has_global_feats,
+            combine_reactants_products=combine_reactants_products,
             mlp_diff_layer_sizes=mlp_diff_layer_sizes,
             mlp_diff_layer_batch_norm=mlp_diff_layer_batch_norm,
             mlp_diff_layer_activation=mlp_diff_layer_activation,

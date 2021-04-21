@@ -70,7 +70,9 @@ class ReactionEncoder(nn.Module):
         #
         conv="GatedGCNConv",
         has_global_feats: bool = True,
-        # 4, mlp after diff
+        # how to combine reactants and products graphs: difference, concatenate?
+        combine_reactants_products: str = "difference",
+        # 4, mlp after combining reactants and products features
         mlp_diff_layer_sizes: Optional[List[int]] = None,
         mlp_diff_layer_batch_norm: Optional[bool] = True,
         mlp_diff_layer_activation: Optional[str] = "ReLU",
@@ -92,6 +94,18 @@ class ReactionEncoder(nn.Module):
             raise ValueError("pool_global_feats=True, while has_global_feats=False")
 
         self.has_global_feats = has_global_feats
+
+        # when combine reactants and products using concatenate, we do not do it for
+        # bonds
+        self.combine_reactants_products = combine_reactants_products
+        if self.combine_reactants_products == "concatenate":
+            assert not reaction_conv_layer_sizes, (
+                "Can not do reaction conv when concatenate reactants and products "
+                "features"
+            )
+            assert (
+                not pool_bond_feats
+            ), "Cannot poll bond feats when concat reactants and products feats"
 
         # remove global feats (in case the featurizer creates it)
         if not has_global_feats and "global" in in_feats:
@@ -183,6 +197,17 @@ class ReactionEncoder(nn.Module):
             self.reaction_conv_layers = None
             conv_outsize = molecule_conv_layer_sizes[-1]
 
+        # ========== combine reactants and products features ==========
+        if self.combine_reactants_products == "difference":
+            combine_out_size = conv_outsize
+        elif self.combine_reactants_products == "concatenate":
+            combine_out_size = 2 * conv_outsize
+        else:
+            raise ValueError(
+                "Not supported method for combine reactants and products "
+                f"{self.combine_reactants_products}"
+            )
+
         # ========== mlp diff ==========
         if mlp_diff_layer_sizes:
 
@@ -197,7 +222,7 @@ class ReactionEncoder(nn.Module):
             self.mlp_diff = nn.ModuleDict(
                 {
                     k: MLP(
-                        in_size=conv_outsize,
+                        in_size=combine_out_size,
                         hidden_sizes=mlp_diff_layer_sizes,
                         batch_norm=mlp_diff_layer_batch_norm,
                         activation=mlp_diff_layer_activation,
@@ -209,7 +234,7 @@ class ReactionEncoder(nn.Module):
             mlp_diff_outsize = mlp_diff_layer_sizes[-1]
         else:
             self.mlp_diff = None
-            mlp_diff_outsize = conv_outsize
+            mlp_diff_outsize = combine_out_size
 
         # ========== reaction feature pool ==========
         self.readout = get_reaction_feature_pooling(
@@ -353,20 +378,33 @@ class ReactionEncoder(nn.Module):
         for layer in self.molecule_conv_layers:
             feats = layer(molecule_graphs, feats)
 
-        # node as edge graph
-        # each bond represented by two edges; select one feat for each bond
-        feats["bond"] = feats["bond"][::2]
+        if self.combine_reactants_products == "difference":
+            # node as edge graph
+            # each bond represented by two edges; select one feat for each bond
+            feats["bond"] = feats["bond"][::2]
 
-        # create difference reaction features from molecule features
-        diff_feats = create_reaction_features(feats, metadata, self.has_global_feats)
+            # create difference reaction features from molecule features
+            rxn_feats = create_diff_reaction_features(
+                feats, metadata, self.has_global_feats
+            )
 
-        # node as edge graph; make two edge feats for each bond
-        diff_feats["bond"] = torch.repeat_interleave(diff_feats["bond"], 2, dim=0)
+            # node as edge graph; make two edge feats for each bond
+            rxn_feats["bond"] = torch.repeat_interleave(rxn_feats["bond"], 2, dim=0)
 
-        return diff_feats
+        elif self.combine_reactants_products == "concatenate":
+            rxn_feats = create_concat_reaction_features(
+                feats, metadata, self.has_global_feats
+            )
+        else:
+            raise ValueError(
+                f"Not supported combine reactants products method: "
+                f"{self.combine_reactants_products}"
+            )
+
+        return rxn_feats
 
 
-def create_reaction_features(
+def create_diff_reaction_features(
     molecule_feats: Dict[str, torch.Tensor],
     metadata: Dict[str, List[int]],
     has_global_feats=True,
@@ -482,3 +520,100 @@ def get_global_diff_feats(molecule_feats, metadata):
     diff_global_feats = mean_product_global_feats - mean_reactant_global_feats
 
     return diff_global_feats
+
+
+def create_concat_reaction_features(
+    molecule_feats: Dict[str, torch.Tensor],
+    metadata: Dict[str, List[int]],
+    has_global_feats=True,
+) -> Dict[str, torch.Tensor]:
+    rxn_feats = {
+        "atom": get_atom_concat_feats(molecule_feats, metadata),
+        # "bond": get_bond_diff_feats(molecule_feats, metadata),
+    }
+    if has_global_feats:
+        rxn_feats["global"] = get_global_concat_feats(molecule_feats, metadata)
+
+    return rxn_feats
+
+
+def get_atom_concat_feats(molecule_feats, metadata):
+    atom_feats = molecule_feats["atom"]
+
+    # Atom difference feats
+    size = len(atom_feats) // 2  # same number of atom nodes in reactants and products
+    # we can do the below to lines because in the collate fn of dataset, all products
+    # graphs are appended to reactants graphs
+    reactant_atom_feats = atom_feats[:size]
+    product_atom_feats = atom_feats[size:]
+
+    reaction_atom_feats = torch.cat((reactant_atom_feats, product_atom_feats), dim=-1)
+
+    return reaction_atom_feats
+
+
+#
+# def get_bond_diff_feats(molecule_feats, metadata):
+#     pass
+#
+#     bond_feats = molecule_feats["bond"]
+#
+#     num_unchanged_bonds = metadata["num_unchanged_bonds"]
+#     reactant_num_bonds = metadata["num_reactant_bonds"]
+#     product_num_bonds = metadata["num_product_bonds"]
+#
+#     # Bond difference feats
+#     total_num_reactant_bonds = sum(reactant_num_bonds)
+#     reactant_bond_feats = bond_feats[:total_num_reactant_bonds]
+#     product_bond_feats = bond_feats[total_num_reactant_bonds:]
+#
+#     # feats of each reactant (product), list of 2D tensor
+#     reactant_bond_feats = torch.split(reactant_bond_feats, reactant_num_bonds)
+#     product_bond_feats = torch.split(product_bond_feats, product_num_bonds)
+#
+#     # calculate difference feats
+#     diff_bond_feats = []
+#     for i, (r_ft, p_ft) in enumerate(zip(reactant_bond_feats, product_bond_feats)):
+#         n_unchanged = num_unchanged_bonds[i]
+#         unchanged_bond_feats = p_ft[:n_unchanged] - r_ft[:n_unchanged]
+#         lost_bond_feats = -r_ft[n_unchanged:]
+#         added_bond_feats = p_ft[n_unchanged:]
+#         feats = torch.cat([unchanged_bond_feats, lost_bond_feats, added_bond_feats])
+#         diff_bond_feats.append(feats)
+#     diff_bond_feats = torch.cat(diff_bond_feats)
+#
+#     return diff_bond_feats
+
+
+def get_global_concat_feats(molecule_feats, metadata):
+
+    global_feats = molecule_feats["global"]
+
+    reactant_num_molecules = metadata["reactant_num_molecules"]
+    product_num_molecules = metadata["product_num_molecules"]
+
+    total_num_reactant_molecules = sum(reactant_num_molecules)
+    reactant_global_feats = global_feats[:total_num_reactant_molecules]
+    product_global_feats = global_feats[total_num_reactant_molecules:]
+
+    # the mean of global features in each reactant (product) graph
+    # Note, each reactant (product) graph holds all the molecules in the
+    # reactant (products), and thus has multiple global features.
+
+    device = reactant_global_feats.device
+    mean_reactant_global_feats = segment_reduce(
+        torch.tensor(reactant_num_molecules, device=device),
+        reactant_global_feats,
+        reducer="sum",
+    )
+    mean_product_global_feats = segment_reduce(
+        torch.tensor(product_num_molecules, device=device),
+        product_global_feats,
+        reducer="sum",
+    )
+
+    reaction_global_feats = torch.cat(
+        (mean_reactant_global_feats, mean_product_global_feats), dim=-1
+    )
+
+    return reaction_global_feats

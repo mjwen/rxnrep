@@ -142,6 +142,9 @@ def encoder_args(parser):
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
+    # combine reactants and products features
+    parser.add_argument("--combine_reactants_products", type=str, default="difference")
+
     # mlp diff
     parser.add_argument(
         "--mlp_diff_layer_sizes",

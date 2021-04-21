@@ -66,6 +66,8 @@ class LightningModel(BaseLightningModel):
             #
             conv=params.conv,
             has_global_feats=params.has_global_feats,
+            #
+            combine_reactants_products=params.combine_reactants_products,
             # mlp diff
             mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
             mlp_diff_layer_batch_norm=params.mlp_diff_layer_batch_norm,
