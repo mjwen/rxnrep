@@ -233,7 +233,7 @@ class GreenClassicalFeaturesDataset(ClassicalFeatureDataset):
 
         labels = []
         for i, rxn in enumerate(self.reactions):
-            rxn_class = rxn.get_property("class label")
+            rxn_class = rxn.get_property("reaction_type")
             labels.append(
                 {"reaction_type": torch.as_tensor(int(rxn_class), dtype=torch.int64)}
             )
@@ -291,7 +291,7 @@ class GreenClassificationDataset(BaseDatasetWithLabels):
         super().generate_labels()
 
         for i, rxn in enumerate(self.reactions):
-            rxn_class = rxn.get_property("class label")
+            rxn_class = rxn.get_property("reaction_type")
             self.labels[i]["reaction_type"] = torch.as_tensor(
                 [int(rxn_class)], dtype=torch.int64
             )

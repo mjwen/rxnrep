@@ -44,7 +44,7 @@ def dataset_args(parser, dataset: str):
             prefix = "/Users/mjwen/Documents/Dataset/activation_energy_Green/"
             fname_tr = (
                 prefix
-                + "wb97xd3_processed_has_reverse-True_rmg_family_10_class_n200.tsv"
+                + "wb97xd3_processed_has_reverse-False_rmg_family_10_class_n200.tsv"
             )
             fname_val = fname_tr
             fname_test = fname_tr
