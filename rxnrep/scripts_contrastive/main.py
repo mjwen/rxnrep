@@ -52,7 +52,7 @@ def main(
         except FileExistsError:
             pass
     wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
-    csv_logger = CSVLogger(save_dir="./", name="csv_log")
+    # csv_logger = CSVLogger(save_dir="./", name="csv_log")
 
     #
     # To run ddp on cpu, comment out `gpus`, and then set
@@ -68,7 +68,8 @@ def main(
         gpus=args.gpus,
         accelerator=args.accelerator,
         callbacks=[checkpoint_callback, early_stop_callback],
-        logger=[wandb_logger, csv_logger],
+        # logger=[wandb_logger, csv_logger],
+        logger=wandb_logger,
         resume_from_checkpoint=checkpoint_path,
         sync_batchnorm=True,
         progress_bar_refresh_rate=100,
