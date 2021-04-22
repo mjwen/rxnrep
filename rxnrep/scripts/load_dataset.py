@@ -13,7 +13,11 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
     MorganFeaturizer,
 )
-from rxnrep.data.green import GreenDataset
+from rxnrep.data.green import (
+    GreenClassicalFeaturesDataset,
+    GreenClassificationDataset,
+    GreenDataset,
+)
 from rxnrep.data.nrel import NRELDataset
 from rxnrep.data.uspto import USPTOClassicalFeaturesDataset, USPTODataset
 
@@ -27,6 +31,8 @@ def load_dataset(args):
         return load_electrolyte_dataset(args)
     elif args.dataset == "green":
         return load_green_dataset(args)
+    elif args.dataset == "green_classification":
+        return load_green_classification_dataset(args)
 
     else:
         raise ValueError(f"Not supported dataset {args.dataset}")
@@ -170,6 +176,105 @@ def load_green_dataset(args):
 
     if atom_type_masker_ratio is not None:
         args.masked_atom_type_num_classes = len(trainset.get_species())
+
+    return train_loader, val_loader, test_loader
+
+
+def load_green_classification_dataset(args):
+
+    state_dict_filename = get_state_dict_filename(args)
+
+    atom_featurizer_kwargs = {
+        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
+        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
+        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
+    }
+
+    if args.reaction_conv_layer_sizes:
+        build_reaction_graph = True
+    else:
+        build_reaction_graph = False
+
+    trainset = GreenClassificationDataset(
+        filename=args.trainset_filename,
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
+        transform_features=True,
+        init_state_dict=state_dict_filename,
+        num_processes=args.nprocs,
+    )
+
+    state_dict = trainset.state_dict()
+
+    valset = GreenClassificationDataset(
+        filename=args.valset_filename,
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
+        transform_features=True,
+        init_state_dict=state_dict,
+        num_processes=args.nprocs,
+    )
+
+    testset = GreenClassificationDataset(
+        filename=args.testset_filename,
+        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
+        bond_featurizer=BondFeaturizer(),
+        global_featurizer=GlobalFeaturizer(),
+        build_reaction_graph=build_reaction_graph,
+        transform_features=True,
+        init_state_dict=state_dict,
+        num_processes=args.nprocs,
+    )
+
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    print(
+        "Trainset size: {}, valset size: {}: testset size: {}.".format(
+            len(trainset), len(valset), len(testset)
+        )
+    )
+
+    train_loader = DataLoader(
+        trainset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=trainset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    val_loader = DataLoader(
+        valset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=valset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    test_loader = DataLoader(
+        testset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=testset.collate_fn,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=args.num_workers,
+    )
+
+    # Add info that will be used in the model to args for easy access
+    args.feature_size = trainset.feature_size
+
+    class_weight = trainset.get_class_weight(
+        num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
+    )
+    args.reaction_class_weight = class_weight["reaction_type"]
 
     return train_loader, val_loader, test_loader
 
@@ -562,26 +667,33 @@ def get_state_dict_filename(args):
     return state_dict_filename
 
 
-def load_uspto_classical_feature_dataset(args):
+def load_morgan_feature_dataset(args):
 
     featurizer = MorganFeaturizer(
         radius=args.morgan_radius,
         size=args.morgan_size,
     )
 
-    trainset = USPTOClassicalFeaturesDataset(
+    if "green" in args.dataset:
+        DT = GreenClassicalFeaturesDataset
+    elif "schneider" in args.dataset:
+        DT = USPTOClassicalFeaturesDataset
+    else:
+        raise ValueError(f"Not supported dataset {args.dataset}")
+
+    trainset = DT(
         filename=args.trainset_filename,
         featurizer=featurizer,
         feature_type=args.feature_pool_type,
         num_processes=args.nprocs,
     )
-    valset = USPTOClassicalFeaturesDataset(
+    valset = DT(
         filename=args.valset_filename,
         featurizer=featurizer,
         feature_type=args.feature_pool_type,
         num_processes=args.nprocs,
     )
-    testset = USPTOClassicalFeaturesDataset(
+    testset = DT(
         filename=args.testset_filename,
         featurizer=featurizer,
         feature_type=args.feature_pool_type,

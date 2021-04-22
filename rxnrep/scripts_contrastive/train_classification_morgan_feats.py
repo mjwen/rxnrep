@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 import torch.nn.functional as F
 
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.load_dataset import load_uspto_classical_feature_dataset
+from rxnrep.scripts.load_dataset import load_morgan_feature_dataset
 from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
@@ -116,13 +116,14 @@ if __name__ == "__main__":
     write_running_metadata(filename, repo_path)
 
     # args
-    dataset = "schneider_classification"
+    # dataset = "schneider_classification"
+    dataset = "green_classification"
     args = parse_args(dataset)
     logger.info(args)
     # args.num_reaction_classes = 1000
 
     # dataset
-    train_loader, val_loader, test_loader = load_uspto_classical_feature_dataset(args)
+    train_loader, val_loader, test_loader = load_morgan_feature_dataset(args)
 
     # model
     model = LightningModel(args)
