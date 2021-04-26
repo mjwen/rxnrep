@@ -13,12 +13,13 @@ def main(
     train_loader,
     val_loader,
     test_loader,
-    training_file,
+    training_file=None,
     top_k=3,
     monitor="val/score",
     monitor_mode="max",
     project="tmp-rxnrep",
     run_test=True,
+    log_dir: Path = "wandb",
 ):
 
     # callbacks
@@ -34,7 +35,7 @@ def main(
     )
 
     # logger
-    log_save_dir = Path("wandb").resolve()
+    log_save_dir = Path(log_dir).resolve()
 
     # restore model, epoch, shared_step, LR schedulers, apex, etc...
     if args.restore and log_save_dir.exists():
@@ -51,7 +52,9 @@ def main(
             log_save_dir.mkdir()
         except FileExistsError:
             pass
-    wandb_logger = WandbLogger(save_dir=log_save_dir, project=project, id=identifier)
+    wandb_logger = WandbLogger(
+        save_dir=log_save_dir.as_posix(), project=project, id=identifier
+    )
     # csv_logger = CSVLogger(save_dir="./", name="csv_log")
 
     #
@@ -90,13 +93,13 @@ def main(
     # Do not do this before trainer, since this might result in the initialization of
     # multiple wandb object when training in distribution mode
     if trainer.is_global_zero:
-        save_files_to_wandb(
-            wandb_logger,
-            [
-                training_file,
-                "dataset_state_dict.yaml",
-                "running_metadata.yaml",
-                "submit.sh",
-                "sweep.py",
-            ],
-        )
+        files_to_save = [
+            "dataset_state_dict.yaml",
+            "running_metadata.yaml",
+            "submit.sh",
+            "sweep.py",
+        ]
+        if training_file is not None:
+            files_to_save.append(training_file)
+
+        save_files_to_wandb(wandb_logger, files_to_save)

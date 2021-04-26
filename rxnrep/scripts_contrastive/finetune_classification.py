@@ -10,6 +10,7 @@ from rxnrep.scripts.load_dataset import load_dataset
 from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_finetune_lit_model import BaseLightningModel
+from rxnrep.scripts_contrastive.cross_validate import cross_validate
 from rxnrep.scripts_contrastive.main import main
 from rxnrep.scripts_contrastive.train_simclr import LightningModel as PretrainedModel
 from rxnrep.utils import yaml_load
@@ -137,22 +138,45 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "19pgi7h0"
+    pretrained_model_identifier = "3o0gz8eq"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 
     # args
     dataset = "schneider_classification"
+    # dataset = "green_classification"
     args = parse_args(dataset)
     logger.info(args)
 
-    # dataset
-    train_loader, val_loader, test_loader = load_dataset(args)
-
-    # model
-    model = LightningModel(args)
-
     project = "tmp-rxnrep"
-    main(args, model, train_loader, val_loader, test_loader, __file__, project=project)
+
+    if args.kfold:
+        cross_validate(
+            args,
+            LightningModel,
+            load_dataset,
+            main,
+            data_column_name="reaction_type",
+            project=project,
+            fold=args.kfold,
+        )
+
+    else:
+
+        # dataset
+        train_loader, val_loader, test_loader = load_dataset(args)
+
+        # model
+        model = LightningModel(args)
+
+        main(
+            args,
+            model,
+            train_loader,
+            val_loader,
+            test_loader,
+            __file__,
+            project=project,
+        )
 
     logger.info(f"Finish training at: {datetime.now()}")

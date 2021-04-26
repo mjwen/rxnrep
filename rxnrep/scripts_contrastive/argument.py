@@ -113,6 +113,10 @@ def training_args(parser):
     # this is only for cosine scheduler
     parser.add_argument("--lr_min", type=float, default=1e-6, help="min learning rate")
 
+    parser.add_argument(
+        "--kfold", type=int, default=None, help="kfold cross validation"
+    )
+
     return parser
 
 

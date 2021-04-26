@@ -1,11 +1,63 @@
-import logging
 from collections import defaultdict
+from typing import Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 from rxnrep.data.dataset import BaseDatasetWithLabels
 
-logger = logging.getLogger(__name__)
+
+def split_df_into_two(
+    df: pd.DataFrame,
+    ratio: float = None,
+    size: int = None,
+    column_name: str = "reaction_type",
+    random_seed: Optional[int] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Split a pandas dataframe into two by column according to ratio or size.
+
+    If `ratio` is not None, each group (determined by column_name) with a `ratio` portion
+    of data is split into part 1 and the remaining split into part 2.
+    If `size` is not None, each group (determined by column_name) with a fixed number of
+    `size` data points goes to part 1 and the remaining goes to part 2.
+
+    Returns:
+        part1: a dataframe containing ratio/size of data points of each group
+        part2: a dataframe containing the remaining data points of each group
+    """
+    assert not (
+        ratio is None and size is None
+    ), "One of `ratio` or `size` should be provided"
+    assert not (
+        ratio is not None and size is not None
+    ), "Only one of `ratio` or `size` should be not None"
+
+    if random_seed is not None:
+        np.random.seed(random_seed)
+
+    grouped_df = df.groupby(by=column_name)
+
+    part1 = []
+    part2 = []
+    for _, group in grouped_df:
+
+        if ratio is not None:
+            n = int(len(group) * ratio)
+        else:
+            n = size
+
+        indices = np.random.permutation(len(group))
+        part1_indices = indices[:n]
+        part2_indices = indices[n:]
+
+        part1.append(group.iloc[part1_indices])
+        part2.append(group.iloc[part2_indices])
+
+    part1 = pd.concat(part1)
+    part2 = pd.concat(part2)
+
+    return part1, part2
 
 
 def train_validation_test_split(dataset, validation=0.1, test=0.1, random_seed=None):
