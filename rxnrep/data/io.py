@@ -237,7 +237,7 @@ def mrnet_mol_entry_to_molecule(
             f"but provided mapping number are for atoms {sorted_atom_index}."
         )
 
-    rdkit_mol, _ = create_rdkit_mol_from_mol_graph(mol_entry.mol_graph)
+    rdkit_mol = create_rdkit_mol_from_mol_graph(mol_entry.mol_graph)
 
     # set rdkit mol atom map number
     for i in sorted_atom_index:

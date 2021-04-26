@@ -73,7 +73,7 @@ def create_rdkit_mol_from_mol_graph(
     name: str = None,
     force_sanitize: bool = False,
     metals: Optional[Dict[str, int]] = None,
-) -> Tuple[Chem.Mol, Dict[Tuple[int, int], BondType]]:
+) -> Chem.Mol:
     """
     Create a rdkit molecule from molecule graph, with bond type perceived by babel.
     Done in the below steps:
@@ -175,7 +175,7 @@ def create_rdkit_mol_from_mol_graph(
         species, coords, bond_types, formal_charge, name, force_sanitize
     )
 
-    return m, bond_types
+    return m
 
 
 def adjust_formal_charge(

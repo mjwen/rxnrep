@@ -676,7 +676,7 @@ def load_morgan_feature_dataset(args):
 
     if "green" in args.dataset:
         DT = GreenClassicalFeaturesDataset
-    elif "schneider" in args.dataset:
+    elif "schneider" in args.dataset or "tpl" in args.dataset:
         DT = USPTOClassicalFeaturesDataset
     else:
         raise ValueError(f"Not supported dataset {args.dataset}")
