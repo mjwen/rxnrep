@@ -124,8 +124,8 @@ if __name__ == "__main__":
     write_running_metadata(filename, repo_path)
 
     # args
-    dataset = "schneider_classification"
-    # dataset = "green_classification"
+    # dataset = "schneider_classification"
+    dataset = "green_classification"
     args = parse_args(dataset)
     logger.info(args)
     # args.num_reaction_classes = 1000
@@ -138,7 +138,7 @@ if __name__ == "__main__":
             LightningModel,
             load_dataset,
             main,
-            data_column_name="reaction_type",
+            stratify_column="reaction_type",
             fold=args.kfold,
             project=project,
         )

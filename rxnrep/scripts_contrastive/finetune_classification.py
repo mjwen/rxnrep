@@ -143,8 +143,8 @@ if __name__ == "__main__":
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 
     # args
-    dataset = "schneider_classification"
-    # dataset = "green_classification"
+    # dataset = "schneider_classification"
+    dataset = "green_classification"
     args = parse_args(dataset)
     logger.info(args)
 
@@ -156,7 +156,7 @@ if __name__ == "__main__":
             LightningModel,
             load_dataset,
             main,
-            data_column_name="reaction_type",
+            stratify_column="reaction_type",
             project=project,
             fold=args.kfold,
         )

@@ -3,28 +3,43 @@ from pathlib import Path
 
 import pandas as pd
 
-from rxnrep.data.splitter import split_df_into_two
+from rxnrep.data.splitter import train_test_split
 
 
-def split_data(filename, data_column_name, fold=5):
+def split_data(filename, trainset_size, testset_size_min, stratify_column, fold=5):
+    """
+    Stratified split of data in a monte carlo way, i.e. draw samples randomly in each
+    group.
+
+    Args:
+        trainset_size: number of datapoints of each group to enter in trainset.
+        testset_size_min: at least this number in each group should go to testset.
+
+    """
+
     df = pd.read_csv(filename, sep="\t")
 
     fold_filenames = []
     for i in range(fold):
-        df1, df2 = split_df_into_two(
-            df, ratio=1 / fold, column_name=data_column_name, random_seed=i
+        df1, df2 = train_test_split(
+            df,
+            ratio=None,
+            size=trainset_size,
+            test_min=testset_size_min,
+            stratify_column=stratify_column,
+            random_seed=i,
         )
-        prefix = Path.cwd().joinpath("cv_working_dir", f"fold{i}")
+        prefix = Path.cwd().joinpath("wandb", f"cv_fold{i}")
         if not prefix.exists():
             os.makedirs(prefix)
 
         train_fname = prefix.joinpath("train.tsv")
-        val_fname = prefix.joinpath("val.tsv")
+        df1.to_csv(train_fname, index=False, sep="\t")
 
-        df1.to_csv(val_fname, index=False, sep="\t")
-        df2.to_csv(train_fname, index=False, sep="\t")
+        test_fname = prefix.joinpath("test.tsv")
+        df2.to_csv(test_fname, index=False, sep="\t")
 
-        fold_filenames.append((train_fname, val_fname))
+        fold_filenames.append((train_fname, test_fname))
 
     return fold_filenames
 
@@ -34,14 +49,20 @@ def cross_validate(
     ModelClass,
     load_dataset_fn,
     main_train_fn,
-    data_column_name,
+    stratify_column,
     fold=5,
     project="tmp-rxnrep",
 ):
 
     # split data
     # all data provided via trainset_filename
-    filenames = split_data(args.trainset_filename, data_column_name, fold)
+    filenames = split_data(
+        args.trainset_filename,
+        args.trainset_size,
+        args.testset_size_min,
+        stratify_column,
+        fold,
+    )
 
     for k, (train_filename, val_filename) in enumerate(filenames):
 

@@ -7,20 +7,25 @@ import pandas as pd
 from rxnrep.data.dataset import BaseDatasetWithLabels
 
 
-def split_df_into_two(
+def train_test_split(
     df: pd.DataFrame,
     ratio: float = None,
     size: int = None,
-    column_name: str = "reaction_type",
+    test_min: int = None,
+    stratify_column: str = "reaction_type",
     random_seed: Optional[int] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Split a pandas dataframe into two by column according to ratio or size.
 
-    If `ratio` is not None, each group (determined by column_name) with a `ratio` portion
-    of data is split into part 1 and the remaining split into part 2.
-    If `size` is not None, each group (determined by column_name) with a fixed number of
-    `size` data points goes to part 1 and the remaining goes to part 2.
+    Args:
+        ratio: each group (determined by stratify_column) with a `ratio`
+            portion of data goes to trainset and the remaining to testset.
+            `ratio` and `size` can only have one to be true.
+        size: each group (determined by stratify_column) with a fixed
+            number of `size` data points go to trainset and the remaining to testset.
+        test_min: at least this number of data points in each group should go to test
+            set. If None, this is not used.
 
     Returns:
         part1: a dataframe containing ratio/size of data points of each group
@@ -36,28 +41,34 @@ def split_df_into_two(
     if random_seed is not None:
         np.random.seed(random_seed)
 
-    grouped_df = df.groupby(by=column_name)
+    grouped_df = df.groupby(by=stratify_column)
 
-    part1 = []
-    part2 = []
+    train = []
+    test = []
     for _, group in grouped_df:
+        n = len(group)
 
         if ratio is not None:
-            n = int(len(group) * ratio)
+            n_train = int(n * ratio)
         else:
-            n = size
+            n_train = size
 
-        indices = np.random.permutation(len(group))
-        part1_indices = indices[:n]
-        part2_indices = indices[n:]
+        # adjust to ensure at least test_min goes to test set
+        if test_min is not None:
+            if n - n_train < test_min:
+                n_train = max(0, n - test_min)
 
-        part1.append(group.iloc[part1_indices])
-        part2.append(group.iloc[part2_indices])
+        indices = np.random.permutation(n)
+        part1_indices = indices[:n_train]
+        part2_indices = indices[n_train:]
 
-    part1 = pd.concat(part1)
-    part2 = pd.concat(part2)
+        train.append(group.iloc[part1_indices])
+        test.append(group.iloc[part2_indices])
 
-    return part1, part2
+    train = pd.concat(train)
+    test = pd.concat(test)
+
+    return train, test
 
 
 def train_validation_test_split(dataset, validation=0.1, test=0.1, random_seed=None):
