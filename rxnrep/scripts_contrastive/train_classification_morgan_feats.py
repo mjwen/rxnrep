@@ -153,4 +153,4 @@ if __name__ == "__main__":
             project=project,
         )
 
-        logger.info(f"Finish training at: {datetime.now()}")
+    logger.info(f"Finish training at: {datetime.now()}")
