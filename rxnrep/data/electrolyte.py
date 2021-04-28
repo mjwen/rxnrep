@@ -39,18 +39,39 @@ class ElectrolyteDataset(BaseDatasetWithLabels):
         """
         super().generate_labels()
 
-        # `reaction_energy` label
-        reaction_energy = torch.as_tensor(
-            [rxn.get_property("free_energy") for rxn in self.reactions],
-            dtype=torch.float32,
-        )
+        # energies label
+        reaction_energy = [
+            rxn.get_property("reaction_energy") for rxn in self.reactions
+        ]
+        if not (set(reaction_energy) == {None}):
+            reaction_energy = torch.as_tensor(reaction_energy, dtype=torch.float32)
 
-        if normalize:
-            reaction_energy = self.scale_label(reaction_energy, name="reaction_energy")
+            if normalize:
+                reaction_energy = self.scale_label(
+                    reaction_energy, name="reaction_energy"
+                )
 
-        # (each e is a scalar, but here we make it a 1D tensor of 1 element to use the
-        # collate_fn, where all energies in a batch is cat to a 1D tensor)
-        for i, e in enumerate(reaction_energy):
-            self.labels[i]["reaction_energy"] = torch.as_tensor(
-                [e], dtype=torch.float32
-            )
+            # (each e is a scalar, but here we make it a 1D tensor of 1 element to use the
+            # collate_fn, where all energies in a batch is cat to a 1D tensor)
+            for i, rxn_e in enumerate(reaction_energy):
+                self.labels[i]["reaction_energy"] = torch.as_tensor(
+                    [rxn_e], dtype=torch.float32
+                )
+
+        activation_energy = [
+            rxn.get_property("activation_energy") for rxn in self.reactions
+        ]
+        if not (set(activation_energy) == {None}):
+            activation_energy = torch.as_tensor(activation_energy, dtype=torch.float32)
+
+            if normalize:
+                activation_energy = self.scale_label(
+                    activation_energy, name="activation_energy"
+                )
+
+            # (each e is a scalar, but here we make it a 1D tensor of 1 element to use the
+            # collate_fn, where all energies in a batch is cat to a 1D tensor)
+            for i, act_e in enumerate(activation_energy):
+                self.labels[i]["activation_energy"] = torch.as_tensor(
+                    [act_e], dtype=torch.float32
+                )

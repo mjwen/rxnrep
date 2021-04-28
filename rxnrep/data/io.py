@@ -149,6 +149,9 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
     """
     Convert a pymatgen reaction to a rxnrep reaction.
 
+    Reaction energy and activation energy are set as reaction property, setting to None
+    if the provided mrnet reaction does not have the corresponding energy.
+
     Args:
         pmg_reaction: pymatgen reaction
         index: index of the reaction in the whole dataset

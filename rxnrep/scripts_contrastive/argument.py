@@ -38,6 +38,19 @@ def dataset_args(parser, dataset: str):
             help="whether the dataset has only breaking bond, i.e. no added bond",
         )
 
+    elif dataset == "electrolyte_ts":
+        prefix = "/Users/mjwen/Documents/Dataset/electrolyte_ts/"
+        fname_tr = prefix + "ts_data_mrnet_rxns_val.json"
+        fname_val = fname_tr
+        fname_test = fname_tr
+
+        parser.add_argument(
+            "--only_break_bond",
+            type=int,
+            default=0,
+            help="whether the dataset has only breaking bond, i.e. no added bond",
+        )
+
     elif "green" in dataset:
 
         if "classification" in dataset:

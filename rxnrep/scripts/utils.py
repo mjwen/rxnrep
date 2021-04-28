@@ -360,7 +360,7 @@ def save_files_to_wandb(wandb_logger, files: List[str] = None):
     for f in files:
         fname = Path.cwd().joinpath(f)
         if fname.exists():
-            wandb.save(str(fname), policy="now")
+            wandb.save(str(fname), policy="now", base_path=".")
 
 
 def get_wandb_run_path(identifier: str, path="."):
