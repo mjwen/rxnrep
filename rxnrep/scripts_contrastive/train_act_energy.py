@@ -10,6 +10,7 @@ from rxnrep.scripts.load_dataset import load_dataset
 from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
+from rxnrep.scripts_contrastive.cross_validate import cross_validate
 from rxnrep.scripts_contrastive.main import main
 
 logger = logging.getLogger(__name__)
@@ -128,13 +129,35 @@ if __name__ == "__main__":
     args = parse_args(dataset)
     logger.info(args)
 
-    # dataset
-    train_loader, val_loader, test_loader = load_dataset(args)
-
-    # model
-    model = LightningModel(args)
-
     project = "tmp-rxnrep"
-    main(args, model, train_loader, val_loader, test_loader, __file__, project=project)
 
-    logger.info(f"Finish training at: {datetime.now()}")
+    if args.kfold:
+        cross_validate(
+            args,
+            LightningModel,
+            load_dataset,
+            main,
+            mode="regression",
+            fold=args.kfold,
+            project=project,
+        )
+
+    else:
+
+        # dataset
+        train_loader, val_loader, test_loader = load_dataset(args)
+
+        # model
+        model = LightningModel(args)
+
+        main(
+            args,
+            model,
+            train_loader,
+            val_loader,
+            test_loader,
+            __file__,
+            project=project,
+        )
+
+        logger.info(f"Finish training at: {datetime.now()}")

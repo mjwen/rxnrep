@@ -157,8 +157,8 @@ if __name__ == "__main__":
             load_dataset,
             main,
             stratify_column="reaction_type",
-            project=project,
             fold=args.kfold,
+            project=project,
         )
 
     else:

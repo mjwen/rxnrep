@@ -1,12 +1,54 @@
+import json
 import os
 from pathlib import Path
 
 import pandas as pd
+from sklearn.model_selection import KFold
 
 from rxnrep.data.splitter import train_test_split
 
 
-def split_data(filename, trainset_size, testset_size_min, stratify_column, fold=5):
+def split_regression_data(filename, fold=5):
+    """
+    Split dataset into equally nfold and use n-1 fold as training set and 1 fold as
+    test set.
+    Args:
+        filename:
+        fold:
+
+    Returns:
+        List of a tuple (train_filename, test_filename) of the k fold split.
+    """
+    with open(filename, "r") as f:
+        data = json.load(f)
+
+    kf = KFold(n_splits=fold, shuffle=True, random_state=35)
+
+    fold_filenames = []
+    for i, (train_index, test_index) in enumerate(kf.split(data)):
+        train = [data[j] for j in train_index]
+        test = [data[j] for j in test_index]
+
+        prefix = Path.cwd().joinpath("wandb", f"cv_fold{i}")
+        if not prefix.exists():
+            os.makedirs(prefix)
+
+        train_fname = prefix.joinpath("train.tsv")
+        with open(train_fname, "w") as f:
+            json.dump(train, f)
+
+        test_fname = prefix.joinpath("test.tsv")
+        with open(test_fname, "w") as f:
+            json.dump(test, f)
+
+        fold_filenames.append((train_fname, test_fname))
+
+    return fold_filenames
+
+
+def split_classification_data(
+    filename, trainset_size, testset_size_min, stratify_column=None, fold=5
+):
     """
     Stratified split of data in a monte carlo way, i.e. draw samples randomly in each
     group.
@@ -49,20 +91,27 @@ def cross_validate(
     ModelClass,
     load_dataset_fn,
     main_train_fn,
-    stratify_column,
+    mode="classification",
+    stratify_column=None,
     fold=5,
     project="tmp-rxnrep",
 ):
 
     # split data
+
     # all data provided via trainset_filename
-    filenames = split_data(
-        args.trainset_filename,
-        args.trainset_size,
-        args.testset_size_min,
-        stratify_column,
-        fold,
-    )
+    if mode == "classification":
+        filenames = split_classification_data(
+            args.trainset_filename,
+            args.trainset_size,
+            args.testset_size_min,
+            stratify_column=stratify_column,
+            fold=fold,
+        )
+    elif mode == "regression":
+        filenames = split_regression_data(args.trainset_filename, fold=fold)
+    else:
+        raise ValueError(f"Not supported cross validation mode {mode}")
 
     for k, (train_filename, val_filename) in enumerate(filenames):
 
