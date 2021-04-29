@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger, WandbLogger
+from pytorch_lightning.loggers import WandbLogger
 
-from rxnrep.scripts.utils import load_checkpoint_wandb, save_files_to_wandb
+from rxnrep.scripts_contrastive.utils import load_checkpoint_wandb, save_files_to_wandb
 
 
 def main(

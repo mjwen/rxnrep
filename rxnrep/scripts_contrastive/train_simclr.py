@@ -7,10 +7,10 @@ import torch.nn.functional as F
 
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.utils import write_running_metadata
+from rxnrep.scripts_contrastive.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_contrastive_lit_model import BaseLightningModel
-from rxnrep.scripts_contrastive.load_dataset import load_dataset
+from rxnrep.scripts_contrastive.load_contrastive_dataset import load_dataset
 from rxnrep.scripts_contrastive.losses import nt_xent_loss
 from rxnrep.scripts_contrastive.main import main
 

@@ -6,8 +6,8 @@ import pytorch_lightning as pl
 import torch.nn.functional as F
 
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.load_dataset import load_morgan_feature_dataset
-from rxnrep.scripts.utils import write_running_metadata
+from rxnrep.scripts_contrastive.load_predictive_dataset import load_morgan_feature_dataset
+from rxnrep.scripts_contrastive.utils import write_running_metadata
 from rxnrep.scripts_contrastive import argument
 from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
 from rxnrep.scripts_contrastive.cross_validate import cross_validate
