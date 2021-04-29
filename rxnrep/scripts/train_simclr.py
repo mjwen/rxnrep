@@ -5,13 +5,14 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts_contrastive.load_predictive_dataset import load_dataset
-from rxnrep.scripts_contrastive.utils import write_running_metadata
-from rxnrep.scripts_contrastive import argument
-from rxnrep.scripts_contrastive.base_lit_model import BaseLightningModel
-from rxnrep.scripts_contrastive.cross_validate import cross_validate
-from rxnrep.scripts_contrastive.main import main
+from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.utils import MLP
+from rxnrep.scripts.utils import write_running_metadata
+from rxnrep.scripts import argument
+from rxnrep.scripts.base_contrastive_lit_model import BaseLightningModel
+from rxnrep.scripts.load_contrastive_dataset import load_dataset
+from rxnrep.scripts.losses import nt_xent_loss
+from rxnrep.scripts.main import main
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +22,19 @@ def parse_args(dataset):
 
     # ========== dataset ==========
     parser = argument.dataset_args(parser, dataset)
+    parser = argument.data_augmentation_args(parser)
 
     # ========== model ==========
     parser = argument.general_args(parser)
     parser = argument.encoder_args(parser)
-    parser = argument.activation_energy_decoder_args(parser)
+    parser = argument.simclr_decoder_args(parser)
 
     # ========== training ==========
     parser = argument.training_args(parser)
 
     # ========== helper ==========
     parser = argument.encoder_helper(parser)
-    parser = argument.energy_decoder_helper(parser)
+    parser = argument.simclr_decoder_helper(parser)
 
     ####################
     args = parser.parse_args()
@@ -40,7 +42,7 @@ def parse_args(dataset):
 
     # ========== adjuster ==========
     args = argument.encoder_adjuster(args)
-    args = argument.activation_energy_decoder_adjuster(args)
+    args = argument.simclr_decoder_adjuster(args)
 
     return args
 
@@ -48,7 +50,7 @@ def parse_args(dataset):
 class LightningModel(BaseLightningModel):
     def init_backbone(self, params):
 
-        model = ReactionRepresentation(
+        model = ReactionEncoder(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -83,35 +85,39 @@ class LightningModel(BaseLightningModel):
             mlp_pool_layer_sizes=params.mlp_pool_layer_sizes,
             mlp_pool_layer_batch_norm=params.mlp_pool_layer_batch_norm,
             mlp_pool_layer_activation=params.activation,
-            # energy decoder
-            activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
-            activation_energy_decoder_activation=params.activation,
+        )
+
+        #
+        # decoder
+        #
+        # name this `.._decoder` so that we can easily freeze it when finetune
+        self.projection_decoder = MLP(
+            in_size=model.reaction_feats_size,
+            hidden_sizes=params.simclr_layer_sizes[:-1],
+            activation=params.activation,
+            out_size=params.simclr_layer_sizes[-1],
         )
 
         return model
 
     def init_tasks(self):
-        self.regression_tasks = {
-            "activation_energy": {
-                "label_scaler": "activation_energy",
-                "to_score": {"mae": -1},
-            },
-        }
+        pass
 
     def decode(self, feats, reaction_feats, metadata):
-        return self.backbone.decode(feats, reaction_feats, metadata)
+        z = self.projection_decoder(reaction_feats)
+
+        return z
 
     def compute_loss(self, preds, labels):
+        z1 = preds["z1"]
+        z2 = preds["z2"]
 
-        all_loss = {}
+        z1 = F.normalize(z1, dim=-1)
+        z2 = F.normalize(z2, dim=-1)
 
-        # activation energy loss
-        task = "activation_energy"
-        preds[task] = preds[task].flatten()
-        loss = F.mse_loss(preds[task], labels[task])
-        all_loss[task] = loss
+        loss = nt_xent_loss(z1, z2, self.hparams.simclr_temperature)
 
-        return all_loss
+        return {"contrastive": loss}
 
 
 if __name__ == "__main__":
@@ -124,40 +130,29 @@ if __name__ == "__main__":
     write_running_metadata(filename, repo_path)
 
     # args
+    dataset = "schneider"
     # dataset = "green"
-    dataset = "electrolyte_ts"
     args = parse_args(dataset)
     logger.info(args)
 
+    # dataset
+    train_loader, val_loader, test_loader = load_dataset(args)
+
+    # model
+    model = LightningModel(args)
+
     project = "tmp-rxnrep"
+    main(
+        args,
+        model,
+        train_loader,
+        val_loader,
+        test_loader,
+        __file__,
+        monitor="val/loss",
+        monitor_mode="min",
+        project=project,
+        run_test=False,
+    )
 
-    if args.kfold:
-        cross_validate(
-            args,
-            LightningModel,
-            load_dataset,
-            main,
-            mode="regression",
-            fold=args.kfold,
-            project=project,
-        )
-
-    else:
-
-        # dataset
-        train_loader, val_loader, test_loader = load_dataset(args)
-
-        # model
-        model = LightningModel(args)
-
-        main(
-            args,
-            model,
-            train_loader,
-            val_loader,
-            test_loader,
-            __file__,
-            project=project,
-        )
-
-        logger.info(f"Finish training at: {datetime.now()}")
+    logger.info(f"Finish training at: {datetime.now()}")
