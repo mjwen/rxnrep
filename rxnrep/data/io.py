@@ -7,11 +7,30 @@ from typing import Dict, List, Tuple, Union
 import pandas as pd
 from monty.serialization import loadfn
 from mrnet.core.mol_entry import MoleculeEntry
-from mrnet.core.reactions import Reaction as MrnetReaction
+from mrnet.core.reactions import Reaction as _Reaction
 
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
+
+
+class MrnetReaction(_Reaction):
+    """
+    A wrapper over mrnet reaction to work around abstractmethod.
+    """
+
+    @classmethod
+    def generate(cls, entries, determine_atom_mappings: bool = True):
+        pass
+
+    def graph_representation(self):
+        pass
+
+    def set_free_energy(self, temperature):
+        pass
+
+    def set_rate_constant(self):
+        pass
 
 
 def read_smiles_tsv_dataset(

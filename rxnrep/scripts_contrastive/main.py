@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -37,21 +38,29 @@ def main(
     # logger
     log_save_dir = Path(log_dir).resolve()
 
-    # restore model, epoch, shared_step, LR schedulers, apex, etc...
-    if args.restore and log_save_dir.exists():
-        # restore
-        checkpoint_path, identifier = load_checkpoint_wandb(log_save_dir, project)
-    else:
-        # create new
+    if args.kfold:
+        # for cross validation, we should not restore previous run as the starting point
+        # we only restore wandb identifier
         checkpoint_path = None
         identifier = None
+        if log_save_dir.exists():
+            _, identifier = load_checkpoint_wandb(log_save_dir, project)
+
+    else:
+        # restore model, epoch, shared_step, LR schedulers, apex, etc...
+        if args.restore and log_save_dir.exists():
+            checkpoint_path, identifier = load_checkpoint_wandb(log_save_dir, project)
+        else:
+            checkpoint_path = None
+            identifier = None
 
     if not log_save_dir.exists():
         # put in try except in case it throws errors in distributed training
         try:
-            log_save_dir.mkdir()
+            os.makedirs(log_save_dir.as_posix())
         except FileExistsError:
             pass
+
     wandb_logger = WandbLogger(
         save_dir=log_save_dir.as_posix(), project=project, id=identifier
     )

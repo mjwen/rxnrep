@@ -128,6 +128,7 @@ def training_args(parser):
 
     # cross validation
     parser.add_argument("--kfold", type=int, default=None, help="cross validation")
+    # only for classification cv
     parser.add_argument("--trainset_size", type=int, default=10)
     parser.add_argument("--testset_size_min", type=int, default=4)
 
