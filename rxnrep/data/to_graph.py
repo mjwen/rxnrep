@@ -1,5 +1,8 @@
 """
 Build dgl graphs from molecules.
+
+Atoms -> nodes, bonds -> edges (two edges per bond), and optionally a global node for
+molecular level features.
 """
 
 import itertools

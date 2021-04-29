@@ -12,13 +12,7 @@ import torch
 from rdkit import Chem
 
 from rxnrep.core.molecule import Molecule
-from rxnrep.core.reaction import (
-    Reaction,
-    get_atom_bond_hop_dist_class_weight,
-    get_atom_distance_to_reaction_center,
-    get_bond_distance_to_reaction_center,
-)
-from rxnrep.data.augmentation import AtomTypeFeatureMasker
+from rxnrep.core.reaction import Reaction
 from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
 from rxnrep.data.to_graph import build_graph_and_featurize_reaction
 from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
@@ -41,7 +35,7 @@ class BaseDataset:
 
     This base dataset deal with input molecule/reaction graphs and their features.
 
-    Labels are added in subclass dataset.
+    This base class does not deal with labels, which should be done in subclass.
 
     Args:
         filename: path to the dataset file
@@ -403,8 +397,8 @@ class BaseDataset:
         """
         Save the state dict to a yaml file.
 
-        The data type of tensors are saved as a key `dtype`, which can be used in
-        load_state_dict_file to convert the corresponding fields to tensor.
+        We set properties in tensor_fields to list and can be recovered back to tensor
+        in `load_state_dict_file`.
 
         Args:
             filename: path to save the file
@@ -476,24 +470,13 @@ class BaseDataset:
         raise NotImplementedError
 
 
-class BaseDatasetWithLabels(BaseDataset):
+class BaseLabelledDataset(BaseDataset):
     """
-    Base dataset with three types of labels:
-    atom_hop_distance, bond_hop_distance, atom_type_masker
+    Base dataset for regression and classification tasks.
+
+    Regression and classification tasks should be added.
 
     Args:
-        max_hop_distance: maximum allowed hop distance from the reaction center for
-            atom and bond. Used to determine atom and bond label. If `None`, not used.
-        atom_type_masker_ratio: ratio of atoms whose atom type to be masked in each
-            reaction. If `None`, not applied.
-        atom_type_masker_use_masker_value: whether to use the calculate masker value. If
-            `True`, use it, if `False` do not mask the atom features.
-            Ignored if `atom_type_masker_ratio` is None.
-            Note the difference between this and `atom_type_masker_ratio`; if
-            `atom_type_masker_ratio` is `None`, the masker is not used in the sense
-            that the masker is not even created. But `atom_type_masker_use_mask_value`
-            be of `False` means that the masker are created, but we simply skip the
-            change of the atom type features of the masked atoms.
         allow_label_scaler_none: when `init_state_dict` is provided, whether to allow
             label_scaler is None in state dict. If `False`, will use the label scaler
             mean and std. If `True`, will recompute label mean and std. This is mainly
@@ -517,9 +500,6 @@ class BaseDatasetWithLabels(BaseDataset):
         # args to control labels
         #
         allow_label_scaler_none: bool = False,
-        max_hop_distance: Optional[int] = None,
-        atom_type_masker_ratio: Optional[float] = None,
-        atom_type_masker_use_masker_value: Optional[bool] = None,
     ):
 
         super().__init__(
@@ -534,104 +514,26 @@ class BaseDatasetWithLabels(BaseDataset):
             num_processes=num_processes,
         )
 
-        # labels and metadata (one inner dict for each reaction)
-        # do not use [{}] * len(self.reactions); update one will change all
-        self.labels = [{} for _ in range(len(self.reactions))]
-        self.medadata = [{} for _ in range(len(self.reactions))]
-
         self.allow_label_scaler_none = allow_label_scaler_none
 
-        # atom bond hop distance label
-        self.max_hop_distance = max_hop_distance
-
-        # atom type maker label (this need special handling because we generate it
-        # dynamically; different label is generated each time it is called)
-        if atom_type_masker_ratio is None:
-            self.atom_type_masker = None
-        else:
-            self.atom_type_masker = AtomTypeFeatureMasker(
-                allowable_types=self._species,
-                feature_name=self.feature_name["atom"],
-                feature_mean=self._feature_scaler_state_dict["mean"]["node"]["atom"],
-                feature_std=self._feature_scaler_state_dict["mean"]["node"]["atom"],
-                ratio=atom_type_masker_ratio,
-                use_masker_value=atom_type_masker_use_masker_value,
-            )
-
-            # move the storage of atom features from the graph to self.atom_features
-            self.atom_features = [
-                {
-                    "reactants": reactants_g.nodes["atom"].data.pop("feat"),
-                    "products": products_g.nodes["atom"].data.pop("feat"),
-                }
-                for reactants_g, products_g, _ in self.dgl_graphs
-            ]
+        # labels and metadata (one inner dict for each reaction)
+        # Note, do not use [{}] * len(self.reactions); update one will change all
+        self.labels = [{} for _ in range(len(self.reactions))]
+        self.medadata = [{} for _ in range(len(self.reactions))]
 
         self.generate_labels()
         self.generate_metadata()
 
-    def generate_labels(self):
-
-        for i, rxn in enumerate(self.reactions):
-
-            # atom bond hop distance label
-            if self.max_hop_distance is not None:
-
-                atom_hop = get_atom_distance_to_reaction_center(
-                    rxn, max_hop=self.max_hop_distance
-                )
-
-                bond_hop = get_bond_distance_to_reaction_center(
-                    rxn, atom_hop_distances=atom_hop, max_hop=self.max_hop_distance
-                )
-                self.labels[i].update(
-                    {
-                        "atom_hop_dist": torch.as_tensor(atom_hop, dtype=torch.int64),
-                        "bond_hop_dist": torch.as_tensor(bond_hop, dtype=torch.int64),
-                    }
-                )
-
-    def generate_metadata(self):
-
-        for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
-            num_unchanged = len(rxn.unchanged_bonds)
-            meta = {
-                "reactant_num_molecules": len(rxn.reactants),
-                "product_num_molecules": len(rxn.products),
-                "num_atoms": rxn.num_atoms,
-                "num_bonds": num_unchanged + len(rxn.lost_bonds) + len(rxn.added_bonds),
-                "num_unchanged_bonds": num_unchanged,
-                "num_reactant_bonds": num_unchanged + len(rxn.lost_bonds),
-                "num_product_bonds": num_unchanged + len(rxn.added_bonds),
-                # "atoms_in_reaction_center": (
-                #     np.asarray(rxn.atom_distance_to_reaction_center) == 0
-                # ).tolist(),
-                # "bonds_in_reaction_center": (
-                #     np.asarray(rxn.bond_distance_to_reaction_center) == 0
-                # ).tolist(),
-            }
-
-            # add atom/bond hop dist to meta, which is used in hop dist pool
-            if self.max_hop_distance is not None:
-                meta.update(
-                    {
-                        "atom_hop_dist": label["atom_hop_dist"],
-                        "bond_hop_dist": label["bond_hop_dist"],
-                    }
-                )
-
-            self.medadata[i].update(meta)
-
     def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
         """
-        Scale scalar labels.
+        Scale scalar labels. This is typically only need be regression tasks.
 
         Args:
             values: 1D tensor of the labels
             name: name of the label
 
         Returns:
-            1D tensor Scaled label values.
+            1D tensor, scaled label values.
         """
         assert (
             len(values.shape) == 1
@@ -639,6 +541,7 @@ class BaseDatasetWithLabels(BaseDataset):
 
         label_scaler = StandardScaler1D()
 
+        # load label scaler state dict
         if self.init_state_dict is not None and not self.allow_label_scaler_none:
             assert self._label_scaler_state_dict is not None, (
                 "Corrupted state_dict. Expect `label_scaler_state_dict` to be a dict, "
@@ -647,8 +550,10 @@ class BaseDatasetWithLabels(BaseDataset):
 
             label_scaler.load_state_dict(self._label_scaler_state_dict[name])
 
+        # perform the scale action
         values = label_scaler.transform(values)
 
+        # add the scaler as class property
         if self._label_scaler is None:
             self._label_scaler = {}
         self._label_scaler[name] = label_scaler
@@ -659,60 +564,58 @@ class BaseDatasetWithLabels(BaseDataset):
 
         return values
 
-    def get_class_weight(self, only_break_bond: bool = False):
+    def generate_labels(self):
+        """
+        Fill in the label to self.labels directly.
+
+        Example:
+
+        ```
+        for i, rxn in enumerate(self.reactions):
+            self.labels[i].update({'energy': rxn.get_energy()})
+        ```
+        """
+        raise NotImplementedError
+
+    def get_class_weight(self) -> Dict[str, torch.Tensor]:
         """
         Create class weight to be used in cross entropy losses.
 
-        Args:
-            only_break_bond: whether the dataset only contains breaking bond, i.e.
-                does not have lost bond
+        This is typically only used by classification tasks to deal with imbalanced data.
+
+        This should return a dictionary with key the property used for classification (
+        e.g. reaction_type) and value a tensor of the weight for each class.
         """
-        if self.max_hop_distance:
-            return get_atom_bond_hop_dist_class_weight(
-                self.labels, self.max_hop_distance, only_break_bond=only_break_bond
-            )
-        else:
-            return {}
+        raise NotImplementedError
+
+    def generate_metadata(self):
+        """
+        Fill in the metadata to self.metadata directly.
+
+        Here, we preset some widely used ones, each is a scalar.
+        """
+
+        for i, rxn in enumerate(self.reactions):
+            num_unchanged = len(rxn.unchanged_bonds)
+            meta = {
+                "reactant_num_molecules": len(rxn.reactants),
+                "product_num_molecules": len(rxn.products),
+                "num_atoms": rxn.num_atoms,
+                "num_bonds": num_unchanged + len(rxn.lost_bonds) + len(rxn.added_bonds),
+                "num_unchanged_bonds": num_unchanged,
+                "num_reactant_bonds": num_unchanged + len(rxn.lost_bonds),
+                "num_product_bonds": num_unchanged + len(rxn.added_bonds),
+            }
+
+            self.medadata[i].update(meta)
 
     def __getitem__(self, item: int):
         """
         Get data point with index.
         """
         reactants_g, products_g, reaction_g = self.dgl_graphs[item]
-        reaction = self.reactions[item]
         label = self.labels[item]
         meta = self.medadata[item]
-
-        # atom type masker (this needs to be here since we generate it dynamically;
-        # different label is generated each time it is called)
-        if self.atom_type_masker is not None:
-            atom_feats = self.atom_features[item]
-
-            # Assign atom features bach to graph. Should clone to keep
-            # self.atom_features intact.
-            reactants_g.nodes["atom"].data["feat"] = (
-                atom_feats["reactants"].clone().detach()
-            )
-            products_g.nodes["atom"].data["feat"] = (
-                atom_feats["products"].clone().detach()
-            )
-
-            (
-                reactants_g,
-                products_g,
-                is_masked,
-                masked_labels,
-            ) = self.atom_type_masker.mask_features(
-                reactants_g,
-                products_g,
-                reaction,
-            )
-
-            # add info to label and meta
-            label["masked_atom_type"] = torch.as_tensor(
-                masked_labels, dtype=torch.int64
-            )
-            meta["is_atom_masked"] = torch.as_tensor(is_masked, dtype=torch.bool)
 
         if self.return_index:
             return item, reactants_g, products_g, reaction_g, meta, label
@@ -727,6 +630,7 @@ class BaseDatasetWithLabels(BaseDataset):
 
         batched_indices = torch.as_tensor(indices)
 
+        # graphs
         batched_molecule_graphs = dgl.batch(reactants_g + products_g)
 
         if reaction_g[0] is None:
@@ -738,15 +642,9 @@ class BaseDatasetWithLabels(BaseDataset):
         keys = labels[0].keys()
         batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
 
-        # metadata used to split global and bond features
+        # metadata
         keys = metadata[0].keys()
         batched_metadata = {k: [d[k] for d in metadata] for k in keys}
-
-        # convert some metadata to tensor
-        for k, v in batched_metadata.items():
-            if k in ["atom_hop_dist", "bond_hop_dist", "is_atom_masked"]:
-                # each element of v is a 1D tensor
-                batched_metadata[k] = torch.cat(v)
 
         return (
             batched_indices,
@@ -844,7 +742,7 @@ class BaseContrastiveDataset(BaseDataset):
 
     def generate_metadata(self):
 
-        for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
+        for i, rxn in enumerate(self.reactions):
             meta = {
                 "reactant_num_molecules": len(rxn.reactants),
                 "product_num_molecules": len(rxn.products),
@@ -979,9 +877,7 @@ class BaseContrastiveDataset(BaseDataset):
         keys = labels[0].keys()
         batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
 
-        # metadata used to split global and bond features
-        # keys = metadata[0].keys()
-        # batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+        # metadata
         keys = metadata1[0].keys()
         batched_metadata1 = {k: [d[k] for d in metadata1] for k in keys}
         batched_metadata2 = {k: [d[k] for d in metadata2] for k in keys}

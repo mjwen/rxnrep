@@ -8,7 +8,7 @@ from sklearn.utils import class_weight
 
 from rxnrep.data.dataset import (
     BaseContrastiveDataset,
-    BaseDatasetWithLabels,
+    BaseLabelledDataset,
     ClassicalFeatureDataset,
 )
 from rxnrep.data.io import read_smiles_tsv_dataset
@@ -16,7 +16,7 @@ from rxnrep.data.io import read_smiles_tsv_dataset
 logger = logging.getLogger(__name__)
 
 
-class USPTODataset(BaseDatasetWithLabels):
+class USPTODataset(BaseLabelledDataset):
     """
     USPTO dataset.
 
@@ -40,9 +40,6 @@ class USPTODataset(BaseDatasetWithLabels):
         #
         # args to control labels
         #
-        max_hop_distance: Optional[int] = None,
-        atom_type_masker_ratio: Optional[float] = None,
-        atom_type_masker_use_masker_value: Optional[bool] = None,
         has_class_label: bool = False,
     ):
         self.has_class_label = has_class_label
@@ -57,34 +54,15 @@ class USPTODataset(BaseDatasetWithLabels):
             transform_features=transform_features,
             return_index=return_index,
             num_processes=num_processes,
-            max_hop_distance=max_hop_distance,
-            atom_type_masker_ratio=atom_type_masker_ratio,
-            atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
         )
 
     def read_file(self, filename: Path):
-        logger.info("Start reading dataset ...")
-
-        succeed_reactions, failed = read_smiles_tsv_dataset(
-            filename, remove_H=True, nprocs=self.nprocs
-        )
-
-        counter = Counter(failed)
-        logger.info(
-            f"Finish reading dataset. Number succeed {counter[False]}, "
-            f"number failed {counter[True]}."
-        )
-
-        return succeed_reactions, failed
+        return read_uspto_file(filename, self.nprocs)
 
     def generate_labels(self):
         """
-        Labels for all reactions.
-
-        Add `reaction_type`.
+        Create `reaction_type` label.
         """
-        super().generate_labels()
-
         if self.has_class_label:
             for i, rxn in enumerate(self.reactions):
                 rxn_class = rxn.get_property("reaction_type")
@@ -105,7 +83,6 @@ class USPTODataset(BaseDatasetWithLabels):
                 otherwise, it is inversely proportional to the number of data points in
                 the dataset
         """
-        weight = super().get_class_weight(only_break_bond=False)
 
         if self.has_class_label:
             if class_weight_as_1:
@@ -121,48 +98,21 @@ class USPTODataset(BaseDatasetWithLabels):
                 )
                 w = torch.as_tensor(w, dtype=torch.float32)
 
-            weight["reaction_type"] = w
+            weight = {"reaction_type": w}
+        else:
+            weight = {}
 
         return weight
 
 
 class USPTOContrastiveDataset(BaseContrastiveDataset):
-
-    """
-    USPTO dataset.
-    """
-
     def read_file(self, filename: Path):
-        logger.info("Start reading dataset ...")
-
-        succeed_reactions, failed = read_smiles_tsv_dataset(
-            filename, remove_H=True, nprocs=self.nprocs
-        )
-
-        counter = Counter(failed)
-        logger.info(
-            f"Finish reading dataset. Number succeed {counter[False]}, "
-            f"number failed {counter[True]}."
-        )
-
-        return succeed_reactions, failed
+        return read_uspto_file(filename, self.nprocs)
 
 
 class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
     def read_file(self, filename: Path):
-        logger.info("Start reading dataset ...")
-
-        succeed_reactions, failed = read_smiles_tsv_dataset(
-            filename, remove_H=True, nprocs=self.nprocs
-        )
-
-        counter = Counter(failed)
-        logger.info(
-            f"Finish reading dataset. Number succeed {counter[False]}, "
-            f"number failed {counter[True]}."
-        )
-
-        return succeed_reactions, failed
+        return read_uspto_file(filename, self.nprocs)
 
     def generate_labels(self):
         """
@@ -178,3 +128,19 @@ class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
                 {"reaction_type": torch.as_tensor(int(rxn_class), dtype=torch.int64)}
             )
         return labels
+
+
+def read_uspto_file(filename: Path, nprocs):
+    logger.info("Start reading dataset ...")
+
+    succeed_reactions, failed = read_smiles_tsv_dataset(
+        filename, remove_H=True, nprocs=nprocs
+    )
+
+    counter = Counter(failed)
+    logger.info(
+        f"Finish reading dataset. Number succeed {counter[False]}, "
+        f"number failed {counter[True]}."
+    )
+
+    return succeed_reactions, failed

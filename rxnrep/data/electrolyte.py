@@ -4,14 +4,14 @@ from collections import Counter
 import torch
 
 from rxnrep.data.io import read_mrnet_reaction_dataset
-from rxnrep.data.uspto import BaseDatasetWithLabels
+from rxnrep.data.uspto import BaseLabelledDataset
 
 logger = logging.getLogger(__name__)
 
 
-class ElectrolyteDataset(BaseDatasetWithLabels):
+class ElectrolyteDataset(BaseLabelledDataset):
     """
-    Electrolyte dataset for unsupervised reaction representation.
+    Electrolyte regression dataset.
     """
 
     def read_file(self, filename):
@@ -31,13 +31,10 @@ class ElectrolyteDataset(BaseDatasetWithLabels):
         """
         Labels for all reactions.
 
-        Each dict is the labels for one reaction, with keys:
-            `atom_hop_dist`, `bond_hop_dist`, and `reaction_energy`.
-
         Args:
-            normalize: whether to normalize `reaction_energy` labels
+            normalize: whether to normalize `reaction_energy` and `activation_energy`
+                labels.
         """
-        super().generate_labels()
 
         # energies label
         reaction_energy = [

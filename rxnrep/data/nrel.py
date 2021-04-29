@@ -1,17 +1,16 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Dict
 
 import torch
 
 from rxnrep.data.io import read_smiles_tsv_dataset
-from rxnrep.data.uspto import BaseDatasetWithLabels
+from rxnrep.data.uspto import BaseLabelledDataset
 
 logger = logging.getLogger(__name__)
 
 
-class NRELDataset(BaseDatasetWithLabels):
+class NRELDataset(BaseLabelledDataset):
     """
     NREL BDE dataset.
     """
@@ -58,9 +57,3 @@ class NRELDataset(BaseDatasetWithLabels):
             self.labels[i]["reaction_energy"] = torch.as_tensor(
                 [e], dtype=torch.float32
             )
-
-    def get_class_weight(self) -> Dict[str, torch.Tensor]:
-        """
-        Create class weight to be used in cross entropy losses.
-        """
-        return super().get_class_weight(only_break_bond=True)

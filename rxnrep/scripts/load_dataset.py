@@ -42,24 +42,6 @@ def load_green_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
 
-    # adjust args controlling labels
-    max_hop_distance = args.max_hop_distance if "max_hop_distance" in args else None
-    atom_type_masker_ratio = (
-        args.atom_type_masker_ratio if "atom_type_masker_ratio" in args else None
-    )
-    atom_type_masker_use_masker_value = (
-        args.atom_type_masker_use_masker_value
-        if "atom_type_masker_use_masker_value" in args
-        else None
-    )
-
-    if "have_activation_energy_ratio" in args:
-        have_activation_energy_ratio_trainset = args.have_activation_energy_ratio
-        have_activation_energy_ratio_val_test_set = 1.0
-    else:
-        have_activation_energy_ratio_trainset = None
-        have_activation_energy_ratio_val_test_set = None
-
     atom_featurizer_kwargs = {
         "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
         "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
