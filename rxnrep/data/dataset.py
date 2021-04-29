@@ -10,6 +10,7 @@ import dgl
 import numpy as np
 import torch
 from rdkit import Chem
+from torch.utils.data import Dataset
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
@@ -29,7 +30,7 @@ from rxnrep.utils import (
 logger = logging.getLogger(__name__)
 
 
-class BaseDataset:
+class BaseDataset(Dataset):
     """
     Base dataset.
 
@@ -478,10 +479,10 @@ class BaseLabelledDataset(BaseDataset):
 
     Args:
         allow_label_scaler_none: when `init_state_dict` is provided, whether to allow
-            label_scaler is None in state dict. If `False`, will use the label scaler
-            mean and std. If `True`, will recompute label mean and std. This is mainly
-            used for the pretrain-finetune case, where the pretrain model does not use
-            labels (e.g. contrastive training).
+            label_scaler is None in state dict. If `False`, will raise exception.
+            If `True`, will recompute label mean and std. This is mainly used for the
+            pretrain-finetune case, where the pretrain model does not use labels
+            (e.g. contrastive training).
     """
 
     def __init__(
@@ -499,7 +500,7 @@ class BaseLabelledDataset(BaseDataset):
         #
         # args to control labels
         #
-        allow_label_scaler_none: bool = False,
+        allow_label_scaler_none: bool = None,
     ):
 
         super().__init__(

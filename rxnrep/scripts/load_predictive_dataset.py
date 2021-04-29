@@ -29,16 +29,15 @@ def load_dataset(args):
         return load_uspto_dataset(args)
     elif "electrolyte" in args.dataset:
         return load_electrolyte_dataset(args)
-    elif args.dataset == "green":
+    elif "green" in args.dataset:
         return load_green_dataset(args)
-    elif args.dataset == "green_classification":
-        return load_green_classification_dataset(args)
 
     else:
         raise ValueError(f"Not supported dataset {args.dataset}")
 
 
 def load_green_dataset(args):
+    classification = "classification" in args.dataset
 
     state_dict_filename = get_state_dict_filename(args)
 
@@ -53,131 +52,14 @@ def load_green_dataset(args):
     else:
         build_reaction_graph = False
 
-    trainset = GreenDataset(
-        filename=args.trainset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        build_reaction_graph=build_reaction_graph,
-        transform_features=True,
-        init_state_dict=state_dict_filename,
-        num_processes=args.nprocs,
-        # label args
-        allow_label_scaler_none=args.allow_label_scaler_none,
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
-        have_activation_energy_ratio=have_activation_energy_ratio_trainset,
-    )
-
-    state_dict = trainset.state_dict()
-
-    valset = GreenDataset(
-        filename=args.valset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        build_reaction_graph=build_reaction_graph,
-        transform_features=True,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-        # label args
-        allow_label_scaler_none=args.allow_label_scaler_none,
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
-        have_activation_energy_ratio=have_activation_energy_ratio_val_test_set,
-    )
-
-    testset = GreenDataset(
-        filename=args.testset_filename,
-        atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
-        bond_featurizer=BondFeaturizer(),
-        global_featurizer=GlobalFeaturizer(),
-        build_reaction_graph=build_reaction_graph,
-        transform_features=True,
-        init_state_dict=state_dict,
-        num_processes=args.nprocs,
-        # label args
-        allow_label_scaler_none=args.allow_label_scaler_none,
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
-        have_activation_energy_ratio=have_activation_energy_ratio_val_test_set,
-    )
-
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    # Add info that will be used in the model to args for easy access
-    args.feature_size = trainset.feature_size
-    args.label_scaler = trainset.get_label_scaler()
-
-    # TODO remove this with only class_weight as label_scaler
-    if max_hop_distance is not None:
-        class_weight = trainset.get_class_weight(only_break_bond=False)
-        args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
-        args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
-        args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
-        args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
-
-    if atom_type_masker_ratio is not None:
-        args.masked_atom_type_num_classes = len(trainset.get_species())
-
-    return train_loader, val_loader, test_loader
-
-
-def load_green_classification_dataset(args):
-
-    state_dict_filename = get_state_dict_filename(args)
-
-    atom_featurizer_kwargs = {
-        "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
-        "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
-        "atom_num_radical_electrons_one_hot": {"allowable_set": list(range(3))},
-    }
-
-    if args.reaction_conv_layer_sizes:
-        build_reaction_graph = True
+    if classification:
+        DT = GreenClassificationDataset
+        allow_label_scaler_none = None  # never used
     else:
-        build_reaction_graph = False
+        DT = GreenDataset
+        allow_label_scaler_none = args.allow_label_scaler_none
 
-    trainset = GreenClassificationDataset(
+    trainset = DT(
         filename=args.trainset_filename,
         atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
@@ -186,11 +68,13 @@ def load_green_classification_dataset(args):
         transform_features=True,
         init_state_dict=state_dict_filename,
         num_processes=args.nprocs,
+        # label args
+        allow_label_scaler_none=allow_label_scaler_none,
     )
 
     state_dict = trainset.state_dict()
 
-    valset = GreenClassificationDataset(
+    valset = DT(
         filename=args.valset_filename,
         atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
@@ -199,9 +83,11 @@ def load_green_classification_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        # label args
+        allow_label_scaler_none=allow_label_scaler_none,
     )
 
-    testset = GreenClassificationDataset(
+    testset = DT(
         filename=args.testset_filename,
         atom_featurizer=AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs),
         bond_featurizer=BondFeaturizer(),
@@ -210,53 +96,33 @@ def load_green_classification_dataset(args):
         transform_features=True,
         init_state_dict=state_dict,
         num_processes=args.nprocs,
+        # label args
+        allow_label_scaler_none=allow_label_scaler_none,
     )
 
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
+    train_loader, val_loader, test_loader = _get_loaders(
+        trainset, valset, testset, args.batch_size, args.num_workers
     )
 
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
+    # TODO move this out the function? It's hard to know what's going on if we set args
+    #  all the time
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
 
-    class_weight = trainset.get_class_weight(
-        num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
+    if classification:
+        class_weight = trainset.get_class_weight(
+            num_reaction_classes=args.num_reaction_classes, class_weight_as_1=True
+        )
+        args.reaction_class_weight = class_weight["reaction_type"]
+    else:
+        args.label_scaler = trainset.get_label_scaler()
+
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    logger.info(
+        f"Trainset size: {len(trainset)}, valset size: {len(valset)}: "
+        f"testset size: {len(testset)}."
     )
-    args.reaction_class_weight = class_weight["reaction_type"]
 
     return train_loader, val_loader, test_loader
 
@@ -264,17 +130,6 @@ def load_green_classification_dataset(args):
 def load_uspto_dataset(args):
 
     state_dict_filename = get_state_dict_filename(args)
-
-    # adjust args controlling labels
-    max_hop_distance = args.max_hop_distance if "max_hop_distance" in args else None
-    atom_type_masker_ratio = (
-        args.atom_type_masker_ratio if "atom_type_masker_ratio" in args else None
-    )
-    atom_type_masker_use_masker_value = (
-        args.atom_type_masker_use_masker_value
-        if "atom_type_masker_use_masker_value" in args
-        else None
-    )
 
     has_class_label = args.has_class_label if "has_class_label" in args else False
 
@@ -293,9 +148,6 @@ def load_uspto_dataset(args):
         num_processes=args.nprocs,
         transform_features=True,
         # label args
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
         has_class_label=has_class_label,
     )
 
@@ -311,9 +163,6 @@ def load_uspto_dataset(args):
         num_processes=args.nprocs,
         transform_features=True,
         # label args
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
         has_class_label=has_class_label,
     )
 
@@ -327,48 +176,11 @@ def load_uspto_dataset(args):
         num_processes=args.nprocs,
         transform_features=True,
         # label args
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
         has_class_label=has_class_label,
     )
 
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
+    train_loader, val_loader, test_loader = _get_loaders(
+        trainset, valset, testset, args.batch_size, args.num_workers
     )
 
     # Add info that will be used in the model to args for easy access
@@ -380,34 +192,18 @@ def load_uspto_dataset(args):
         )
         args.reaction_class_weight = class_weight["reaction_type"]
 
-    elif max_hop_distance is not None:
-        class_weight = trainset.get_class_weight()
-
-    if max_hop_distance is not None:
-        args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
-        args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
-        args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
-        args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
-
-    if atom_type_masker_ratio is not None:
-        args.masked_atom_type_num_classes = len(trainset.get_species())
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    logger.info(
+        f"Trainset size: {len(trainset)}, valset size: {len(valset)}: "
+        f"testset size: {len(testset)}."
+    )
 
     return train_loader, val_loader, test_loader
 
 
 def load_electrolyte_dataset(args):
     state_dict_filename = get_state_dict_filename(args)
-
-    # adjust args controlling labels
-    max_hop_distance = args.max_hop_distance if "max_hop_distance" in args else None
-    atom_type_masker_ratio = (
-        args.atom_type_masker_ratio if "atom_type_masker_ratio" in args else None
-    )
-    atom_type_masker_use_masker_value = (
-        args.atom_type_masker_use_masker_value
-        if "atom_type_masker_use_masker_value" in args
-        else None
-    )
 
     if args.reaction_conv_layer_sizes:
         build_reaction_graph = True
@@ -425,9 +221,6 @@ def load_electrolyte_dataset(args):
         transform_features=True,
         # label args
         allow_label_scaler_none=args.allow_label_scaler_none,
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
     )
 
     state_dict = trainset.state_dict()
@@ -443,9 +236,6 @@ def load_electrolyte_dataset(args):
         num_processes=args.nprocs,
         # label args
         allow_label_scaler_none=args.allow_label_scaler_none,
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
     )
 
     testset = ElectrolyteDataset(
@@ -459,63 +249,22 @@ def load_electrolyte_dataset(args):
         num_processes=args.nprocs,
         # label args
         allow_label_scaler_none=args.allow_label_scaler_none,
-        max_hop_distance=max_hop_distance,
-        atom_type_masker_ratio=atom_type_masker_ratio,
-        atom_type_masker_use_masker_value=atom_type_masker_use_masker_value,
     )
 
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
+    train_loader, val_loader, test_loader = _get_loaders(
+        trainset, valset, testset, args.batch_size, args.num_workers
     )
 
     # Add info that will be used in the model to args for easy access
     args.feature_size = trainset.feature_size
     args.label_scaler = trainset.get_label_scaler()
 
-    # TODO remove this with only class_weight as label_scaler
-    if max_hop_distance is not None:
-        class_weight = trainset.get_class_weight(only_break_bond=args.only_break_bond)
-        args.atom_hop_dist_class_weight = class_weight["atom_hop_dist"]
-        args.bond_hop_dist_class_weight = class_weight["bond_hop_dist"]
-        args.atom_hop_dist_num_classes = len(args.atom_hop_dist_class_weight)
-        args.bond_hop_dist_num_classes = len(args.bond_hop_dist_class_weight)
-
-    if atom_type_masker_ratio is not None:
-        args.masked_atom_type_num_classes = len(trainset.get_species())
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    logger.info(
+        f"Trainset size: {len(trainset)}, valset size: {len(valset)}: "
+        f"testset size: {len(testset)}."
+    )
 
     return train_loader, val_loader, test_loader
 
@@ -567,42 +316,8 @@ def load_nrel_dataset(args):
         allow_label_scaler_none=args.allow_label_scaler_none,
     )
 
-    # save dataset state dict for retraining or prediction
-    trainset.save_state_dict_file(args.dataset_state_dict_filename)
-    print(
-        "Trainset size: {}, valset size: {}: testset size: {}.".format(
-            len(trainset), len(valset), len(testset)
-        )
-    )
-
-    train_loader = DataLoader(
-        trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=trainset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    val_loader = DataLoader(
-        valset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=valset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
-    )
-
-    test_loader = DataLoader(
-        testset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        collate_fn=testset.collate_fn,
-        drop_last=False,
-        pin_memory=True,
-        num_workers=args.num_workers,
+    train_loader, val_loader, test_loader = _get_loaders(
+        trainset, valset, testset, args.batch_size, args.num_workers
     )
 
     # Add info that will be used in the model to args for easy access
@@ -610,43 +325,14 @@ def load_nrel_dataset(args):
 
     args.label_scaler = trainset.get_label_scaler()
 
+    # save dataset state dict for retraining or prediction
+    trainset.save_state_dict_file(args.dataset_state_dict_filename)
+    logger.info(
+        f"Trainset size: {len(trainset)}, valset size: {len(valset)}: "
+        f"testset size: {len(testset)}."
+    )
+
     return train_loader, val_loader, test_loader
-
-
-def get_state_dict_filename(args):
-    """
-    Check dataset state dict if in restore mode
-    """
-
-    # finetune mode
-    if "pretrained_dataset_state_dict_filename" in args:
-        if not Path(args.pretrained_dataset_state_dict_filename).exists():
-            raise ValueError(
-                f"args.pretrained_dataset_state_dict_filename: "
-                f"`{args.pretrained_dataset_state_dict_filename}` not found."
-            )
-        else:
-            state_dict_filename = args.pretrained_dataset_state_dict_filename
-
-    else:
-        if args.restore:
-            if args.dataset_state_dict_filename is None:
-                warnings.warn(
-                    "Restore with `args.dataset_state_dict_filename` set to None."
-                )
-                state_dict_filename = None
-            elif not Path(args.dataset_state_dict_filename).exists():
-                warnings.warn(
-                    f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                    "not found; set to `None`."
-                )
-                state_dict_filename = None
-            else:
-                state_dict_filename = args.dataset_state_dict_filename
-        else:
-            state_dict_filename = None
-
-    return state_dict_filename
 
 
 def load_morgan_feature_dataset(args):
@@ -687,31 +373,72 @@ def load_morgan_feature_dataset(args):
         f"testset size: {len(testset)}."
     )
 
+    return _get_loaders(trainset, valset, testset, args.batch_size, args.num_workers)
+
+
+def get_state_dict_filename(args):
+    """
+    Check dataset state dict if in restore mode
+    """
+
+    # finetune mode
+    if "pretrained_dataset_state_dict_filename" in args:
+        if not Path(args.pretrained_dataset_state_dict_filename).exists():
+            raise ValueError(
+                f"args.pretrained_dataset_state_dict_filename: "
+                f"`{args.pretrained_dataset_state_dict_filename}` not found."
+            )
+        else:
+            state_dict_filename = args.pretrained_dataset_state_dict_filename
+
+    else:
+        if args.restore:
+            if args.dataset_state_dict_filename is None:
+                warnings.warn(
+                    "Restore with `args.dataset_state_dict_filename` set to None."
+                )
+                state_dict_filename = None
+            elif not Path(args.dataset_state_dict_filename).exists():
+                warnings.warn(
+                    f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
+                    "not found; set to `None`."
+                )
+                state_dict_filename = None
+            else:
+                state_dict_filename = args.dataset_state_dict_filename
+        else:
+            state_dict_filename = None
+
+    return state_dict_filename
+
+
+def _get_loaders(trainset, valset, testset, batch_size, num_workers):
+
     train_loader = DataLoader(
         trainset,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         shuffle=True,
         drop_last=False,
         pin_memory=True,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
     )
 
     val_loader = DataLoader(
         valset,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         shuffle=False,
         drop_last=False,
         pin_memory=True,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
     )
 
     test_loader = DataLoader(
         testset,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         shuffle=False,
         drop_last=False,
         pin_memory=True,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
     )
 
     return train_loader, val_loader, test_loader
