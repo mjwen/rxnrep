@@ -1,3 +1,8 @@
+"""
+This is Used by NREL dataset.
+"""
+# TODO large part of this can be replaced by mrnet get_reaction_atom_mapping
+
 import copy
 from collections import OrderedDict
 from typing import Dict, List, Tuple, Union
@@ -15,8 +20,6 @@ def generate_atom_map_number_one_bond_break_reaction(
 ) -> str:
     """
     Add atom map number to a smiles reaction.
-
-    Used by NREL dataset.
     """
 
     reactants, _, products = smiles.split(">")
