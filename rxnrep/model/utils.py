@@ -1,4 +1,4 @@
-from typing import Callable, List, Union
+from typing import Callable, List, Optional, Union
 
 import torch.nn as nn
 
@@ -41,41 +41,95 @@ class UnifySize(nn.Module):
 
 class MLP(nn.Module):
     """
-    A fully connected neural network.
+    Multilayer perceptrons.
+
+    By default, activation is applied to each hidden layer. Optionally, one can asking
+    for an output layer by setting out_size.
+
+    For hidden layers:
+    Linear -> BN (default to False) -> Activation
+    For output layer:
+    Linear with the option to use bias of not
+
+
 
     Args:
         in_size: input feature size
-        out_sizes: size of each layer
-        activations: activation function of each layer. If an element is `None`,
-            then activation is not applied for that layer.
-            If a string, this will call nn.<the_string>
-        use_bias: whether to use bias for each layer
+        hidden_sizes: sizes for hidden layers
+        batch_norm: whether to add 1D batch norm
+        activation: activation function for hidden layers
+        out_size: size of output layer
+        out_bias: bias for output layer, this use set to False internally if
+            out_batch_norm is used.
     """
 
     def __init__(
         self,
         in_size: int,
-        out_sizes: List[int],
-        activations: List[Union[Callable, str]],
-        use_bias: List[bool],
+        hidden_sizes: List[int],
+        *,
+        batch_norm: bool = False,
+        activation: Union[Callable, str] = "ReLU",
+        out_size: Optional[int] = None,
+        out_bias: bool = True,
     ):
-        super(MLP, self).__init__()
+        super().__init__()
+        self.num_hidden_layers = len(hidden_sizes)
+        self.has_out_layer = out_size is not None
 
-        self.layers = nn.ModuleList()
-        for out, act, b in zip(out_sizes, activations, use_bias):
-            self.layers.append(nn.Linear(in_size, out, bias=b))
-            if act is not None:
-                if isinstance(act, str):
-                    act = getattr(nn, act)()
-                self.layers.append(act)
-            in_size = out
+        layers = []
 
-        self.num_layers = len(activations)
+        # hidden layers
+        if batch_norm:
+            bias = False
+        else:
+            bias = True
+
+        for size in hidden_sizes:
+            layers.append(nn.Linear(in_size, size, bias=bias))
+
+            if batch_norm:
+                layers.append(nn.BatchNorm1d(size))
+
+            if activation is not None:
+                layers.append(get_activation(activation))
+
+            in_size = size
+
+        # output layer
+        if out_size is not None:
+            layers.append(nn.Linear(in_size, out_size, bias=out_bias))
+
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
+        return self.mlp(x)
 
     def __repr__(self):
-        return f"MLP, num layers={self.num_layers}"
+        s = f"MLP, num hidden layers: {self.num_layers}"
+        if self.has_out_layer:
+            s += "; with output layer"
+        return s
+
+
+def get_activation(act: Union[str, Callable]) -> Callable:
+    """
+    Get the activation function.
+
+    If it is a string, convert to torch activation function; if it is already a torch
+    activation function, simply return it.
+    """
+    if isinstance(act, str):
+        act = getattr(nn, act)()
+    return act
+
+
+def get_dropout(drop_ratio: float, delta=1e-3) -> Callable:
+    """
+    Get dropout and do not use it if ratio is smaller than delta.
+    """
+
+    if drop_ratio is None or drop_ratio < delta:
+        return nn.Identity()
+    else:
+        return nn.Dropout(drop_ratio)

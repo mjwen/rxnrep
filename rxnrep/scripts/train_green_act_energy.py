@@ -18,7 +18,7 @@ from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
 from rxnrep.model.model import ReactionRepresentation
 from rxnrep.scripts import argument
-from rxnrep.scripts.load_dataset import load_Green_dataset
+from rxnrep.scripts.load_dataset import load_green_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import TimeMeter, write_running_metadata
 
@@ -86,12 +86,12 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # compressing
-            compressing_layer_sizes=params.compressing_layer_sizes,
-            compressing_layer_activation=params.compressing_layer_activation,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
+            # mlp_diff
+            mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
+            mlp_diff_layer_activation=params.mlp_diff_layer_activation,
+            # pool method
+            pool_method=params.pool_method,
+            pool_kwargs=params.pool_kwargs,
             # # bond hop distance decoder
             # bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             # bond_hop_dist_decoder_activation=params.node_decoder_activation,
@@ -204,7 +204,7 @@ class RxnRepLightningModel(pl.LightningModule):
             return diff_feats
 
         elif returns == "diff_feature_before_rxn_conv":
-            diff_feats = self.model.get_diff_feats(
+            diff_feats = self.model.get_difference_feature(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
@@ -726,7 +726,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     # dataset
-    train_loader, val_loader, test_loader = load_Green_dataset(args)
+    train_loader, val_loader, test_loader = load_green_dataset(args)
 
     # model
     model = RxnRepLightningModel(args)

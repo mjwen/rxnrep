@@ -412,9 +412,13 @@ class Molecule:
         note: Dict[Tuple[int, int], str],
         filename: Optional[Union[Path]] = None,
         with_atom_index: bool = False,
+        image_size=(400, 300),
+        format: bool = "svg",
     ):
         """
         Draw molecule and show a note along bond.
+
+        The returned image can be viewed in Jupyter with display(SVG(image)).
 
         Args:
             note: {bond_index: note}. The note to show for the corresponding bond.
@@ -422,6 +426,7 @@ class Molecule:
             filename: path to the save the generated image. If `None`,
                 image will not be generated, but instead, will show in Jupyter notebook.
             with_atom_index: whether to show the atom index in the image.
+            format: format of the image, `png` or `svg`
         """
         m = self.draw(with_atom_index=with_atom_index)
 
@@ -437,7 +442,13 @@ class Molecule:
         # set highlight color
         bond_colors = {b: (192 / 255, 192 / 255, 192 / 255) for b in highlight_bonds}
 
-        d = rdMolDraw2D.MolDraw2DCairo(400, 300)
+        if format == "png":
+            d = rdMolDraw2D.MolDraw2DCairo(*image_size)
+        elif format == "svg":
+            d = rdMolDraw2D.MolDraw2DSVG(*image_size)
+        else:
+            supported = ["png", "svg"]
+            raise ValueError(f"Supported format are {supported}; got {format}")
 
         # smaller font size
         d.SetFontSize(0.8 * d.FontSize())
@@ -446,14 +457,13 @@ class Molecule:
             d, m, highlightBonds=highlight_bonds, highlightBondColors=bond_colors
         )
         d.FinishDrawing()
+        img = d.GetDrawingText()
 
         if filename is not None:
             with open(filename, "wb") as f:
-                f.write(d.GetDrawingText())
+                f.write(img)
 
-        # TODO the returned d may not show in Jupyter notebooks
-        #  write to /tmp or using tempfile, and then display it using Ipython.display
-        #  Also, check whether it is jupyter kernel
+        return img
 
     def sanitize(self):
         """
@@ -530,6 +540,55 @@ def generate_3D_coords(m: Chem.Mol) -> Chem.Mol:
         optimize_till_converge(AllChem.UFFOptimizeMolecule, m)
 
     return m
+
+
+def find_functional_group(
+    mol: Chem.Mol, atoms: List[int], func_groups: Union[Path, List]
+) -> List[int]:
+    """
+    Find the largest functional group associated with the give atoms.
+
+    This will loop over all the given functional groups, check whether a functional
+    group contains (some of or all) the given atoms. If yes, then
+    1. if the number of given atoms it contains is larger than the present one,
+    this functional group is selected.
+    2. if the number of given atoms it contains is the same but the number of atoms in
+    the functional group is larger than the already selected one, this new functional
+    group is selected.
+
+
+    Args:
+        mol: rdkit mol
+        atoms: a list of atoms index (index of rdkit atoms, not map number) starting
+            from 0.
+        func_groups: if a Path, should be a Path to a tsv file containing the SMARTS
+            of the functional group. Or it could be a list of rdkit mols
+            created by MolFromSmarts.
+
+    Returns:
+        functional group, specified by a list of atom indexes. Note the functional
+            group may not include all the given atoms.
+    """
+
+    fg_atoms = []  # atom index of functional group
+    num_in_fg = 0  # number of given atoms in functional group
+
+    atoms = set(atoms)
+
+    for fg in func_groups:
+        sub = mol.GetSubstructMatch(fg)
+        intersect = atoms.intersection(sub)
+
+        if intersect:
+            if len(intersect) > num_in_fg:
+                fg_atoms = sub
+                num_in_fg = len(intersect)
+
+            elif len(intersect) == num_in_fg:
+                if len(sub) > len(fg_atoms):
+                    fg_atoms = sub
+
+    return fg_atoms
 
 
 class MoleculeError(Exception):

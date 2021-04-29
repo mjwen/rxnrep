@@ -7,12 +7,30 @@ from typing import Dict, List, Tuple, Union
 import pandas as pd
 from monty.serialization import loadfn
 from mrnet.core.mol_entry import MoleculeEntry
-from mrnet.core.reactions import Reaction as MrnetReaction
+from mrnet.core.reactions import Reaction as _Reaction
 
 from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.rdmol import create_rdkit_mol_from_mol_graph
 from rxnrep.core.reaction import Reaction, ReactionError, smiles_to_reaction
-from rxnrep.utils import to_path
+
+
+class MrnetReaction(_Reaction):
+    """
+    A wrapper over mrnet reaction to work around abstractmethod.
+    """
+
+    @classmethod
+    def generate(cls, entries, determine_atom_mappings: bool = True):
+        pass
+
+    def graph_representation(self):
+        pass
+
+    def set_free_energy(self, temperature):
+        pass
+
+    def set_rate_constant(self):
+        pass
 
 
 def read_smiles_tsv_dataset(
@@ -35,7 +53,7 @@ def read_smiles_tsv_dataset(
             entries in the dataset file.
     """
 
-    filename = to_path(filename)
+    filename = Path(filename).expanduser().resolve()
     df = pd.read_csv(filename, sep="\t")
     smiles_reactions = df["reaction"].tolist()
 
@@ -150,6 +168,9 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
     """
     Convert a pymatgen reaction to a rxnrep reaction.
 
+    Reaction energy and activation energy are set as reaction property, setting to None
+    if the provided mrnet reaction does not have the corresponding energy.
+
     Args:
         pmg_reaction: pymatgen reaction
         index: index of the reaction in the whole dataset
@@ -159,9 +180,9 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
     """
     # check map numbers are the same set in all the reactants and products
     reactants_map_numbers = [mp.values() for mp in pmg_reaction.reactants_atom_mapping]
-    reactants_map_numbers = set(itertools.chain.from_iterable(reactants_map_numbers))
+    reactants_map_numbers = sorted(itertools.chain.from_iterable(reactants_map_numbers))
     products_map_numbers = [mp.values() for mp in pmg_reaction.products_atom_mapping]
-    products_map_numbers = set(itertools.chain.from_iterable(products_map_numbers))
+    products_map_numbers = sorted(itertools.chain.from_iterable(products_map_numbers))
     if reactants_map_numbers != products_map_numbers:
         raise ValueError(
             "Expect atom map numbers to be the same set in the reactants and products; "
@@ -199,17 +220,32 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
     product_ids = "+".join([str(i) for i in pmg_reaction.product_ids])
     reaction_id = f"{reactant_ids}->{product_ids}_index-{index}"
 
+    #
     # additional property
-    free_energy = sum([m.get_property("free_energy") for m in products]) - sum(
-        [m.get_property("free_energy") for m in reactants]
-    )
+    #
+    # reaction energy
+    reactant_energy = [m.get_property("free_energy") for m in products]
+    product_energy = [m.get_property("free_energy") for m in reactants]
+    if None in reactant_energy or None in product_energy:
+        reaction_energy = None
+    else:
+        reaction_energy = sum(reactant_energy) - sum(product_energy)
+
+    # override it if reaction energy is provided in parameters
+    reaction_energy = pmg_reaction.parameters.get("reaction_energy", reaction_energy)
+
+    # reaction energy
+    activation_energy = pmg_reaction.parameters.get("activation_energy", None)
 
     reaction = Reaction(
         reactants,
         products,
         id=reaction_id,
         sanity_check=False,
-        properties={"free_energy": free_energy},
+        properties={
+            "reaction_energy": reaction_energy,
+            "activation_energy": activation_energy,
+        },
     )
 
     return reaction
@@ -238,7 +274,7 @@ def mrnet_mol_entry_to_molecule(
             f"but provided mapping number are for atoms {sorted_atom_index}."
         )
 
-    rdkit_mol, _ = create_rdkit_mol_from_mol_graph(mol_entry.mol_graph)
+    rdkit_mol = create_rdkit_mol_from_mol_graph(mol_entry.mol_graph)
 
     # set rdkit mol atom map number
     for i in sorted_atom_index:

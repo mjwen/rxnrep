@@ -33,7 +33,7 @@ def create_graph(m, n_a, n_b, n_v, feat_dim=3):
     return g
 
 
-def create_graph_C(num_global_nodes):
+def create_graph_C(num_global_nodes, feat_dim=3):
     """
     Create a single atom molecule C.
 
@@ -53,10 +53,10 @@ def create_graph_C(num_global_nodes):
     smi = "[C]"
     m = Molecule.from_smiles(smi)
 
-    return create_graph(m, 1, 0, num_global_nodes)
+    return create_graph(m, 1, 0, num_global_nodes, feat_dim)
 
 
-def create_graph_CO2(num_global_nodes):
+def create_graph_CO2(num_global_nodes, feat_dim=3):
     """
     Create a CO2 and add features.
 
@@ -87,4 +87,4 @@ def create_graph_CO2(num_global_nodes):
     smi = "O=C=O"
     m = Molecule.from_smiles(smi)
 
-    return create_graph(m, 3, 2, num_global_nodes)
+    return create_graph(m, 3, 2, num_global_nodes, feat_dim)

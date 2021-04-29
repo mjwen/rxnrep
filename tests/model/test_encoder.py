@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from rxnrep.model.encoder import create_reaction_features
+from rxnrep.model.encoder import create_diff_reaction_features
 
 
 def test_create_reaction_features():
@@ -21,8 +21,8 @@ def test_create_reaction_features():
         "reactant_num_molecules": [2, 1],
         "product_num_molecules": [2, 2],
         "num_unchanged_bonds": [1, 2],
-        "num_lost_bonds": [1, 1],
-        "num_added_bonds": [1, 0],
+        "num_reactant_bonds": [2, 3],
+        "num_product_bonds": [2, 2],
     }
 
     # feats
@@ -52,7 +52,7 @@ def test_create_reaction_features():
     )
 
     molecule_feats = {"atom": atom_feats, "bond": bond_feats, "global": global_feats}
-    diff_feats = create_reaction_features(molecule_feats, metadata)
+    diff_feats = create_diff_reaction_features(molecule_feats, metadata)
 
     assert torch.equal(diff_feats["atom"], ref_atom_feats)
     assert torch.equal(diff_feats["bond"], ref_bond_feats)

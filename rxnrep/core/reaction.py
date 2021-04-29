@@ -11,9 +11,10 @@ import numpy as np
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem.Draw import rdMolDraw2D
 from sklearn.utils import class_weight
 
-from rxnrep.core.molecule import Molecule
+from rxnrep.core.molecule import Molecule, find_functional_group
 from rxnrep.typing import BondIndex
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,10 @@ class Reaction:
 
         self._species = None
 
+        self._atom_distance_to_reaction_center = None
+        self._bond_distance_to_reaction_center = None
+        self._reaction_center_atom_functional_group = None
+
         if sanity_check:
             self.check_composition()
             self.check_charge()
@@ -79,6 +84,27 @@ class Reaction:
         Returns the identifier of the reaction.
         """
         return self._id
+
+    @property
+    def num_atoms(self) -> int:
+        """
+        Total number of atoms.
+        """
+        return sum([m.num_atoms for m in self.reactants])
+
+    @property
+    def num_reactants_bonds(self) -> int:
+        """
+        Total number of bonds in all reactants.
+        """
+        return len(self.unchanged_bonds) + len(self.lost_bonds)
+
+    @property
+    def num_products_bonds(self) -> int:
+        """
+        Total number of bonds in all products.
+        """
+        return len(self.unchanged_bonds) + len(self.added_bonds)
 
     @property
     def unchanged_bonds(self) -> List[BondIndex]:
@@ -141,6 +167,125 @@ class Reaction:
             specs_ordered = [specs[map_number.index(i)] for i in range(len(map_number))]
             self._species = specs_ordered
         return self._species
+
+    @property
+    def atom_distance_to_reaction_center(self) -> List[int]:
+        """
+        Hop distance of atoms to reaction center.
+
+        The atoms are ordered according to atom map number.
+        """
+        if self._atom_distance_to_reaction_center is None:
+
+            atoms_in_reaction_center = set(
+                [
+                    i
+                    for i in itertools.chain.from_iterable(
+                        self.lost_bonds + self.added_bonds
+                    )
+                ]
+            )
+
+            all_bonds = self.unchanged_bonds + self.lost_bonds + self.added_bonds
+
+            # row of distances: atoms in the center;
+            # column of distances: distance to other atoms
+            VAL = 10000000000
+            distances = VAL * np.ones((self.num_atoms, self.num_atoms), dtype=np.int32)
+
+            # distance from center atoms to other atoms
+            nx_graph = nx.Graph(incoming_graph_data=all_bonds)
+            for center_atom in atoms_in_reaction_center:
+                dists = nx.single_source_shortest_path_length(nx_graph, center_atom)
+                for atom, d in dists.items():
+                    distances[center_atom][atom] = d
+
+            distances = np.min(distances, axis=0).tolist()
+
+            if VAL in distances:
+                atom = distances.index(VAL)
+                raise RuntimeError(
+                    f"Cannot find path to reaction center for atom {atom}, this should not "
+                    "happen. The reaction probably has atoms not connected to others in "
+                    "both the reactants and the products. Please remove these atoms."
+                    f"Bad reaction is: {self.id}"
+                )
+
+            self._atom_distance_to_reaction_center = distances
+
+        return self._atom_distance_to_reaction_center
+
+    @property
+    def bond_distance_to_reaction_center(self) -> List[int]:
+        """
+        Hop distance of bonds to reaction center.
+
+        Bonds are ordered according to bond map number.
+
+        In `combine_graphs()`, the bond node in the graph are reordered according to bond
+        map number. In `create_reaction_graph()`, the unchanged bonds will have bond
+        node number 0, 1, ... N_unchanged-1, the lost bonds in the reactants will have
+        bond node number N_unchanged, ... N-1, where N is the number of bonds in the
+        reactants, and the added bonds will have bond node number N, ... N+N_added-1.
+        We shifted the indices of the added bonds right by `the number of lost bonds`
+        to make a graph containing all bonds. Here we do the same shift for added bonds.
+        """
+
+        if self._bond_distance_to_reaction_center is None:
+
+            atom_distances = self.atom_distance_to_reaction_center
+
+            reactants_bond_map_number = self.get_reactants_bond_map_number(
+                for_changed=True, as_dict=True
+            )
+            products_bond_map_number = self.get_products_bond_map_number(
+                for_changed=True, as_dict=True
+            )
+            reactants_bond_map_number = {
+                k: v for d in reactants_bond_map_number for k, v in d.items()
+            }
+            products_bond_map_number = {
+                k: v for d in products_bond_map_number for k, v in d.items()
+            }
+
+            unchanged_bonds = self.unchanged_bonds
+            lost_bonds = self.lost_bonds
+            added_bonds = self.added_bonds
+            num_lost_bonds = len(lost_bonds)
+            num_bonds = len(unchanged_bonds + lost_bonds + added_bonds)
+
+            distances = [None] * num_bonds
+
+            for bond in lost_bonds:
+                idx = reactants_bond_map_number[bond]
+                distances[idx] = 0
+
+            for bond in added_bonds:
+                idx = products_bond_map_number[bond] + num_lost_bonds
+                distances[idx] = 0
+
+            for bond in unchanged_bonds:
+                atom1, atom2 = bond
+                atom1_dist = atom_distances[atom1]
+                atom2_dist = atom_distances[atom2]
+
+                if atom1_dist == atom2_dist:
+                    dist = atom1_dist + 1
+                else:
+                    dist = max(atom1_dist, atom2_dist)
+
+                idx = reactants_bond_map_number[bond]
+                distances[idx] = dist
+
+            if None in distances:
+                raise RuntimeError(
+                    "Some bond has not hop distance, this should not happen. "
+                    "Bad reaction is: {self.id}"
+                )
+
+            self._bond_distance_to_reaction_center = distances
+
+        return self._bond_distance_to_reaction_center
 
     def get_reactants_atom_map_number(self, zero_based=True) -> List[List[int]]:
         """
@@ -269,6 +414,54 @@ class Reaction:
             number of the two atoms forming the bond.
         """
         return self._get_bond_map_number("products", for_changed, as_dict)
+
+    def get_reaction_center_atom_functional_group(
+        self, func_groups: Union[Path, List], include_center_atoms: bool = True
+    ) -> List[int]:
+        """
+        The functional groups associated with atoms in reaction center.
+
+        For each molecule, get largest functional group associated with atoms in
+        reaction center and take the union of functional group of all molecules.
+
+        Args:
+            func_groups: if a Path, should be a Path to a tsv file containing the SMARTS
+                of the functional group. Or it could be a list of rdkit mols
+                created by MolFromSmarts.
+            include_center_atoms: whether to include center atoms in the returned
+                functional group atoms.
+
+        Returns:
+            func_atom_indexes: functional group atoms associated with
+                atoms in reaction center. The returned atoms are nide
+        """
+
+        if self._reaction_center_atom_functional_group is None:
+
+            reactants = [m.rdkit_mol for m in self.reactants]
+            products = [m.rdkit_mol for m in self.products]
+            dist = self.atom_distance_to_reaction_center
+
+            rct_atom_map = self.get_reactants_atom_map_number()
+            prdt_atom_mapping = self.get_products_atom_map_number()
+
+            all_fg_atoms = set()
+            for m, atom_map in zip(
+                reactants + products, rct_atom_map + prdt_atom_mapping
+            ):
+                center_atom = [i for i, m in enumerate(atom_map) if dist[m] == 0]
+                fg_atoms = find_functional_group(m, center_atom, func_groups)
+
+                # change atom index to map number index
+                fg_atoms = [atom_map[i] for i in fg_atoms]
+
+                all_fg_atoms.update(fg_atoms)
+                if include_center_atoms:
+                    all_fg_atoms.update([atom_map[i] for i in center_atom])
+
+            self._reaction_center_atom_functional_group = list(all_fg_atoms)
+
+        return self._reaction_center_atom_functional_group
 
     def get_unchanged_lost_and_added_bonds(
         self, zero_based: bool = True
@@ -564,6 +757,44 @@ class Reaction:
             image.save(str(filename))
         return rxn
 
+    def draw2(
+        self, filename: Path = None, image_size=(800, 300), format="svg", font_scale=1.5
+    ):
+        """
+        The returned image can be viewed in Jupyter with display(SVG(image)).
+
+        Args:
+            filename:
+            font_scale:
+            image_size:
+            format:
+
+        Returns:
+        """
+
+        rxn = AllChem.ReactionFromSmarts(str(self), useSmiles=True)
+
+        if format == "png":
+            d2d = rdMolDraw2D.MolDraw2DCairo(*image_size)
+        elif format == "svg":
+            d2d = rdMolDraw2D.MolDraw2DSVG(*image_size)
+        else:
+            supported = ["png", "svg"]
+            raise ValueError(f"Supported format are {supported}; got {format}")
+
+        # d2d.SetFontSize(font_scale * d2d.FontSize())
+
+        d2d.DrawReaction(rxn)
+        d2d.FinishDrawing()
+
+        img = d2d.GetDrawingText()
+
+        if filename is not None:
+            with open(filename, "wb") as f:
+                f.write(img)
+
+        return img
+
     def __str__(self):
         """Smiles representation of reaction."""
         reactants = ".".join([m.to_smiles() for m in self.reactants])
@@ -677,8 +908,7 @@ def get_atom_distance_to_reaction_center(
     # i.e. hop_distances[i] will be the hop distance for atom node i in the reaction
     # graph.
     hop_distances = []
-    num_atoms = sum([m.num_atoms for m in reaction.reactants])
-    for atom in range(num_atoms):
+    for atom in range(reaction.num_atoms):
 
         # atoms involved with both lost and added bonds
         if atom in atoms_in_lost_bonds and atom in atoms_in_added_bonds:
@@ -781,20 +1011,18 @@ def get_bond_distance_to_reaction_center(
         for atom, dist in enumerate(atom_hop_distances)
     ]
 
-    reactants_bonds = reaction.get_reactants_bonds(zero_based=True)
-    products_bonds = reaction.get_products_bonds(zero_based=True)
-    reactants_bond_map_number = reaction.get_reactants_bond_map_number(for_changed=True)
-    products_bond_map_number = reaction.get_products_bond_map_number(for_changed=True)
-
-    # correspondence between bond index (atom1, atom2) and bond map number
-    reactants_bond_index_to_map_number = {}
-    products_bond_index_to_map_number = {}
-    for bonds, map_number in zip(reactants_bonds, reactants_bond_map_number):
-        for b, mn in zip(bonds, map_number):
-            reactants_bond_index_to_map_number[b] = mn
-    for bonds, map_number in zip(products_bonds, products_bond_map_number):
-        for b, mn in zip(bonds, map_number):
-            products_bond_index_to_map_number[b] = mn
+    reactants_bond_map_number = reaction.get_reactants_bond_map_number(
+        for_changed=True, as_dict=True
+    )
+    products_bond_map_number = reaction.get_products_bond_map_number(
+        for_changed=True, as_dict=True
+    )
+    reactants_bond_map_number = {
+        k: v for d in reactants_bond_map_number for k, v in d.items()
+    }
+    products_bond_map_number = {
+        k: v for d in products_bond_map_number for k, v in d.items()
+    }
 
     num_lost_bonds = len(lost_bonds)
     num_bonds = len(unchanged_bonds + lost_bonds + added_bonds)
@@ -810,11 +1038,11 @@ def get_bond_distance_to_reaction_center(
     hop_distances = [None] * num_bonds
 
     for bond in lost_bonds:
-        idx = reactants_bond_index_to_map_number[bond]
+        idx = reactants_bond_map_number[bond]
         hop_distances[idx] = 0
 
     for bond in added_bonds:
-        idx = products_bond_index_to_map_number[bond] + num_lost_bonds
+        idx = products_bond_map_number[bond] + num_lost_bonds
         hop_distances[idx] = max_hop + 1
 
     for bond in unchanged_bonds:
@@ -830,7 +1058,7 @@ def get_bond_distance_to_reaction_center(
         if dist > max_hop:
             dist = max_hop
 
-        idx = reactants_bond_index_to_map_number[bond]
+        idx = reactants_bond_map_number[bond]
         hop_distances[idx] = dist
 
     assert None not in hop_distances, (

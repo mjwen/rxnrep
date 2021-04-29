@@ -17,8 +17,8 @@ class GatedGCNConv(nn.Module):
     (https://arxiv.org/abs/1711.07553) by adding global features.
 
     Args:
-        input_dim: input feature dimension
-        output_dim: output feature dimension
+        in_size: input feature dimension
+        out_size: output feature dimension
         num_fc_layers: number of NN layers to transform input to output. In `Residual
             Gated Graph ConvNets` the number of layers is set to 1. Here we make it a
             variable to accept any number of layers.
@@ -34,8 +34,8 @@ class GatedGCNConv(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
-        output_dim: int,
+        in_size: int,
+        out_size: int,
         num_fc_layers: int = 1,
         graph_norm: bool = False,
         batch_norm: bool = True,
@@ -49,28 +49,25 @@ class GatedGCNConv(nn.Module):
         self.activation = activation
         self.residual = residual
 
-        if input_dim != output_dim:
+        if in_size != out_size:
             self.residual = False
 
-        out_sizes = [output_dim] * num_fc_layers
-        acts = [activation] * (num_fc_layers - 1) + [nn.Identity()]
-        use_bias = [True] * num_fc_layers
-
         # A, B, ... I are phi_1, phi_2, ..., phi_9 in the BonDNet paper
-        self.A = MLP(input_dim, out_sizes, acts, use_bias)
-        self.B = MLP(input_dim, out_sizes, acts, use_bias)
-        self.C = MLP(input_dim, out_sizes, acts, use_bias)
-        self.D = MLP(input_dim, out_sizes, acts, use_bias)
-        self.E = MLP(input_dim, out_sizes, acts, use_bias)
-        self.F = MLP(input_dim, out_sizes, acts, use_bias)
-        self.G = MLP(output_dim, out_sizes, acts, use_bias)
-        self.H = MLP(output_dim, out_sizes, acts, use_bias)
-        self.I = MLP(input_dim, out_sizes, acts, use_bias)
+        hidden = [out_size] * (num_fc_layers - 1)
+        self.A = MLP(in_size, hidden, activation=activation, out_size=out_size)
+        self.B = MLP(in_size, hidden, activation=activation, out_size=out_size)
+        self.C = MLP(in_size, hidden, activation=activation, out_size=out_size)
+        self.D = MLP(in_size, hidden, activation=activation, out_size=out_size)
+        self.E = MLP(in_size, hidden, activation=activation, out_size=out_size)
+        self.F = MLP(in_size, hidden, activation=activation, out_size=out_size)
+        self.G = MLP(out_size, hidden, activation=activation, out_size=out_size)
+        self.H = MLP(out_size, hidden, activation=activation, out_size=out_size)
+        self.I = MLP(in_size, hidden, activation=activation, out_size=out_size)
 
         if self.batch_norm:
-            self.bn_node_h = nn.BatchNorm1d(output_dim)
-            self.bn_node_e = nn.BatchNorm1d(output_dim)
-            self.bn_node_u = nn.BatchNorm1d(output_dim)
+            self.bn_node_h = nn.BatchNorm1d(out_size)
+            self.bn_node_e = nn.BatchNorm1d(out_size)
+            self.bn_node_u = nn.BatchNorm1d(out_size)
 
         delta = 1e-3
         if dropout is None or dropout < delta:

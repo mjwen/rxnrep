@@ -6,7 +6,7 @@
 # - diff mol feats
 # - rxn conv layers (could be 0)
 # - compression layers (could be 0)
-# - pooling (set2set, hot distance)
+# - pool (set2set, hot distance)
 #
 # decoders:
 # - atom hop dist
@@ -17,217 +17,23 @@
 # - reaction energy
 # - activation energy
 # - bep activation energy label
+# - reaction type
 
-# By default, the compressing layers and all decoders are set to None, meaning they
+# By default, the mlp_diff layers and all decoders are set to None, meaning they
 # will not be used. Also set the hidden_layer_sizes set an empty list will also not use
 # the decoder.
 #
 
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
-import dgl
 import torch
-import torch.nn as nn
 
-from rxnrep.model.decoder import (
-    ActivationEnergyDecoder,
-    AtomHopDistDecoder,
-    AtomTypeDecoder,
-    BondHopDistDecoder,
-    ReactionEnergyDecoder,
-)
 from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.readout import CompressingNN, HopDistancePooling, Set2SetThenCat
+from rxnrep.model.utils import MLP
 
 
-class EncoderAndPooling(nn.Module):
-    """
-    Encoder and reaction feature pooling part of the model. Add decoder to use this.
-    """
-
-    def __init__(
-        self,
-        in_feats,
-        embedding_size,
-        *,
-        # encoder
-        molecule_conv_layer_sizes,
-        molecule_num_fc_layers,
-        molecule_batch_norm,
-        molecule_activation,
-        molecule_residual,
-        molecule_dropout,
-        reaction_conv_layer_sizes,
-        reaction_num_fc_layers,
-        reaction_batch_norm,
-        reaction_activation,
-        reaction_residual,
-        reaction_dropout,
-        # compressing
-        compressing_layer_sizes=None,
-        compressing_layer_activation=None,
-        # pooling
-        pooling_method="set2set",
-        pooling_kwargs: Dict[str, Any] = None,
-    ):
-
-        super().__init__()
-
-        # ========== encoder ==========
-        self.encoder = ReactionEncoder(
-            in_feats=in_feats,
-            embedding_size=embedding_size,
-            molecule_conv_layer_sizes=molecule_conv_layer_sizes,
-            molecule_num_fc_layers=molecule_num_fc_layers,
-            molecule_batch_norm=molecule_batch_norm,
-            molecule_activation=molecule_activation,
-            molecule_residual=molecule_residual,
-            molecule_dropout=molecule_dropout,
-            reaction_conv_layer_sizes=reaction_conv_layer_sizes,
-            reaction_num_fc_layers=reaction_num_fc_layers,
-            reaction_batch_norm=reaction_batch_norm,
-            reaction_activation=reaction_activation,
-            reaction_residual=reaction_residual,
-            reaction_dropout=reaction_dropout,
-        )
-
-        # have reaction conv layer
-        if reaction_conv_layer_sizes:
-            encoder_outsize = reaction_conv_layer_sizes[-1]
-        # does not have reaction conv layer
-        else:
-            encoder_outsize = molecule_conv_layer_sizes[-1]
-
-        # ========== compressor ==========
-        if compressing_layer_sizes:
-            self.compressor = nn.ModuleDict(
-                {
-                    k: CompressingNN(
-                        in_size=encoder_outsize,
-                        hidden_sizes=compressing_layer_sizes,
-                        activation=compressing_layer_activation,
-                    )
-                    for k in ["atom", "bond", "global"]
-                }
-            )
-            compressor_outsize = compressing_layer_sizes[-1]
-        else:
-            self.compressor = nn.ModuleDict(
-                {k: nn.Identity() for k in ["atom", "bond", "global"]}
-            )
-            compressor_outsize = encoder_outsize
-
-        # ========== reaction feature pooling ==========
-        # readout reaction features, one 1D tensor for each reaction
-
-        self.pooling_method = pooling_method
-
-        if pooling_method == "set2set":
-            if pooling_kwargs is None:
-                set2set_num_iterations = 6
-                set2set_num_layers = 3
-            else:
-                set2set_num_iterations = pooling_kwargs["set2set_num_iterations"]
-                set2set_num_layers = pooling_kwargs["set2set_num_layers"]
-
-            in_sizes = [compressor_outsize] * 2
-            self.set2set = Set2SetThenCat(
-                num_iters=set2set_num_iterations,
-                num_layers=set2set_num_layers,
-                ntypes=["atom", "bond"],
-                in_feats=in_sizes,
-                ntypes_direct_cat=["global"],
-            )
-
-            pooling_outsize = compressor_outsize * 5
-
-        elif pooling_method == "hop_distance":
-            if pooling_kwargs is None:
-                raise RuntimeError(
-                    "`max_hop_distance` should be provided as `pooling_kwargs` to use "
-                    "`hop_distance_pool`"
-                )
-            else:
-                max_hop_distance = pooling_kwargs["max_hop_distance"]
-                self.hop_dist_pool = HopDistancePooling(max_hop=max_hop_distance)
-
-            pooling_outsize = compressor_outsize * 3
-
-        elif pooling_method == "global_only":
-            pooling_outsize = compressor_outsize
-
-        else:
-            raise ValueError(f"Unsupported pooling method `{pooling_method}`")
-
-        self.node_feats_size = compressor_outsize
-        self.reaction_feats_size = pooling_outsize
-
-    def forward(
-        self,
-        molecule_graphs: dgl.DGLGraph,
-        reaction_graphs: dgl.DGLGraph,
-        feats: Dict[str, torch.Tensor],
-        metadata: Dict[str, torch.Tensor],
-    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
-        """
-        We let forward only returns features and the part to map the features to logits
-        in another function: `decode`.
-
-        Args:
-            molecule_graphs:
-            reaction_graphs:
-            feats:
-            metadata:
-        """
-        # encoder
-        feats = self.encoder(molecule_graphs, reaction_graphs, feats, metadata)
-
-        # compressor
-        feats = {k: self.compressor[k](feats[k]) for k in ["atom", "bond", "global"]}
-
-        # readout reaction features, a 1D tensor for each reaction
-        if self.pooling_method == "set2set":
-            reaction_feats = self.set2set(reaction_graphs, feats)
-
-        elif self.pooling_method == "hop_distance":
-
-            hop_dist = {
-                "atom": metadata["atom_hop_dist"],
-                "bond": metadata["bond_hop_dist"],
-            }
-            reaction_feats = self.hop_dist_pool(reaction_graphs, feats, hop_dist)
-
-        elif self.pooling_method == "global_only":
-            reaction_feats = feats["global"]
-
-        else:
-            raise ValueError(f"Unsupported pooling method `{self.pooling_method}`")
-
-        return feats, reaction_feats
-
-    def get_diff_feats(
-        self,
-        molecule_graphs: dgl.DGLGraph,
-        reaction_graphs: dgl.DGLGraph,
-        feats: Dict[str, torch.Tensor],
-        metadata: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Get the atom/bond/global difference features before applying reaction
-        convolution.
-
-        Returns:
-            {atom:feats, bond:feats, global:feats}
-
-        """
-
-        return self.encoder.get_diff_feats(
-            molecule_graphs, reaction_graphs, feats, metadata
-        )
-
-
-class ReactionRepresentation(EncoderAndPooling):
+class ReactionRepresentation(ReactionEncoder):
     """
     Model to represent chemical reactions.
     """
@@ -250,12 +56,24 @@ class ReactionRepresentation(EncoderAndPooling):
         reaction_activation,
         reaction_residual,
         reaction_dropout,
-        # compressing
-        compressing_layer_sizes=None,
-        compressing_layer_activation=None,
-        # pooling
-        pooling_method="set2set",
-        pooling_kwargs: Dict[str, Any] = None,
+        conv="GatedGCNConv",
+        has_global_feats=True,
+        # mlp diff
+        mlp_diff_layer_sizes=None,
+        mlp_diff_layer_batch_norm=None,
+        mlp_diff_layer_activation=None,
+        # pool
+        pool_method: str = "set2set",
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        pool_kwargs: Dict[str, Any] = None,
+        #
+        combine_reactants_products="difference",
+        # mlp pool
+        mlp_pool_layer_sizes=None,
+        mlp_pool_layer_batch_norm=None,
+        mlp_pool_layer_activation=None,
         # bond hop dist decoder
         bond_hop_dist_decoder_hidden_layer_sizes=None,
         bond_hop_dist_decoder_activation=None,
@@ -274,9 +92,13 @@ class ReactionRepresentation(EncoderAndPooling):
         # activation energy decoder
         activation_energy_decoder_hidden_layer_sizes=None,
         activation_energy_decoder_activation=None,
+        # reaction classification decoder
+        reaction_type_decoder_hidden_layer_sizes=None,
+        reaction_type_decoder_num_classes=None,
+        reaction_type_decoder_activation=None,
     ):
 
-        # encoder and pooling
+        # encoder and pool
         super().__init__(
             in_feats,
             embedding_size,
@@ -292,43 +114,53 @@ class ReactionRepresentation(EncoderAndPooling):
             reaction_activation=reaction_activation,
             reaction_residual=reaction_residual,
             reaction_dropout=reaction_dropout,
-            compressing_layer_sizes=compressing_layer_sizes,
-            compressing_layer_activation=compressing_layer_activation,
-            pooling_method=pooling_method,
-            pooling_kwargs=pooling_kwargs,
+            conv=conv,
+            has_global_feats=has_global_feats,
+            combine_reactants_products=combine_reactants_products,
+            mlp_diff_layer_sizes=mlp_diff_layer_sizes,
+            mlp_diff_layer_batch_norm=mlp_diff_layer_batch_norm,
+            mlp_diff_layer_activation=mlp_diff_layer_activation,
+            pool_method=pool_method,
+            pool_atom_feats=pool_atom_feats,
+            pool_bond_feats=pool_bond_feats,
+            pool_global_feats=pool_global_feats,
+            pool_kwargs=pool_kwargs,
+            mlp_pool_layer_sizes=mlp_pool_layer_sizes,
+            mlp_pool_layer_batch_norm=mlp_pool_layer_batch_norm,
+            mlp_pool_layer_activation=mlp_pool_layer_activation,
         )
 
         # ========== node level decoder ==========
 
         # bond hop dist decoder
         if bond_hop_dist_decoder_hidden_layer_sizes:
-            self.bond_hop_dist_decoder = BondHopDistDecoder(
+            self.bond_hop_dist_decoder = MLP(
                 in_size=self.node_feats_size,
-                num_classes=bond_hop_dist_decoder_num_classes,
-                hidden_layer_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
+                hidden_sizes=bond_hop_dist_decoder_hidden_layer_sizes,
                 activation=bond_hop_dist_decoder_activation,
+                out_size=bond_hop_dist_decoder_num_classes,
             )
         else:
             self.bond_hop_dist_decoder = None
 
         # atom hop dist decoder
         if atom_hop_dist_decoder_hidden_layer_sizes:
-            self.atom_hop_dist_decoder = AtomHopDistDecoder(
+            self.atom_hop_dist_decoder = MLP(
                 in_size=self.node_feats_size,
-                num_classes=atom_hop_dist_decoder_num_classes,
-                hidden_layer_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
+                hidden_sizes=atom_hop_dist_decoder_hidden_layer_sizes,
                 activation=atom_hop_dist_decoder_activation,
+                out_size=atom_hop_dist_decoder_num_classes,
             )
         else:
             self.atom_hop_dist_decoder = None
 
         # masked atom type decoder
         if masked_atom_type_decoder_hidden_layer_sizes:
-            self.masked_atom_type_decoder = AtomTypeDecoder(
+            self.masked_atom_type_decoder = MLP(
                 in_size=self.node_feats_size,
-                num_classes=masked_atom_type_decoder_num_classes,
-                hidden_layer_sizes=masked_atom_type_decoder_hidden_layer_sizes,
+                hidden_sizes=masked_atom_type_decoder_hidden_layer_sizes,
                 activation=masked_atom_type_decoder_activation,
+                out_size=masked_atom_type_decoder_num_classes,
             )
         else:
             self.masked_atom_type_decoder = None
@@ -337,27 +169,40 @@ class ReactionRepresentation(EncoderAndPooling):
 
         # reaction energy decoder
         if reaction_energy_decoder_hidden_layer_sizes:
-            self.reaction_energy_decoder = ReactionEnergyDecoder(
+            self.reaction_energy_decoder = MLP(
                 in_size=self.reaction_feats_size,
-                hidden_layer_sizes=reaction_energy_decoder_hidden_layer_sizes,
+                hidden_sizes=reaction_energy_decoder_hidden_layer_sizes,
                 activation=reaction_energy_decoder_activation,
+                out_size=1,
             )
         else:
             self.reaction_energy_decoder = None
 
         # activation energy decoder
         if activation_energy_decoder_hidden_layer_sizes:
-            self.activation_energy_decoder = ActivationEnergyDecoder(
+            self.activation_energy_decoder = MLP(
                 in_size=self.reaction_feats_size,
-                hidden_layer_sizes=activation_energy_decoder_hidden_layer_sizes,
+                hidden_sizes=activation_energy_decoder_hidden_layer_sizes,
                 activation=activation_energy_decoder_activation,
+                out_size=1,
             )
         else:
             self.activation_energy_decoder = None
 
+        # reaction type decoder
+        if reaction_type_decoder_hidden_layer_sizes:
+            self.reaction_type_decoder = MLP(
+                in_size=self.reaction_feats_size,
+                hidden_sizes=reaction_type_decoder_hidden_layer_sizes,
+                activation=reaction_type_decoder_activation,
+                out_size=reaction_type_decoder_num_classes,
+            )
+        else:
+            self.reaction_type_decoder = None
+
     def decode(
         self,
-        feats: torch.Tensor,
+        feats: Dict[str, torch.Tensor],
         reaction_feats: torch.Tensor,
         metadata: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
@@ -402,10 +247,17 @@ class ReactionRepresentation(EncoderAndPooling):
             if self.reaction_energy_decoder is None
             else self.reaction_energy_decoder(reaction_feats)
         )
+
         activation_energy = (
             None
             if self.activation_energy_decoder is None
             else self.activation_energy_decoder(reaction_feats)
+        )
+
+        reaction_type = (
+            None
+            if self.reaction_type_decoder is None
+            else self.reaction_type_decoder(reaction_feats)
         )
 
         # predictions
@@ -416,6 +268,7 @@ class ReactionRepresentation(EncoderAndPooling):
             "reaction_cluster": reaction_feats,
             "reaction_energy": reaction_energy,
             "activation_energy": activation_energy,
+            "reaction_type": reaction_type,
         }
 
         return predictions

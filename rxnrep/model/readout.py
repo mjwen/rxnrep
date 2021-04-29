@@ -1,133 +1,293 @@
 """
-Readout (pooling) layers.
+Readout (pool) layers.
 """
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import dgl
 import numpy as np
 import torch
-from dgl import function as fn
 from dgl.ops import segment_reduce, segment_softmax
 from torch import nn
 
-from rxnrep.model.utils import MLP
 
-
-class ConcatenateMeanMax(nn.Module):
+class BasePooling(nn.Module):
     """
-    Concatenate the mean and max of features of a node type to another node type.
-
     Args:
-        etypes: canonical edge types of a graph of which the features of node
-            `u` are concatenated to the features of node `v`.
-            For example: if `etypes = [('atom', 'a2b', 'bond'), ('global','g2b', 'bond')]`
-            then the mean and max of the features of `atom` as well as  `global` are
-            concatenated to the features of `bond`.
+        in_size: input feature size, i.e. atom/bond/global feature sizes
+        pool_atom/bond/global_feats: whether to include atom/bond/global features in the
+            final representation.
+        reducer: method to aggregate feats
     """
 
-    def __init__(self, etypes: List[Tuple[str, str, str]]):
-        super(ConcatenateMeanMax, self).__init__()
-        self.etypes = etypes
+    def __init__(
+        self,
+        in_size: int,
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        reducer="sum",
+    ):
+
+        super().__init__()
+
+        if not any([pool_atom_feats, pool_bond_feats, pool_global_feats]):
+            raise ValueError(
+                "Expect one of atom/bond/global pool to be true; got False for all"
+            )
+        if reducer not in ["sum", "mean"]:
+            raise ValueError(f"Expect reducer be sum or mean; got {reducer}")
+
+        self.in_size = in_size
+        self.reducer = reducer
+        self.out_size = 0
+
+        if pool_atom_feats:
+            self.pool_atom, size = self.init_atom_pool_method()
+            self.out_size += size
+        else:
+            self.pool_atom = None
+
+        if pool_bond_feats:
+            self.pool_bond, size = self.init_bond_pool_method()
+            self.out_size += size
+        else:
+            self.pool_bond = None
+
+        if pool_global_feats:
+            self.pool_global, size = self.init_global_pool_method()
+            self.out_size += size
+        else:
+            self.pool_global = None
 
     def forward(
-        self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ) -> torch.Tensor:
         """
-        Args:
-            graph: the graph
-            feats: node features with node type as key and the corresponding
-                features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size.
-
         Returns:
-            updated node features. Each tensor is of shape (N, D) where N is the number
-            of nodes of the corresponding node type, and D is the feature size.
-
+            Reaction features, 2D tensor of shape (B, D), where B is batch size and D
+            is output size (self.out_size), typically reaction feature size.
         """
-        graph = graph.local_var()
+        pooled = []
+        if self.pool_atom:
+            atom_feats, atom_sizes = self.get_atom_feats_and_sizes(feats, metadata)
+            atom_feats_pooled = self.pool_atom(atom_feats, atom_sizes)
+            pooled.append(atom_feats_pooled)
 
-        # assign data
-        for nt, ft in feats.items():
-            graph.nodes[nt].data.update({"ft": ft})
+        if self.pool_bond:
+            bond_feats, bond_sizes = self.get_bond_feats_and_sizes(feats, metadata)
+            bond_feats_pooled = self.pool_bond(bond_feats, bond_sizes)
+            pooled.append(bond_feats_pooled)
 
-        for et in self.etypes:
-            # option 1
-            graph[et].update_all(fn.copy_u("ft", "m"), fn.mean("m", "mean"), etype=et)
-            graph[et].update_all(fn.copy_u("ft", "m"), fn.max("m", "max"), etype=et)
+        if self.pool_global:
+            global_feats_pooled = feats["global"]
+            pooled.append(global_feats_pooled)
 
-            nt = et[2]
-            graph.apply_nodes(self._concatenate_node_feat, ntype=nt)
-
-            # copy update feature from new_ft to ft
-            graph.nodes[nt].data.update({"ft": graph.nodes[nt].data["new_ft"]})
-
-        return {nt: graph.nodes[nt].data["ft"] for nt in feats}
+        # concatenate atom, bond, global feats
+        return torch.cat(pooled, dim=-1)
 
     @staticmethod
-    def _concatenate_node_feat(nodes):
-        data = nodes.data["ft"]
-        mean = nodes.data["mean"]
-        max = nodes.data["max"]
-        concatenated = torch.cat((data, mean, max), dim=1)
-        return {"new_ft": concatenated}
+    def get_atom_feats_and_sizes(feats, metadata):
+        atom_feats = feats["atom"]
+        atom_sizes = torch.as_tensor(metadata["num_atoms"], device=atom_feats.device)
 
-
-class ConcatenateMeanAbsDiff(nn.Module):
-    """
-    Concatenate the mean and max of features of a node type to another node type.
-
-    This is very specific to the scheme that two atoms directed to bond. Others may fail.
-
-    Args:
-        etypes: canonical edge types of a graph of which the features of node `u`
-            are concatenated to the features of node `v`.
-            For example: if `etypes = [('atom', 'a2b', 'bond'), ('global','g2b', 'bond')]`
-            then the mean and max of the features of `atom` and `global` are concatenated
-            to the features of `bond`.
-    """
-
-    def __init__(self, etypes):
-        super(ConcatenateMeanAbsDiff, self).__init__()
-        self.etypes = etypes
-
-    def forward(
-        self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
-
-        """
-        Args:
-            graph: the graph
-            feats: node features with node type as key and the corresponding
-                features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size.
-
-        Returns:
-            updated node features. Each tensor is of shape (N, D) where N is the number
-            of nodes of the corresponding node type, and D is the feature size.
-        """
-        graph = graph.local_var()
-
-        # assign data
-        for nt, ft in feats.items():
-            graph.nodes[nt].data.update({"ft": ft})
-
-        for et in self.etypes:
-            graph[et].update_all(fn.copy_u("ft", "m"), self._concatenate_data, etype=et)
-
-        return {nt: graph.nodes[nt].data["ft"] for nt in feats}
+        return atom_feats, atom_sizes
 
     @staticmethod
-    def _concatenate_data(nodes):
-        message = nodes.mailbox["m"]
-        mean_v = torch.mean(message, dim=1)
-        # NOTE this is very specific to the atom -> bond case
-        # there are two elements along dim=1, since for each bond we have two atoms
-        # directed to it
-        abs_diff = torch.stack([torch.abs(x[0] - x[1]) for x in message])
-        data = nodes.data["ft"]
+    def get_bond_feats_and_sizes(feats, metadata):
+        bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+        bond_sizes = torch.as_tensor(metadata["num_bonds"], device=bond_feats.device)
 
-        concatenated = torch.cat((data, mean_v, abs_diff), dim=1)
-        return {"ft": concatenated}
+        return bond_feats, bond_sizes
+
+    def init_atom_pool_method(self) -> Tuple[Callable, int]:
+        """
+        Returns:
+            pool: a method to pool atom feats
+            size: out size of pooled atom feats
+
+        """
+        raise NotImplementedError
+
+    def init_bond_pool_method(self):
+        """
+        Returns:
+            pool: a method to pool bond feats
+            size: out size of pooled bond feats
+
+        """
+        raise NotImplementedError
+
+    def init_global_pool_method(self):
+        """
+        Returns:
+            pool: a method to pool bond feats
+            size: out size of pooled bond feats
+
+        """
+        return True, self.in_size
+
+
+class ReducePool(BasePooling):
+    """
+    Sum/mean reduce pool of all atom/bond/global features.
+    """
+
+    def init_atom_pool_method(self):
+        def method(feats, sizes):
+            return segment_reduce(sizes, feats, reducer=self.reducer)
+
+        out_size = self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
+
+
+class CenterReducePool(BasePooling):
+    """
+    Sum/mean reduce pool of the features of atom/bond/global in the reaction center.
+    """
+
+    @staticmethod
+    def get_atom_feats_and_sizes(feats, metadata):
+        # atoms in center
+        atom_feats = feats["atom"]
+        aic = np.concatenate(metadata["atoms_in_reaction_center"]).tolist()
+        atom_feats = atom_feats[aic]
+        atom_sizes = torch.as_tensor(
+            [sum(i) for i in metadata["atoms_in_reaction_center"]],
+            device=atom_feats.device,
+        )
+
+        return atom_feats, atom_sizes
+
+    @staticmethod
+    def get_bond_feats_and_sizes(feats, metadata):
+        # bonds in center
+        bond_feats = feats["bond"][::2]  # each bond has two edges, we select one
+        bic = np.concatenate(metadata["bonds_in_reaction_center"]).tolist()
+        bond_feats = bond_feats[bic]
+        bond_sizes = torch.as_tensor(
+            [sum(i) for i in metadata["bonds_in_reaction_center"]],
+            device=bond_feats.device,
+        )
+        return bond_feats, bond_sizes
+
+    def init_atom_pool_method(self):
+        def method(feats, sizes):
+            return segment_reduce(sizes, feats, reducer=self.reducer)
+
+        out_size = self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
+
+
+class AttentiveReducePool(BasePooling):
+    """
+    Attentive sum/mean reduce pool of all atom/bond/global features.
+    """
+
+    def __init__(
+        self,
+        in_size: int,
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        reducer="mean",
+        activation: str = "LeakyReLU",
+    ):
+        self.activation = activation
+        super().__init__(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
+    def init_atom_pool_method(self):
+        method = AttentiveReduce(
+            in_size=self.in_size, activation=self.activation, reducer=self.reducer
+        )
+        out_size = self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
+
+    def get_attention_score(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ):
+        """
+
+        Args:
+            molecule_graphs:
+            reaction_graphs:
+            feats:
+            metadata:
+
+        Returns:
+            Attention score dict. {name: torch.Tensor}, where name is atom or bond.
+            The tensor if of shape (N, D), where N is the total number of atoms/bonds
+            in the batch and D is feature dimension.
+
+        """
+        attn_score = {}
+        if self.pool_atom:
+            atom_feats, atom_sizes = self.get_atom_feats_and_sizes(feats, metadata)
+            atom_attn_score = self.pool_atom.get_attention_score(atom_feats, atom_sizes)
+            attn_score["atom"] = atom_attn_score
+
+        if self.pool_bond:
+            bond_feats, bond_sizes = self.get_bond_feats_and_sizes(feats, metadata)
+            bond_attn_score = self.pool_bond.get_attention_score(bond_feats, bond_sizes)
+            attn_score["bond"] = bond_attn_score
+
+        return attn_score
+
+
+class Set2SetPool(BasePooling):
+    """
+    Set to set sum/mean reduce pool of all atom/bond/global features.
+    """
+
+    def __init__(
+        self,
+        in_size: int,
+        pool_atom_feats: bool = True,
+        pool_bond_feats: bool = True,
+        pool_global_feats: bool = True,
+        reducer="mean",
+        num_iterations=6,
+        num_layers=3,
+    ):
+        self.num_iterations = num_iterations
+        self.num_layers = num_layers
+        super().__init__(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
+
+    def init_atom_pool_method(self):
+        method = Set2Set(
+            input_dim=self.in_size,
+            n_iters=self.num_iterations,
+            n_layers=self.num_layers,
+        )
+        out_size = 2 * self.in_size
+
+        return method, out_size
+
+    def init_bond_pool_method(self):
+        return self.init_atom_pool_method()
 
 
 class Set2Set(nn.Module):
@@ -170,7 +330,7 @@ class Set2Set(nn.Module):
 
     def forward(self, feat: torch.Tensor, sizes=torch.Tensor) -> torch.Tensor:
         """
-        Compute set2set pooling.
+        Compute set2set pool.
 
         Args:
             feat: feature tensor of shape (N, D) where N is the total number of features,
@@ -205,69 +365,72 @@ class Set2Set(nn.Module):
         return q_star
 
 
-class Set2SetThenCat(nn.Module):
+class AttentiveReduce(nn.Module):
     """
-    Set2Set for nodes (separate for different node type) and then concatenate the
-    features of different node types to create a representation of the graph.
+    A pooling layer similar to the GAT:
 
-     Args:
-        num_iters: number of LSTM iteration
-        num_layers: number of LSTM layers
-        ntypes: node types to perform Set2Set, e.g. ['atom', 'bond'].
-        in_feats: node feature sizes. The order should be the same as `ntypes`.
-        ntypes_direct_cat: node types to which not perform Set2Set, whose features are
-            directly concatenated. e.g. ['global']
+    parameter vector w:
+
+    hi = leakyrelu(hi*w) or hi = sigmoid(hi*w)
+    alpha_i = softmax(hi)
+    readout = sum_i alpha_i * hi
+
+    in which hi is the feature of atom/bond i.
+
+    This is also very similar to dgl.nn.WeightAndSum, where sigmoid is used, but here
+    we use LeakyRelu.
+
+    We do not use sigmoid because for large molecules there may only be a few atoms
+    that matter. sigmoid forces a score range of 0~1 which may reduce the importance of
+    the atom that really matter when passed through the softmax.
+
+    Args:
+        reducer: reduce method. If `sum`, do exactly the above. If `mean`, the readout
+            is obtained as the weighted mean, not weight sum.
     """
 
-    def __init__(
-        self,
-        num_iters: int,
-        num_layers: int,
-        ntypes: List[str],
-        in_feats: List[int],
-        ntypes_direct_cat: Optional[List[str]] = None,
-    ):
-        super(Set2SetThenCat, self).__init__()
-        self.ntypes = ntypes
-        self.ntypes_direct_cat = ntypes_direct_cat
+    def __init__(self, in_size, activation: str = "LeakyReRU", reducer="sum"):
+        super().__init__()
+        assert reducer in [
+            "sum",
+            "mean",
+        ], f"Expect reducer be sum or mean; got {reducer}"
+        self.reducer = reducer
 
-        self.node_layers = nn.ModuleDict()
-        for nt, sz in zip(ntypes, in_feats):
-            self.node_layers[nt] = Set2Set(
-                input_dim=sz, n_iters=num_iters, n_layers=num_layers
+        if activation == "LeakyReLU":
+            act = nn.LeakyReLU(negative_slope=0.2)
+        elif activation == "Sigmoid":
+            act = nn.Sigmoid()
+        else:
+            raise ValueError(
+                "Expect activation for AttentiveReduce is `LeakyReLU` or `Sigmoid`;"
+                f"got {activation}"
             )
 
-    def forward(
-        self, graph: dgl.DGLGraph, feats: Dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+        self.mlp = nn.Sequential(nn.Linear(in_size, 1, bias=False), act)
+
+    def forward(self, feat: torch.Tensor, sizes: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            graph: the graph
-            feats: node features with node type as key and the corresponding
-                features as value. Each tensor is of shape (N, D) where N is the number
-                of nodes of the corresponding node type, and D is the feature size
-                (D could be different for different node features).
-
-        Returns:
-            A tensor representation of the each graph, of shape
-            (N, 2D_1+2D_2+ ... D_{m-1}, D_m),
-            where N is the batch size (number of graphs), and D_1, D_2 ... are the
-            feature sizes of the nodes to perform the set2set aggregation. The `2`
-            shows up because set2set doubles the feature sizes. ... D_{m-1}, D_m are
-            the feature sizes of the nodes not to perform set2set by direct concatenate.
+            feat: feature tensor of shape (N, D) where N is the total number of features,
+                and D is the feature dimension.
+            sizes: 1D tensor (shape (B,)) of the size of the features for each graph.
+                sum(sizes) should be equal to D.
         """
-        rst = []
-        for nt in self.ntypes:
-            ft = self.node_layers[nt](feats[nt], graph.batch_num_nodes(nt))
-            rst.append(ft)
+        alpha = self.get_attention_score(feat, sizes)
+        out = segment_reduce(sizes, feat * alpha, reducer=self.reducer)
 
-        if self.ntypes_direct_cat is not None:
-            for nt in self.ntypes_direct_cat:
-                rst.append(feats[nt])
+        return out
 
-        res = torch.cat(rst, dim=-1)
+    def get_attention_score(self, feat: torch.Tensor, sizes: torch.Tensor):
+        """
+        Returns:
+            2D tensor of shape (N, 1), each is an attention score for an atom/bond.
+        """
+        feat = self.mlp(feat)
+        alpha = segment_softmax(sizes, feat)
 
-        return res
+        return alpha
 
 
 class HopDistancePooling(nn.Module):
@@ -341,22 +504,73 @@ class HopDistancePooling(nn.Module):
         return weighted_sum
 
 
-class CompressingNN(nn.Module):
+def get_reaction_feature_pooling(
+    pool_method,
+    in_size: int,
+    pool_atom_feats: bool = True,
+    pool_bond_feats: bool = True,
+    pool_global_feats: bool = True,
+    pool_kwargs: Dict[str, Any] = None,
+) -> BasePooling:
     """
-    A fully connected NN with (expecting) fewer number of nodes in later layers.
 
-    Used as a way to compressing information in the encoder.
+    Args:
+        pool_method:
+        in_size:
+        pool_atom_feats:
+        pool_bond_feats:
+        pool_global_feats:
+        pool_kwargs: extra kwargs for pooling method. e.g. Set2Set and AttentiveReduce.
 
-    Note, we use bias for all layers, since this will be internal layers, not final
-    prediction head layers.
+    Returns:
+        A callable to return pooled reaction features
     """
 
-    def __init__(self, in_size: int, hidden_sizes: List[int], activation="ReLU"):
-        super().__init__()
-        acts = [activation] * len(hidden_sizes)
-        use_bias = [True] * len(hidden_sizes)
+    if pool_method in ["reduce_sum", "reduce_mean"]:
+        reducer = pool_method.split("_")[-1]
+        return ReducePool(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
 
-        self.layers = MLP(in_size, hidden_sizes, acts, use_bias)
+    elif pool_method in ["center_reduce_sum", "center_reduce_mean"]:
+        reducer = pool_method.split("_")[-1]
+        return CenterReducePool(
+            in_size, pool_atom_feats, pool_bond_feats, pool_global_feats, reducer
+        )
 
-    def forward(self, feats):
-        return self.layers(feats)
+    elif pool_method in ["attentive_reduce_sum", "attentive_reduce_mean"]:
+        reducer = pool_method.split("_")[-1]
+
+        if pool_kwargs is None:
+            activation = "LeakyReLU"
+        else:
+            activation = pool_kwargs["activation"]
+
+        return AttentiveReducePool(
+            in_size,
+            pool_atom_feats,
+            pool_bond_feats,
+            pool_global_feats,
+            reducer=reducer,
+            activation=activation,
+        )
+
+    elif pool_method == "set2set":
+        if pool_kwargs is None:
+            num_iterations = 6
+            num_layers = 3
+        else:
+            num_iterations = pool_kwargs["set2set_num_iterations"]
+            num_layers = pool_kwargs["set2set_num_layers"]
+
+        return Set2SetPool(
+            in_size,
+            pool_atom_feats,
+            pool_bond_feats,
+            pool_global_feats,
+            num_iterations=num_iterations,
+            num_layers=num_layers,
+        )
+
+    else:
+        raise ValueError(f"Unaccepted pooling method {pool_method}")

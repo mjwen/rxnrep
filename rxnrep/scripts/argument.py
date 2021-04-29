@@ -1,5 +1,5 @@
 """
-Arguments for different parts of the model: encoder, compressor, decoder...
+Arguments for different parts of the model: encoder, mlp_diff, decoder...
 """
 
 
@@ -26,31 +26,31 @@ def encoder_args(parser):
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # compressor
+    # mlp_diff
     parser.add_argument(
-        "--compressing_layer_sizes",
+        "--mlp_diff_layer_sizes",
         type=int,
         nargs="+",
         default=None,
         help="`None` to not use it",
     )
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
+    parser.add_argument("--mlp_diff_layer_activation", type=str, default="ReLU")
 
-    # pooling
+    # pool
     parser.add_argument(
-        "--pooling_method",
+        "--pool_method",
         type=str,
         default="set2set",
         help="set2set, hop_distance, or global_only",
     )
 
     parser.add_argument(
-        "--hop_distance_pooling_max_hop_distance",
+        "--hop_distance_pool_max_hop_distance",
         type=int,
         default=2,
         help=(
-            "max hop distance when hop_distance pooling method is used. Ignored when "
-            "`set2set` pooling method is used. This is different from max_hop_distance "
+            "max hop distance when hop_distance pool method is used. Ignored when "
+            "`set2set` pool method is used. This is different from max_hop_distance "
             "used for node decoder, which is used to create labels for the decoders. "
             "Also, typically we can set the two to be the same."
         ),
@@ -80,13 +80,11 @@ def encoder_adjuster(args):
     if args.num_rxn_conv_layers == 0:
         args.reaction_dropout = 0
 
-    # pooling
-    if args.pooling_method in ["set2set", "global_only"]:
-        args.pooling_kwargs = None
-    elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {
-            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
-        }
+    # pool
+    if args.pool_method in ["set2set", "global_only"]:
+        args.pool_kwargs = None
+    elif args.pool_method == "hop_distance":
+        args.pool_kwargs = {"max_hop_distance": args.hop_distance_pool_max_hop_distance}
     else:
         raise NotImplementedError
 
@@ -205,7 +203,7 @@ def energy_decoder_helper(parser):
 def reaction_energy_decoder_adjuster(args):
     val = get_encoder_out_feats_size(args)
 
-    if args.pooling_method == "global_only":
+    if args.pool_method == "global_only":
         val = val
     else:
         val = 2 * val
@@ -219,7 +217,7 @@ def reaction_energy_decoder_adjuster(args):
 def activation_energy_decoder_adjuster(args):
     val = get_encoder_out_feats_size(args)
 
-    if args.pooling_method == "global_only":
+    if args.pool_method == "global_only":
         val = val
     else:
         val = 2 * val
@@ -292,10 +290,10 @@ def training_args(parser):
 
 def get_encoder_out_feats_size(args):
     """
-    output atom/bond/global feature size, before pooling
+    output atom/bond/global feature size, before pool
     """
-    if args.compressing_layer_sizes:
-        encoder_out_feats_size = args.compressing_layer_sizes[-1]
+    if args.mlp_diff_layer_sizes:
+        encoder_out_feats_size = args.mlp_diff_layer_sizes[-1]
     else:
         encoder_out_feats_size = args.conv_layer_size
 

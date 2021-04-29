@@ -6,7 +6,11 @@ from typing import Callable, Dict, Optional, Union
 import torch
 from sklearn.utils import class_weight
 
-from rxnrep.data.dataset import BaseDatasetWithLabels
+from rxnrep.data.dataset import (
+    BaseContrastiveDataset,
+    BaseDatasetWithLabels,
+    ClassicalFeatureDataset,
+)
 from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
@@ -28,6 +32,7 @@ class USPTODataset(BaseDatasetWithLabels):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         *,
+        build_reaction_graph=True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
@@ -47,6 +52,7 @@ class USPTODataset(BaseDatasetWithLabels):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
+            build_reaction_graph=build_reaction_graph,
             init_state_dict=init_state_dict,
             transform_features=transform_features,
             return_index=return_index,
@@ -75,19 +81,19 @@ class USPTODataset(BaseDatasetWithLabels):
         """
         Labels for all reactions.
 
-        Add `reaction_class`.
+        Add `reaction_type`.
         """
         super().generate_labels()
 
         if self.has_class_label:
             for i, rxn in enumerate(self.reactions):
-                rxn_class = rxn.get_property("label")
-                self.labels[i]["reaction_class"] = torch.as_tensor(
+                rxn_class = rxn.get_property("reaction_type")
+                self.labels[i]["reaction_type"] = torch.as_tensor(
                     [int(rxn_class)], dtype=torch.int64
                 )
 
     def get_class_weight(
-        self, num_reaction_classes: int = 50, class_weight_as_1: bool = False
+        self, num_reaction_classes: int = None, class_weight_as_1: bool = False
     ) -> Dict[str, torch.Tensor]:
         """
         Create class weight to be used in cross entropy losses.
@@ -115,6 +121,60 @@ class USPTODataset(BaseDatasetWithLabels):
                 )
                 w = torch.as_tensor(w, dtype=torch.float32)
 
-            weight["reaction_class"] = w
+            weight["reaction_type"] = w
 
         return weight
+
+
+class USPTOContrastiveDataset(BaseContrastiveDataset):
+
+    """
+    USPTO dataset.
+    """
+
+    def read_file(self, filename: Path):
+        logger.info("Start reading dataset ...")
+
+        succeed_reactions, failed = read_smiles_tsv_dataset(
+            filename, remove_H=True, nprocs=self.nprocs
+        )
+
+        counter = Counter(failed)
+        logger.info(
+            f"Finish reading dataset. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
+        )
+
+        return succeed_reactions, failed
+
+
+class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
+    def read_file(self, filename: Path):
+        logger.info("Start reading dataset ...")
+
+        succeed_reactions, failed = read_smiles_tsv_dataset(
+            filename, remove_H=True, nprocs=self.nprocs
+        )
+
+        counter = Counter(failed)
+        logger.info(
+            f"Finish reading dataset. Number succeed {counter[False]}, "
+            f"number failed {counter[True]}."
+        )
+
+        return succeed_reactions, failed
+
+    def generate_labels(self):
+        """
+        Labels for all reactions.
+
+        Add `reaction_type`.
+        """
+
+        labels = []
+        for i, rxn in enumerate(self.reactions):
+            rxn_class = rxn.get_property("reaction_type")
+            labels.append(
+                {"reaction_type": torch.as_tensor(int(rxn_class), dtype=torch.int64)}
+            )
+        return labels

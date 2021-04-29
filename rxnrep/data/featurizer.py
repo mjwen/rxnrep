@@ -5,8 +5,10 @@ Featurize atoms, bonds, and the global state of molecules with rdkit.
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import numpy as np
 import torch
 from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors
 from rdkit.Chem.rdchem import GetPeriodicTable
 
 
@@ -129,7 +131,7 @@ def atom_total_valence(atom):
 
 def atom_num_radical_electrons_one_hot(atom, allowable_set=None, encode_unknown=False):
     if allowable_set is None:
-        allowable_set = list(range(6))
+        allowable_set = list(range(3))
     return one_hot_encoding(
         atom.GetNumRadicalElectrons(), allowable_set, encode_unknown
     )
@@ -612,5 +614,44 @@ class GlobalFeaturizer(BaseFeaturizer):
 
         feats = [ft]
         feats = torch.tensor(feats, dtype=torch.float32)
+
+        return feats
+
+
+class MoleculeFeaturizer:
+    def __init__(self):
+        pass
+
+    def feature_name(self):
+        raise NotImplementedError
+
+    def feature_size(self):
+        raise NotImplementedError
+
+    def __call__(self, mol: Chem.Mol) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class MorganFeaturizer(MoleculeFeaturizer):
+    def __init__(self, radius: int = 2, size: int = 2048):
+        self.radius = radius
+        self.size = size
+
+    def feature_name(self):
+        return "Morgan features"
+
+    def feature_size(self):
+        return self.size
+
+    def __call__(self, mol: Chem.Mol) -> torch.Tensor:
+        feats = rdMolDescriptors.GetMorganFingerprintAsBitVect(
+            mol,
+            self.radius,
+            nBits=self.size,
+            # useChirality=self.chiral,
+            # useBondTypes=self.bonds,
+            # useFeatures=self.features,
+        )
+        feats = torch.from_numpy(np.asarray(feats, dtype=np.float32))
 
         return feats

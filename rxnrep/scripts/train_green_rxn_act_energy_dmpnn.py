@@ -17,7 +17,7 @@ from warmup_scheduler import GradualWarmupScheduler
 
 from rxnrep.model.bep import ActivationEnergyPredictor
 from rxnrep.model.clustering import DistributedReactionCluster, ReactionCluster
-from rxnrep.model.model import ReactionRepresentation
+from rxnrep.model.dmpnn import DMPNNModel
 from rxnrep.scripts import argument
 from rxnrep.scripts.load_dataset import load_green_dataset
 from rxnrep.scripts.main import main
@@ -73,41 +73,18 @@ class RxnRepLightningModel(pl.LightningModule):
         self.save_hyperparameters(params)
         params = self.hparams
 
-        self.model = ReactionRepresentation(
-            in_feats=params.feature_size,
-            embedding_size=params.embedding_size,
+        feat_size = params.feature_size
+        self.model = DMPNNModel(
+            atom_feat_dim=feat_size["atom"],
+            bond_feat_dim=feat_size["bond"],
             # encoder
-            molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
-            molecule_num_fc_layers=params.molecule_num_fc_layers,
-            molecule_batch_norm=params.molecule_batch_norm,
-            molecule_activation=params.molecule_activation,
-            molecule_residual=params.molecule_residual,
-            molecule_dropout=params.molecule_dropout,
-            reaction_conv_layer_sizes=params.reaction_conv_layer_sizes,
-            reaction_num_fc_layers=params.reaction_num_fc_layers,
-            reaction_batch_norm=params.reaction_batch_norm,
-            reaction_activation=params.reaction_activation,
-            reaction_residual=params.reaction_residual,
-            reaction_dropout=params.reaction_dropout,
-            # mlp_diff
-            mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
-            mlp_diff_layer_activation=params.mlp_diff_layer_activation,
+            output_dim=params.molecule_conv_layer_sizes[0],
+            depth=len(params.molecule_conv_layer_sizes),
+            activation=params.molecule_activation,
+            dropout=params.molecule_dropout,
             # pool method
-            pool_method=params.pool_method,
-            pool_kwargs=params.pool_kwargs,
-            # # bond hop distance decoder
-            # bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
-            # bond_hop_dist_decoder_activation=params.node_decoder_activation,
-            # bond_hop_dist_decoder_num_classes=params.bond_hop_dist_num_classes,
-            # # atom hop distance decoder
-            # atom_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
-            # atom_hop_dist_decoder_activation=params.node_decoder_activation,
-            # atom_hop_dist_decoder_num_classes=params.atom_hop_dist_num_classes,
-            # # masked atom type decoder
-            # masked_atom_type_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
-            # masked_atom_type_decoder_activation=params.node_decoder_activation,
-            # masked_atom_type_decoder_num_classes=params.masked_atom_type_num_classes,
-            # energy decoder
+            pool_method="sum",
+            # property prediction
             reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
             reaction_energy_decoder_activation=params.reaction_energy_decoder_activation,
             activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
@@ -212,7 +189,7 @@ class RxnRepLightningModel(pl.LightningModule):
             return diff_feats
 
         elif returns == "diff_feature_before_rxn_conv":
-            diff_feats = self.model.get_difference_feature(
+            diff_feats = self.model.get_diff_feats(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats

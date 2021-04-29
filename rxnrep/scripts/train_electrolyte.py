@@ -62,12 +62,12 @@ class RxnRepLightningModel(pl.LightningModule):
             reaction_activation=params.reaction_activation,
             reaction_residual=params.reaction_residual,
             reaction_dropout=params.reaction_dropout,
-            # compressing
-            compressing_layer_sizes=params.compressing_layer_sizes,
-            compressing_layer_activation=params.compressing_layer_activation,
-            # pooling method
-            pooling_method=params.pooling_method,
-            pooling_kwargs=params.pooling_kwargs,
+            # mlp_diff
+            mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
+            mlp_diff_layer_activation=params.mlp_diff_layer_activation,
+            # pool method
+            pool_method=params.pool_method,
+            pool_kwargs=params.pool_kwargs,
             # bond hop distance decoder
             bond_hop_dist_decoder_hidden_layer_sizes=params.node_decoder_hidden_layer_sizes,
             bond_hop_dist_decoder_activation=params.node_decoder_activation,
@@ -135,7 +135,7 @@ class RxnRepLightningModel(pl.LightningModule):
             return diff_feats
 
         elif returns == "diff_feature_before_rxn_conv":
-            diff_feats = self.model.get_diff_feats(
+            diff_feats = self.model.get_difference_feature(
                 mol_graphs, rxn_graphs, feats, metadata
             )
             return diff_feats
@@ -637,31 +637,31 @@ def parse_args():
     parser.add_argument("--reaction_residual", type=int, default=1)
     parser.add_argument("--reaction_dropout", type=float, default="0.0")
 
-    # ========== compressor ==========
+    # ========== mlp_diff ==========
     parser.add_argument(
-        "--compressing_layer_sizes",
+        "--mlp_diff_layer_sizes",
         type=int,
         nargs="+",
         default=None,
         help="`None` to not use it",
     )
-    parser.add_argument("--compressing_layer_activation", type=str, default="ReLU")
+    parser.add_argument("--mlp_diff_layer_activation", type=str, default="ReLU")
 
-    # ========== pooling ==========
+    # ========== pool ==========
     parser.add_argument(
-        "--pooling_method",
+        "--pool_method",
         type=str,
         default="set2set",
         help="set2set or hop_distance",
     )
 
     parser.add_argument(
-        "--hop_distance_pooling_max_hop_distance",
+        "--hop_distance_pool_max_hop_distance",
         type=int,
         default=2,
         help=(
-            "max hop distance when hop_distance pooling method is used. Ignored when "
-            "`set2set` pooling method is used. This is different from max_hop_distance "
+            "max hop distance when hop_distance pool method is used. Ignored when "
+            "`set2set` pool method is used. This is different from max_hop_distance "
             "used for node decoder, which is used to create labels for the decoders. "
             "Also, typically we can set the two to be the same."
         ),
@@ -771,9 +771,9 @@ def parse_args():
     if args.num_rxn_conv_layers == 0:
         args.reaction_dropout = 0
 
-    # output atom/bond/global feature size, before pooling
-    if args.compressing_layer_sizes:
-        encoder_out_feats_size = args.compressing_layer_sizes[-1]
+    # output atom/bond/global feature size, before pool
+    if args.mlp_diff_layer_sizes:
+        encoder_out_feats_size = args.mlp_diff_layer_sizes[-1]
     else:
         encoder_out_feats_size = args.conv_layer_size
 
@@ -786,12 +786,12 @@ def parse_args():
     # cluster decoder
     args.num_centroids = [args.prototype_size] * args.num_prototypes
 
-    # pooling
-    if args.pooling_method == "set2set":
-        args.pooling_kwargs = None
-    elif args.pooling_method == "hop_distance":
-        args.pooling_kwargs = {
-            "max_hop_distance": args.hop_distance_pooling_max_hop_distance
+    # pool
+    if args.pool_method == "set2set":
+        args.pool_kwargs = None
+    elif args.pool_method == "hop_distance":
+        args.pool_kwargs = {
+            "max_hop_distance": args.hop_distance_pool_max_hop_distance
         }
     else:
         raise NotImplementedError

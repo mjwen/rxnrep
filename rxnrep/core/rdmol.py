@@ -4,8 +4,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from openbabel import openbabel as ob
-from pymatgen import Molecule
 from pymatgen.analysis.graphs import MoleculeGraph
+from pymatgen.core.structure import Molecule
 from pymatgen.io.babel import BabelMolAdaptor
 from rdkit import Chem
 from rdkit.Chem import BondType
@@ -73,7 +73,7 @@ def create_rdkit_mol_from_mol_graph(
     name: str = None,
     force_sanitize: bool = False,
     metals: Optional[Dict[str, int]] = None,
-) -> Tuple[Chem.Mol, Dict[Tuple[int, int], BondType]]:
+) -> Chem.Mol:
     """
     Create a rdkit molecule from molecule graph, with bond type perceived by babel.
     Done in the below steps:
@@ -175,7 +175,7 @@ def create_rdkit_mol_from_mol_graph(
         species, coords, bond_types, formal_charge, name, force_sanitize
     )
 
-    return m, bond_types
+    return m
 
 
 def adjust_formal_charge(

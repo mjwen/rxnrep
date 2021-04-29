@@ -1,10 +1,13 @@
+import copy
 import functools
+import itertools
 import logging
 import multiprocessing
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import dgl
+import numpy as np
 import torch
 from rdkit import Chem
 
@@ -16,9 +19,18 @@ from rxnrep.core.reaction import (
     get_bond_distance_to_reaction_center,
 )
 from rxnrep.data.augmentation import AtomTypeFeatureMasker
-from rxnrep.data.grapher import build_graph_and_featurize_reaction
-from rxnrep.data.transformer import GraphFeatureTransformer, StandardScaler1D
-from rxnrep.utils import tensor_to_list, to_path, to_tensor, yaml_dump, yaml_load
+from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
+from rxnrep.data.to_graph import build_graph_and_featurize_reaction
+from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
+from rxnrep.utils import (
+    pickle_dump,
+    pickle_load,
+    tensor_to_list,
+    to_path,
+    to_tensor,
+    yaml_dump,
+    yaml_load,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +48,7 @@ class BaseDataset:
         atom_featurizer: function to create atom features
         bond_featurizer: function to create bond features
         global_featurizer: function to create global features
+        build_reaction_graph: whether to create reaction graph.
         init_state_dict: initial state dict (or a yaml file of the state dict) containing
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
@@ -45,6 +58,7 @@ class BaseDataset:
             by the standard deviation.
         return_index: whether to return the index of the sample in the dataset
         num_processes: number of processes used to load and process the dataset.
+        pickle_graphs: save the loaded graphs for later use
     """
 
     def __init__(
@@ -54,20 +68,43 @@ class BaseDataset:
         bond_featurizer: Callable[[Chem.Mol], torch.Tensor],
         global_featurizer: Callable[[Chem.Mol], torch.Tensor],
         *,
+        build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
+        pickle_graphs=False,
     ):
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
         self.global_featurizer = global_featurizer
+        self.build_reaction_graph = build_reaction_graph
         self.init_state_dict = init_state_dict
         self.return_index = return_index
         self.nprocs = num_processes
 
-        # read input files
-        self.reactions, self._failed = self.read_file(filename)
+        filename = to_path(filename)
+        basename = filename.parent.joinpath(filename.stem)  # i.e. name without suffix
+
+        # ===== read reactions =====
+        if (
+            pickle_graphs
+            and basename.joinpath("reactions.pkl").exists()
+            and basename.joinpath("failed_reactions.pkl").exists()
+        ):
+            # pickle file exists
+            self.reactions = pickle_load(basename.joinpath("reactions.pkl"))
+            self._failed = pickle_load(basename.joinpath("failed_reactions.pkl"))
+
+        else:
+            # read input files
+            self.reactions, self._failed = self.read_file(filename)
+
+            # save the info to disk
+            if pickle_graphs:
+                basename.mkdir()
+                pickle_dump(self.reactions, basename.joinpath("reactions.pkl"))
+                pickle_dump(self._failed, basename.joinpath("failed_reactions.pkl"))
 
         # ===== build graph and features =====
         # will recover from state dict if it is not None
@@ -85,10 +122,57 @@ class BaseDataset:
             else:
                 self.load_state_dict_file(init_state_dict)
 
-        # convert reactions to dgl graphs (should do this after recovering state dict,
-        # since the species, feature mean and stdev might be recovered there)
-        self.dgl_graphs = self.build_graph_and_featurize()
+        if pickle_graphs and basename.joinpath("graphs.dgl").exists():
+            # load previously saved graphs
 
+            graphs, _ = dgl.load_graphs(basename.joinpath("graphs.dgl").as_posix())
+
+            if self.build_reaction_graph:
+                self.dgl_graphs = []
+                for i in range(len(graphs) // 3):
+                    self.dgl_graphs.append(graphs[i * 3 : i * 3 + 3])
+
+            else:
+                self.dgl_graphs = []
+                for i in range(len(graphs) // 2):
+                    gg = graphs[i * 2 : i * 2 + 2]
+                    gg.append(None)  # reaction graph
+                    self.dgl_graphs.append(gg)
+
+            # init featurizer (call build_graph_and_featurize_reaction for one reaction)
+            # featurizers are used in state_dict()
+            if self._species is None:
+                self._species = self.get_species()
+            atom_featurizer = functools.partial(
+                self.atom_featurizer, allowable_atom_type=self._species
+            )
+            build_graph_and_featurize_reaction(
+                self.reactions[0],
+                atom_featurizer=atom_featurizer,
+                bond_featurizer=self.bond_featurizer,
+                global_featurizer=self.global_featurizer,
+                build_reaction_graph=self.build_reaction_graph,
+            )
+
+        else:
+            # convert reactions to dgl graphs (should do this after recovering state dict,
+            # since the species, feature mean and stdev might be recovered there)
+            self.dgl_graphs = self.build_graph_and_featurize()
+
+            if pickle_graphs:
+                if self.build_reaction_graph:
+                    graphs = [i for i in itertools.chain.from_iterable(self.dgl_graphs)]
+                else:
+                    # reaction_g is None, can remove save by dgl
+                    # so remove it from the graph list
+                    graphs = []
+                    for reactant_g, product_g, reaction_g in self.dgl_graphs:
+                        graphs.extend([reactant_g, product_g])
+                dgl.save_graphs(basename.joinpath("graphs.dgl").as_posix(), graphs)
+
+        # Do not scale features in one of the if basename.joinpath("graphs.dgl").exists():
+        # so as to save unscaled features.
+        # This enables reuse of the save graph in case the read-in state dict can vary.
         if transform_features:
             self.scale_features()
 
@@ -214,6 +298,7 @@ class BaseDataset:
                     atom_featurizer=atom_featurizer,
                     bond_featurizer=self.bond_featurizer,
                     global_featurizer=self.global_featurizer,
+                    build_reaction_graph=self.build_reaction_graph,
                 )
                 for rxn in self.reactions
             ]
@@ -223,6 +308,7 @@ class BaseDataset:
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
+                need_reaction_graph=self.build_reaction_graph,
             )
             with multiprocessing.Pool(self.nprocs) as p:
                 dgl_graphs = p.map(func, self.reactions)
@@ -236,6 +322,7 @@ class BaseDataset:
                 atom_featurizer=atom_featurizer,
                 bond_featurizer=self.bond_featurizer,
                 global_featurizer=self.global_featurizer,
+                build_reaction_graph=self.build_reaction_graph,
             )
 
         # log feature name and size
@@ -256,7 +343,7 @@ class BaseDataset:
         """
         logger.info(f"Start scaling features...")
 
-        feature_scaler = GraphFeatureTransformer()
+        feature_scaler = GraphFeatureScaler()
 
         if self.init_state_dict is not None:
             assert (
@@ -274,43 +361,6 @@ class BaseDataset:
         logger.info(f"Feature mean: {self._feature_scaler_state_dict['mean']}")
         logger.info(f"Feature std: {self._feature_scaler_state_dict['std']}")
         logger.info(f"Finish scaling features...")
-
-    def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
-        """
-        Scale scalar labels.
-
-        Args:
-            values: 1D tensor of the labels
-            name: name of the label
-
-        Returns:
-            1D tensor Scaled label values.
-        """
-        assert (
-            len(values.shape) == 1
-        ), f"Expect 1D tensor as input; got {len(values.shape)}."
-
-        label_scaler = StandardScaler1D()
-
-        if self.init_state_dict is not None:
-            assert self._label_scaler_state_dict is not None, (
-                "Corrupted state_dict. Expect `label_scaler_state_dict` to be a dict, "
-                "got `None`."
-            )
-
-            label_scaler.load_state_dict(self._label_scaler_state_dict[name])
-
-        values = label_scaler.transform(values)
-
-        if self._label_scaler is None:
-            self._label_scaler = {}
-        self._label_scaler[name] = label_scaler
-
-        state_dict = label_scaler.state_dict()
-        logger.info(f"Label `{name}` mean: {state_dict['mean']}")
-        logger.info(f"Label `{name}` std: {state_dict['std']}")
-
-        return values
 
     def state_dict(self):
         if self._label_scaler is not None:
@@ -444,6 +494,11 @@ class BaseDatasetWithLabels(BaseDataset):
             that the masker is not even created. But `atom_type_masker_use_mask_value`
             be of `False` means that the masker are created, but we simply skip the
             change of the atom type features of the masked atoms.
+        allow_label_scaler_none: when `init_state_dict` is provided, whether to allow
+            label_scaler is None in state dict. If `False`, will use the label scaler
+            mean and std. If `True`, will recompute label mean and std. This is mainly
+            used for the pretrain-finetune case, where the pretrain model does not use
+            labels (e.g. contrastive training).
     """
 
     def __init__(
@@ -453,6 +508,7 @@ class BaseDatasetWithLabels(BaseDataset):
         bond_featurizer: Callable,
         global_featurizer: Callable,
         *,
+        build_reaction_graph=True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
         transform_features: bool = True,
         return_index: bool = True,
@@ -460,6 +516,7 @@ class BaseDatasetWithLabels(BaseDataset):
         #
         # args to control labels
         #
+        allow_label_scaler_none: bool = False,
         max_hop_distance: Optional[int] = None,
         atom_type_masker_ratio: Optional[float] = None,
         atom_type_masker_use_masker_value: Optional[bool] = None,
@@ -470,6 +527,7 @@ class BaseDatasetWithLabels(BaseDataset):
             atom_featurizer,
             bond_featurizer,
             global_featurizer,
+            build_reaction_graph=build_reaction_graph,
             init_state_dict=init_state_dict,
             transform_features=transform_features,
             return_index=return_index,
@@ -480,6 +538,8 @@ class BaseDatasetWithLabels(BaseDataset):
         # do not use [{}] * len(self.reactions); update one will change all
         self.labels = [{} for _ in range(len(self.reactions))]
         self.medadata = [{} for _ in range(len(self.reactions))]
+
+        self.allow_label_scaler_none = allow_label_scaler_none
 
         # atom bond hop distance label
         self.max_hop_distance = max_hop_distance
@@ -534,13 +594,21 @@ class BaseDatasetWithLabels(BaseDataset):
     def generate_metadata(self):
 
         for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
-
+            num_unchanged = len(rxn.unchanged_bonds)
             meta = {
                 "reactant_num_molecules": len(rxn.reactants),
                 "product_num_molecules": len(rxn.products),
-                "num_unchanged_bonds": len(rxn.unchanged_bonds),
-                "num_lost_bonds": len(rxn.lost_bonds),
-                "num_added_bonds": len(rxn.added_bonds),
+                "num_atoms": rxn.num_atoms,
+                "num_bonds": num_unchanged + len(rxn.lost_bonds) + len(rxn.added_bonds),
+                "num_unchanged_bonds": num_unchanged,
+                "num_reactant_bonds": num_unchanged + len(rxn.lost_bonds),
+                "num_product_bonds": num_unchanged + len(rxn.added_bonds),
+                # "atoms_in_reaction_center": (
+                #     np.asarray(rxn.atom_distance_to_reaction_center) == 0
+                # ).tolist(),
+                # "bonds_in_reaction_center": (
+                #     np.asarray(rxn.bond_distance_to_reaction_center) == 0
+                # ).tolist(),
             }
 
             # add atom/bond hop dist to meta, which is used in hop dist pool
@@ -553,6 +621,43 @@ class BaseDatasetWithLabels(BaseDataset):
                 )
 
             self.medadata[i].update(meta)
+
+    def scale_label(self, values: torch.Tensor, name: str) -> torch.Tensor:
+        """
+        Scale scalar labels.
+
+        Args:
+            values: 1D tensor of the labels
+            name: name of the label
+
+        Returns:
+            1D tensor Scaled label values.
+        """
+        assert (
+            len(values.shape) == 1
+        ), f"Expect 1D tensor as input; got {len(values.shape)}."
+
+        label_scaler = StandardScaler1D()
+
+        if self.init_state_dict is not None and not self.allow_label_scaler_none:
+            assert self._label_scaler_state_dict is not None, (
+                "Corrupted state_dict. Expect `label_scaler_state_dict` to be a dict, "
+                "got `None`."
+            )
+
+            label_scaler.load_state_dict(self._label_scaler_state_dict[name])
+
+        values = label_scaler.transform(values)
+
+        if self._label_scaler is None:
+            self._label_scaler = {}
+        self._label_scaler[name] = label_scaler
+
+        state_dict = label_scaler.state_dict()
+        logger.info(f"Label `{name}` mean: {state_dict['mean']}")
+        logger.info(f"Label `{name}` std: {state_dict['std']}")
+
+        return values
 
     def get_class_weight(self, only_break_bond: bool = False):
         """
@@ -623,7 +728,11 @@ class BaseDatasetWithLabels(BaseDataset):
         batched_indices = torch.as_tensor(indices)
 
         batched_molecule_graphs = dgl.batch(reactants_g + products_g)
-        batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+
+        if reaction_g[0] is None:
+            batched_reaction_graphs = None
+        else:
+            batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
 
         # labels
         keys = labels[0].keys()
@@ -646,3 +755,313 @@ class BaseDatasetWithLabels(BaseDataset):
             batched_labels,
             batched_metadata,
         )
+
+
+class BaseContrastiveDataset(BaseDataset):
+    """
+    Base dataset for contrastive learning.
+    """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        atom_featurizer: Callable,
+        bond_featurizer: Callable,
+        global_featurizer: callable,
+        *,
+        build_reaction_graph: bool = True,
+        init_state_dict: Optional[Union[Dict, Path]] = None,
+        transform_features: bool = True,
+        return_index: bool = True,
+        num_processes: int = 1,
+        #
+        # args to control labels
+        #
+        transform1: Callable = None,
+        transform2: Callable = None,
+    ):
+
+        super().__init__(
+            filename,
+            atom_featurizer,
+            bond_featurizer,
+            global_featurizer,
+            build_reaction_graph=build_reaction_graph,
+            init_state_dict=init_state_dict,
+            transform_features=transform_features,
+            return_index=return_index,
+            num_processes=num_processes,
+        )
+
+        # labels and metadata (one inner dict for each reaction)
+        # do not use [{}] * len(self.reactions); update one will change all
+        self.labels = [{} for _ in range(len(self.reactions))]
+        self.medadata = [{} for _ in range(len(self.reactions))]
+
+        self.generate_metadata()
+
+        # transforms
+        self.transform1 = transform1
+        self.transform2 = transform2
+        if isinstance(self.transform1, MaskAtomAttribute) or isinstance(
+            self.transform2, MaskAtomAttribute
+        ):
+            self.backup_atom_features()
+        if isinstance(self.transform1, MaskBondAttribute) or isinstance(
+            self.transform2, MaskBondAttribute
+        ):
+            self.backup_bond_features()
+
+    def backup_atom_features(self):
+        """
+        Make a copy of the input features in case the mask features transforms modify
+        them.
+        """
+        self.reactants_atom_features = []
+        self.products_atom_features = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            self.reactants_atom_features.append(
+                reactants_g.nodes["atom"].data.pop("feat")
+            )
+            self.products_atom_features.append(
+                products_g.nodes["atom"].data.pop("feat")
+            )
+
+    def backup_bond_features(self):
+        """
+        Make a copy of the input features in case the mask features transforms modify
+        them.
+        """
+        self.reactants_bond_features = []
+        self.products_bond_features = []
+        for reactants_g, products_g, _ in self.dgl_graphs:
+            self.reactants_bond_features.append(
+                reactants_g.edges["bond"].data.pop("feat")
+            )
+            self.products_bond_features.append(
+                products_g.edges["bond"].data.pop("feat")
+            )
+
+    def generate_metadata(self):
+
+        for i, (rxn, label) in enumerate(zip(self.reactions, self.labels)):
+            meta = {
+                "reactant_num_molecules": len(rxn.reactants),
+                "product_num_molecules": len(rxn.products),
+            }
+
+            self.medadata[i].update(meta)
+
+    @staticmethod
+    def update_meta(meta, reactants_g, products_g, reaction):
+
+        meta["num_atoms"] = reactants_g.num_nodes("atom")
+
+        # Only unchanged bonds are augmented, lost and added bonds are not
+        num_lost = len(reaction.lost_bonds)
+        num_added = len(reaction.added_bonds)
+        num_unchanged = reactants_g.num_edges("bond") // 2 - num_lost
+        meta["num_bonds"] = num_unchanged + num_lost + num_added
+        meta["num_unchanged_bonds"] = num_unchanged
+        meta["num_reactant_bonds"] = num_unchanged + num_lost
+        meta["num_product_bonds"] = num_unchanged + num_added
+
+        # bonds in reaction center?
+        meta["bonds_in_reaction_center"] = [False] * num_unchanged + [True] * (
+            num_lost + num_added
+        )
+
+        # atoms in reaction center?
+        atom_hop_dist = np.asarray(reaction.atom_distance_to_reaction_center)
+        remaining_atoms = reactants_g.nodes["atom"].data["_ID"]
+        atom_hop_dist = atom_hop_dist[remaining_atoms]
+        in_center = (atom_hop_dist == 0).tolist()
+        meta["atoms_in_reaction_center"] = in_center
+
+        return meta
+
+    def __getitem__(self, item: int):
+        """
+        Get data point with index.
+        """
+        reactants_g, products_g, reaction_g = self.dgl_graphs[item]
+        reaction = self.reactions[item]
+        label = self.labels[item]
+        meta = self.medadata[item]
+
+        # Assign atom/bond features bach to graph. Should clone to keep backup intact.
+        if isinstance(self.transform1, MaskAtomAttribute) or isinstance(
+            self.transform2, MaskAtomAttribute
+        ):
+            reactants_g.nodes["atom"].data["feat"] = self.reactants_atom_features[
+                item
+            ].clone()
+            products_g.nodes["atom"].data["feat"] = self.products_atom_features[
+                item
+            ].clone()
+
+        if isinstance(self.transform1, MaskBondAttribute) or isinstance(
+            self.transform2, MaskBondAttribute
+        ):
+            reactants_g.edges["bond"].data["feat"] = self.reactants_bond_features[
+                item
+            ].clone()
+            products_g.edges["bond"].data["feat"] = self.products_bond_features[
+                item
+            ].clone()
+
+        # Augment graph and features
+        reactants_g1, products_g1, reaction_g1, _ = self.transform1(
+            reactants_g, products_g, reaction_g, reaction
+        )
+        reactants_g2, products_g2, reaction_g2, _ = self.transform2(
+            reactants_g, products_g, reaction_g, reaction
+        )
+
+        meta1 = self.update_meta(copy.copy(meta), reactants_g1, products_g1, reaction)
+        meta2 = self.update_meta(copy.copy(meta), reactants_g2, products_g2, reaction)
+
+        # #
+        # # for profile running speed purpose
+        # #
+        # reactants_g1, products_g1, reaction_g1 = reactants_g, products_g, reaction_g
+        # reactants_g2, products_g2, reaction_g2 = reactants_g, products_g, reaction_g
+        # meta1 = self.update_meta(copy.copy(meta), reactants_g1, products_g1)
+        # meta2 = self.update_meta(copy.copy(meta), reactants_g2, products_g2)
+
+        return (
+            item,
+            reactants_g,
+            reactants_g1,
+            reactants_g2,
+            products_g,
+            products_g1,
+            products_g2,
+            reaction_g,
+            reaction_g1,
+            reaction_g2,
+            meta,
+            meta1,
+            meta2,
+            label,
+        )
+
+    @staticmethod
+    def collate_fn(samples):
+        (
+            indices,
+            reactants_g,
+            reactants_g1,
+            reactants_g2,
+            products_g,
+            products_g1,
+            products_g2,
+            reaction_g,
+            reaction_g1,
+            reaction_g2,
+            metadata,
+            metadata1,
+            metadata2,
+            labels,
+        ) = map(list, zip(*samples))
+
+        batched_indices = torch.as_tensor(indices)
+
+        batched_molecule_graphs1 = dgl.batch(reactants_g1 + products_g1)
+        batched_molecule_graphs2 = dgl.batch(reactants_g2 + products_g2)
+
+        if reaction_g[0] is None:
+            batched_reaction_graphs = None
+        else:
+            batched_reaction_graphs = dgl.batch(reaction_g, ndata=None, edata=None)
+
+        # labels
+        keys = labels[0].keys()
+        batched_labels = {k: torch.cat([d[k] for d in labels]) for k in keys}
+
+        # metadata used to split global and bond features
+        # keys = metadata[0].keys()
+        # batched_metadata = {k: [d[k] for d in metadata] for k in keys}
+        keys = metadata1[0].keys()
+        batched_metadata1 = {k: [d[k] for d in metadata1] for k in keys}
+        batched_metadata2 = {k: [d[k] for d in metadata2] for k in keys}
+
+        return (
+            batched_indices,
+            (batched_molecule_graphs1, batched_molecule_graphs2),
+            batched_reaction_graphs,
+            batched_labels,
+            (batched_metadata1, batched_metadata2),
+        )
+
+
+class ClassicalFeatureDataset:
+    """
+    Reaction dataset use RDKit featurizers.
+
+    Args:
+        feature_type: how the reaction feature should be obtained from molecule features.
+            `difference`: take the difference of the sum of the molecule features of
+            the reactants and the differences.
+            `concatenate`: concatenate the sum of reactants features and the products
+            features.
+
+    """
+
+    def __init__(
+        self,
+        filename: Union[str, Path],
+        featurizer: Callable[[Chem.Mol], torch.Tensor],
+        feature_type: str = "difference",
+        num_processes: int = 1,
+    ):
+        self.featurizer = featurizer
+        self.feature_type = feature_type
+        self.nprocs = num_processes
+
+        # read input files
+        self.reactions, self._failed = self.read_file(filename)
+
+        # get features
+        self.features = self.featurize_reaction()
+
+        # generate labels
+        self.labels = self.generate_labels()
+
+    def featurize_reaction(self):
+
+        features = []
+        for rxn in self.reactions:
+            rct_feats = torch.sum(
+                torch.stack([self.featurizer(m.rdkit_mol) for m in rxn.reactants]),
+                dim=0,
+            )
+            prdt_feats = torch.sum(
+                torch.stack([self.featurizer(m.rdkit_mol) for m in rxn.products]), dim=0
+            )
+
+            if self.feature_type == "difference":
+                feats = prdt_feats - rct_feats
+            elif self.feature_type == "concatenate":
+                feats = torch.cat((rct_feats, prdt_feats))
+            else:
+                raise ValueError(f"Unsupported feature type {self.feature_type}")
+
+            features.append(feats)
+
+        return features
+
+    def read_file(self, filename: Path) -> Tuple[List[Reaction], List[bool]]:
+        raise NotImplementedError
+
+    def generate_labels(self) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def __len__(self) -> int:
+        return len(self.reactions)
+
+    def __getitem__(self, item):
+        label = self.labels[item]
+        feats = self.features[item]
+
+        return feats, label
