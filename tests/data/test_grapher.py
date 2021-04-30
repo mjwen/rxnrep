@@ -1,370 +1,200 @@
-from collections import defaultdict
-
+import dgl
+import numpy as np
 import torch
-from rdkit import Chem
 
-from rxnrep.data.grapher import (
-    combine_graphs,
-    create_hetero_molecule_graph,
-    create_reaction_graph,
-)
+from rxnrep.core.molecule import Molecule
+from rxnrep.data.grapher import combine_graphs, create_reaction_graph, mol_to_graph
+
+from ..utils import create_graph_C, create_graph_CO2
 
 
-def create_hetero_graph_C(self_loop=False):
-    """
-    Create a single atom molecule C.
+def test_create_graph():
+    def assert_one(g, n_a, n_b, n_v):
 
-    atom_feats:
-        [[0,1,2,3]]
+        num_nodes = {"atom": n_a}
+        num_edges = {"bond": 2 * n_b}
 
-    bond_feats:
-        None
+        if n_v > 0:
+            num_nodes["global"] = n_v
+            num_edges["g2a"] = n_a * n_v
+            num_edges["a2g"] = n_a * n_v
 
-    global_feats:
-        [[0,1]]
-    """
-    m = Chem.MolFromSmiles("[C]")
-    feats = {
-        "atom": torch.arange(4).reshape(1, 4),
-        "bond": torch.tensor([], dtype=torch.int32).reshape(0, 3),
-        "global": torch.arange(2).reshape(1, 2),
+        assert set(g.ntypes) == set(num_nodes.keys())
+        assert set(g.etypes) == set(num_edges.keys())
+        for k, n in num_nodes.items():
+            assert g.number_of_nodes(k) == n
+        for k, n in num_edges.items():
+            assert g.number_of_edges(k) == n
+
+    for n_v in range(3):
+        g = create_graph_C(num_global_nodes=n_v)
+        assert_one(g, 1, 0, n_v)
+
+    for n_v in range(3):
+        g = create_graph_CO2(num_global_nodes=n_v)
+        assert_one(g, 3, 2, n_v)
+
+
+def test_batch_graph():
+
+    n_a_1 = 1
+    n_b_1 = 0
+    n_v_1 = 1
+    g1 = create_graph_C(num_global_nodes=n_v_1)
+
+    n_a_2 = 3
+    n_b_2 = 2
+    n_v_2 = 1
+    g2 = create_graph_CO2(num_global_nodes=n_v_2)
+
+    g = dgl.batch([g1, g2])
+
+    num_nodes = {"atom": n_a_1 + n_a_2, "global": n_v_1 + n_v_2}
+    num_edges = {
+        "bond": 2 * (n_b_1 + n_b_2),
+        "g2a": n_a_1 * n_v_1 + n_a_2 * n_v_2,
+        "a2g": n_a_1 * n_v_1 + n_a_2 * n_v_2,
     }
 
-    g = create_hetero_molecule_graph(m, self_loop)
+    assert set(g.ntypes) == set(num_nodes.keys())
+    assert set(g.etypes) == set(num_edges.keys())
+    for k, n in num_nodes.items():
+        assert g.number_of_nodes(k) == n
+    for k, n in num_edges.items():
+        assert g.number_of_edges(k) == n
 
-    for ntype, ft in feats.items():
-        g.nodes[ntype].data.update({"feat": ft})
+    # assert features
+    for t in num_nodes.keys():
+        assert torch.equal(
+            g.nodes[t].data["feat"],
+            torch.cat([g1.nodes[t].data["feat"], g2.nodes[t].data["feat"]]),
+        )
 
-    return g
-
-
-def create_hetero_graph_CO2(self_loop=False):
-    """
-    Create a CO2 and add features.
-
-    Molecule:
-          0        1
-    O(0) --- C(1) --- O(2)
-
-    atom_feat:
-        [[0,1,2,3],
-         [4,5,6,7],
-         [8,9,10,11]]
-
-    bond_feat:
-        [[0,1,2],
-        [[3,4,5]]
-
-    global_feat:
-        [[0,1]]
-
-    """
-    m = Chem.MolFromSmiles("O=C=O")
-    feats = {
-        "atom": torch.arange(12).reshape(3, 4),
-        "bond": torch.arange(6).reshape(2, 3),
-        "global": torch.arange(2).reshape(1, 2),
-    }
-
-    g = create_hetero_molecule_graph(m, self_loop)
-
-    for ntype, ft in feats.items():
-        g.nodes[ntype].data.update({"feat": ft})
-
-    return g
-
-
-def get_bond_to_atom_map(g):
-    """
-    Query which atoms are associated with the bonds.
-
-    Args:
-        g: dgl graph
-
-    Returns:
-        dict: with bond index as the key and a tuple of atom indices of atoms that
-            form the bond.
-    """
-    nbonds = g.number_of_nodes("bond")
-    bond_to_atom_map = dict()
-    for i in range(nbonds):
-        atoms = g.successors(i, "b2a")
-        bond_to_atom_map[i] = sorted(atoms)
-    return bond_to_atom_map
-
-
-def get_atom_to_bond_map(g):
-    """
-    Query which bonds are associated with the atoms.
-
-    Args:
-        g: dgl graph
-
-    Returns:
-        dict: with atom index as the key and a list of indices of bonds is
-        connected to the atom.
-    """
-    natoms = g.number_of_nodes("atom")
-    atom_to_bond_map = dict()
-    for i in range(natoms):
-        bonds = g.successors(i, "a2b")
-        if len(bonds) > 0:
-            atom_to_bond_map[i] = sorted(list(bonds))
-    return atom_to_bond_map
-
-
-def get_hetero_self_loop_map(g, ntype):
-    num = g.number_of_nodes(ntype)
-    if ntype == "atom":
-        etype = "a2a"
-    elif ntype == "bond":
-        etype = "b2b"
-    elif ntype == "global":
-        etype = "g2g"
-    else:
-        raise ValueError("not supported node type: {}".format(ntype))
-    self_loop_map = dict()
-    for i in range(num):
-        suc = g.successors(i, etype)
-        self_loop_map[i] = list(suc)
-
-    return self_loop_map
-
-
-def test_create_hetero_molecule_graph():
-    def assert_graph(m, ref_b2a_map, self_loop):
-        g = create_hetero_molecule_graph(m, self_loop)
-
-        # number of atoms
-        na = m.GetNumAtoms()
-        # number of bonds
-        nb = m.GetNumBonds()
-        # number of edges between atoms and bonds
-        ne = 2 * nb
-
-        nodes = ["atom", "bond", "global"]
-        num_nodes = [g.number_of_nodes(n) for n in nodes]
-        ref_num_nodes = [na, nb, 1]
-
-        if self_loop:
-            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b", "a2a", "b2b", "g2g"]
-            num_edges = [g.number_of_edges(e) for e in edges]
-            ref_num_edges = [ne, ne, na, na, nb, nb, na, nb, 1]
-
-        else:
-            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b"]
-            num_edges = [g.number_of_edges(e) for e in edges]
-            ref_num_edges = [ne, ne, na, na, nb, nb]
-
-        assert set(g.ntypes) == set(nodes)
-        assert set(g.etypes) == set(edges)
-        assert num_nodes == ref_num_nodes
-        assert num_edges == ref_num_edges
-
-        ref_a2b_map = defaultdict(list)
-        for b, atoms in ref_b2a_map.items():
-            for a in atoms:
-                ref_a2b_map[a].append(b)
-        ref_a2b_map = {a: sorted(bonds) for a, bonds in ref_a2b_map.items()}
-
-        b2a_map = get_bond_to_atom_map(g)
-        a2b_map = get_atom_to_bond_map(g)
-        assert ref_b2a_map == b2a_map
-        assert ref_a2b_map == a2b_map
-
-        if self_loop:
-            for nt, n in zip(nodes, num_nodes):
-                assert get_hetero_self_loop_map(g, nt) == {i: [i] for i in range(n)}
-
-    m = Chem.MolFromSmiles("O=C=O")
-    ref_b2a_map = {0: [0, 1], 1: [1, 2]}
-    assert_graph(m, ref_b2a_map, False)
-    assert_graph(m, ref_b2a_map, True)
-
-    # test single atom molecules (no bonds)
-    m = Chem.MolFromSmiles("[C]")
-    ref_b2a_map = {}
-    assert_graph(m, ref_b2a_map, False)
-    assert_graph(m, ref_b2a_map, True)
+    for t in ["bond"]:
+        assert torch.equal(
+            g.edges[t].data["feat"],
+            torch.cat([g1.edges[t].data["feat"], g2.edges[t].data["feat"]]),
+        )
 
 
 def test_combine_graphs_CO2():
-    def assert_graph_struct(self_loop):
-        g = create_hetero_graph_CO2(self_loop)
-        na = 3  # num atoms
-        nb = 2  # num bonds
-        n_graph = 3  # number of graphs to combine to create new graph
+    """
+    Three CO2 mols.
+    """
 
-        na = na * n_graph  # num atoms in new graph
-        nb = nb * n_graph  # num bonds in new graph
-        ne = 2 * nb  # num of edges between atoms and bonds in new graph
+    for nv in [0, 1]:
+        g = create_graph_CO2(num_global_nodes=nv)
 
         atom_map_number = [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
-        #
-        # Give the atom_map_number, bonds would be
-        # [[(1,4), (4,8)], [(0,2), (2,7)], [(3,5), (5,6)]],
-        # If we order them, the order would be
-        # [[1, 4], [0,2], [3,5]]
-        #
         bond_map_number = [[1, 4], [0, 2], [3, 5]]
-        g = combine_graphs([g] * n_graph, atom_map_number, bond_map_number)
+        # bond 1 is between atoms (1, 4), bond 4 is the between atoms (4, 8) ...
+        bond_to_atom_map = {
+            1: (1, 4),
+            4: (4, 8),
+            0: (0, 2),
+            2: (2, 7),
+            3: (3, 5),
+            5: (5, 6),
+        }
 
-        nodes = ["atom", "bond", "global"]
-        num_nodes = [g.number_of_nodes(n) for n in nodes]
-        ref_num_nodes = [na, nb, n_graph]
-
-        if self_loop:
-            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b", "a2a", "b2b", "g2g"]
-            num_edges = [g.number_of_edges(e) for e in edges]
-            ref_num_edges = [ne, ne, na, na, nb, nb, na, nb, n_graph]
-
+        if nv == 0:
+            global_map_number = [[], [], []]
+        elif nv == 1:
+            global_map_number = [[0], [1], [2]]
         else:
-            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b"]
-            num_edges = [g.number_of_edges(e) for e in edges]
-            ref_num_edges = [ne, ne, na, na, nb, nb]
+            raise ValueError
 
-        assert set(g.ntypes) == set(nodes)
-        assert set(g.etypes) == set(edges)
-        assert num_nodes == ref_num_nodes
-        assert num_edges == ref_num_edges
-
-        # atom map number: [[1, 4, 8], [0, 2, 7], [3, 5, 6]]
-        # b2a map for a single molecule {0: [0, 1], 1: [1, 2]}, meaning bond 0 is
-        # connected atoms 0 and 1, bond 1 is connected to atoms 1 and 2.
-        # Then the b2a map for all molecules is:
-        # {0: [1, 4], 1: [4, 8], 2: [0, 2], 3: [2, 7], 4: [3, 5], 5: [5, 6]}
-        # considering the bond map number:  [[1, 4], [0, 2], [3, 5]]
-        # the b2a map is then:
-        ref_b2a_map = {1: [1, 4], 4: [4, 8], 0: [0, 2], 2: [2, 7], 3: [3, 5], 5: [5, 6]}
-
-        ref_a2b_map = defaultdict(list)
-        for b, atoms in ref_b2a_map.items():
-            for a in atoms:
-                ref_a2b_map[a].append(b)
-        ref_a2b_map = {a: sorted(bonds) for a, bonds in ref_a2b_map.items()}
-
-        b2a_map = get_bond_to_atom_map(g)
-        a2b_map = get_atom_to_bond_map(g)
-        assert ref_b2a_map == b2a_map
-        assert ref_a2b_map == a2b_map
-
-        if self_loop:
-            for nt, n in zip(nodes, num_nodes):
-                assert get_hetero_self_loop_map(g, nt) == {i: [i] for i in range(n)}
-
-    assert_graph_struct(False)
-    assert_graph_struct(True)
+        assert_combine_graphs(
+            [g, g, g],
+            [3, 3, 3],
+            [2, 2, 2],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            global_map_number,
+            bond_to_atom_map,
+        )
 
 
 def test_combine_graphs_C():
-    """Single atom molecule without bond nodes."""
+    """
+    Three single atom molecule without bond.
+    """
 
-    def assert_graph_struct(self_loop):
-        g = create_hetero_graph_C(self_loop)
-        na = 1  # num atoms
-        nb = 0  # num bonds
-        n_graph = 3  # number of graphs to combine to create new graph
+    for nv in [0, 1]:
+        g = create_graph_C(num_global_nodes=nv)
 
-        na = na * n_graph  # num atoms in new graph
-        nb = nb * n_graph  # num bonds in new graph
-        ne = 2 * nb  # num of edges between atoms and bonds in new graph
-
-        atom_map_number = [[1], [0], [2]]
+        atom_map_number = [[1], [2], [0]]
         bond_map_number = [[], [], []]
-        g = combine_graphs([g] * n_graph, atom_map_number, bond_map_number)
+        bond_to_atom_map = {}
 
-        nodes = ["atom", "bond", "global"]
-        num_nodes = [g.number_of_nodes(n) for n in nodes]
-        ref_num_nodes = [na, nb, n_graph]
-
-        if self_loop:
-            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b", "a2a", "b2b", "g2g"]
-            num_edges = [g.number_of_edges(e) for e in edges]
-            ref_num_edges = [ne, ne, na, na, nb, nb, na, nb, n_graph]
-
+        if nv == 0:
+            global_map_number = [[], [], []]
+        elif nv == 1:
+            global_map_number = [[0], [1], [2]]
         else:
-            edges = ["a2b", "b2a", "a2g", "g2a", "b2g", "g2b"]
-            num_edges = [g.number_of_edges(e) for e in edges]
-            ref_num_edges = [ne, ne, na, na, nb, nb]
+            raise ValueError
 
-        assert set(g.ntypes) == set(nodes)
-        assert set(g.etypes) == set(edges)
-        assert num_nodes == ref_num_nodes
-        assert num_edges == ref_num_edges
-
-        ref_b2a_map = {}
-
-        ref_a2b_map = defaultdict(list)
-        for b, atoms in ref_b2a_map.items():
-            for a in atoms:
-                ref_a2b_map[a].append(b)
-        ref_a2b_map = {a: sorted(bonds) for a, bonds in ref_a2b_map.items()}
-
-        b2a_map = get_bond_to_atom_map(g)
-        a2b_map = get_atom_to_bond_map(g)
-        assert ref_b2a_map == b2a_map
-        assert ref_a2b_map == a2b_map
-
-        if self_loop:
-            for nt, n in zip(nodes, num_nodes):
-                assert get_hetero_self_loop_map(g, nt) == {i: [i] for i in range(n)}
-
-    assert_graph_struct(False)
-    assert_graph_struct(True)
+        assert_combine_graphs(
+            [g, g, g],
+            [1, 1, 1],
+            [0, 0, 0],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            global_map_number,
+            bond_to_atom_map,
+        )
 
 
-def test_combine_graph_feature():
+def test_combine_graphs_C_CO2():
     """
-    Two CO2 and one C molecules.
+    CO2, C and CO2; and C, CO2 and C.
     """
-    g1 = create_hetero_graph_CO2()
-    g2 = create_hetero_graph_CO2()
-    g3 = create_hetero_graph_C()
 
-    # see `assert_graph_struct()` for how the bond map number is obtained
-    atom_map_number = [[1, 4, 6], [0, 2, 5], [3]]
-    bond_map_number = [[1, 3], [0, 2], []]
-    graph = combine_graphs([g1, g2, g3], atom_map_number, bond_map_number)
+    for nv in [0, 1]:
+        g1 = create_graph_CO2(num_global_nodes=nv)
+        g2 = create_graph_C(num_global_nodes=nv)
 
-    a1 = torch.arange(12).reshape(3, 4)
-    b1 = torch.arange(6).reshape(2, 3)
-    g1 = torch.arange(2).reshape(1, 2)
-    a2 = torch.arange(4).reshape(1, 4)
-    b2 = torch.arange(0).reshape(0, 3)
-    g2 = torch.arange(2).reshape(1, 2)
-    ref_atom_feats = torch.cat([a1, a1, a2])[[3, 0, 4, 6, 1, 5, 2]]
-    ref_bond_feats = torch.cat([b1, b1, b2])[[2, 0, 3, 1]]
-    ref_global_feats = torch.cat([g1, g1, g2])
+        if nv == 0:
+            global_map_number = [[], [], []]
+        elif nv == 1:
+            global_map_number = [[0], [1], [2]]
+        else:
+            raise ValueError
 
-    assert torch.equal(graph.nodes["atom"].data["feat"], ref_atom_feats)
-    assert torch.equal(graph.nodes["bond"].data["feat"], ref_bond_feats)
-    assert torch.equal(graph.nodes["global"].data["feat"], ref_global_feats)
+        # CO2, C and CO2
+        atom_map_number = [[1, 4, 5], [3], [0, 2, 6]]
+        bond_map_number = [[1, 3], [], [0, 2]]
+        # bond 1 is between atoms (1, 4), bond 3 is the between atoms (4, 5) ...
+        bond_to_atom_map = {1: (1, 4), 3: (4, 5), 0: (0, 2), 2: (2, 6)}
 
+        assert_combine_graphs(
+            [g1, g2, g1],
+            [3, 1, 3],
+            [2, 0, 2],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            global_map_number,
+            bond_to_atom_map,
+        )
 
-def test_combine_graph_feature_2():
-    """
-    Two C molecules.
+        # C, CO2 and C
+        atom_map_number = [[3], [4, 0, 2], [1]]
+        bond_map_number = [[], [1, 0], []]
+        bond_to_atom_map = {1: (4, 0), 0: (0, 2)}
 
-    The combined graph should have a bond feature of shape (0, D), where D is is
-    feature size.
-    """
-    g1 = create_hetero_graph_C()
-    g2 = create_hetero_graph_C()
-
-    atom_map_number = [[1], [0]]
-    bond_map_number = [[], []]
-    graph = combine_graphs([g1, g2], atom_map_number, bond_map_number)
-
-    a = torch.arange(4).reshape(1, 4)
-    b = torch.arange(0).reshape(0, 3).type(torch.int32)
-    g = torch.arange(2).reshape(1, 2)
-    ref_atom_feats = torch.cat([a, a])[[1, 0]]
-    ref_bond_feats = torch.cat([b, b])
-    ref_global_feats = torch.cat([g, g])
-
-    assert torch.equal(graph.nodes["atom"].data["feat"], ref_atom_feats)
-    assert torch.equal(graph.nodes["bond"].data["feat"], ref_bond_feats)
-    assert torch.equal(graph.nodes["global"].data["feat"], ref_global_feats)
+        assert_combine_graphs(
+            [g2, g1, g2],
+            [1, 3, 1],
+            [0, 2, 0],
+            [nv, nv, nv],
+            atom_map_number,
+            bond_map_number,
+            global_map_number,
+            bond_to_atom_map,
+        )
 
 
 def test_create_reaction_graph():
@@ -396,38 +226,175 @@ def test_create_reaction_graph():
     C1-----C3-----C4
     """
 
-    m1 = Chem.MolFromSmiles("[CH3:3][CH2+:1]")
-    m2 = Chem.MolFromSmiles("[CH3:2][CH2:4][CH2:5]")
-    m3 = Chem.MolFromSmiles("[CH3:3]")
-    m4 = Chem.MolFromSmiles("[CH3:2][CH2:4][CH2:5][CH2+:1]")
-
-    g1 = create_hetero_molecule_graph(m1)
-    g2 = create_hetero_molecule_graph(m2)
-    g3 = create_hetero_molecule_graph(m3)
-    g4 = create_hetero_molecule_graph(m4)
+    smiles = [
+        "[CH3:3][CH2+:1]",
+        "[CH3:2][CH2:4][CH2:5]",
+        "[CH3:3]",
+        "[CH3:2][CH2:4][CH2:5][CH2+:1]",
+    ]
 
     reactant_atom_map = [[2, 0], [1, 3, 4]]
     reactant_bond_map = [[2], [0, 1]]
     product_atom_map = [[2], [1, 3, 4, 0]]
     product_bond_map = [[], [0, 1, 2]]
 
-    reactant = combine_graphs([g1, g2], reactant_atom_map, reactant_bond_map)
-    product = combine_graphs([g3, g4], product_atom_map, product_bond_map)
+    for nv in [0, 1]:
 
-    g = create_reaction_graph(
-        reactant, product, num_unchanged_bonds=2, num_lost_bonds=1, num_added_bonds=1
+        graphs = [
+            mol_to_graph(Molecule.from_smiles(s), num_global_nodes=nv) for s in smiles
+        ]
+
+        reactant = combine_graphs(
+            [graphs[0], graphs[1]], reactant_atom_map, reactant_bond_map
+        )
+        product = combine_graphs(
+            [graphs[2], graphs[3]], product_atom_map, product_bond_map
+        )
+
+        g = create_reaction_graph(
+            reactant,
+            product,
+            num_unchanged_bonds=2,
+            num_lost_bonds=1,
+            num_added_bonds=1,
+            num_global_nodes=nv,
+        )
+
+        na = 5
+        nb = 4
+        assert_graph_quantity(
+            g,
+            num_atoms=na,
+            num_global_nodes=nv,
+            num_edges_aa=2 * nb,
+            num_edges_va=na * nv,
+        )
+
+        # reference bond to atom map
+
+        bond_to_atom_map = {0: [1, 3], 1: [3, 4], 2: [0, 2], 3: [0, 4]}
+
+        atom_map_number = [list(range(na))]
+        if nv == 0:
+            global_map_number = [[]]
+        elif nv == 1:
+            global_map_number = [[0]]
+        else:
+            raise ValueError
+
+        assert_graph_connectivity(
+            g,
+            num_global_nodes=nv,
+            bond_to_atom_map=bond_to_atom_map,
+            atom_map_number=atom_map_number,
+            global_map_number=global_map_number,
+        )
+
+
+def assert_graph_quantity(g, num_atoms, num_global_nodes, num_edges_aa, num_edges_va):
+    nodes = ["atom"]
+    edges = ["bond"]
+    ref_num_nodes = [num_atoms]
+    ref_num_edges = [num_edges_aa]
+
+    if num_global_nodes > 0:
+        nodes.append("global")
+        edges.extend(["a2g", "g2a"])
+        ref_num_nodes.append(num_global_nodes)
+        ref_num_edges.extend([num_edges_va, num_edges_va])
+
+    num_nodes = [g.number_of_nodes(n) for n in nodes]
+    num_edges = [g.number_of_edges(e) for e in edges]
+
+    assert set(g.ntypes) == set(nodes)
+    assert set(g.etypes) == set(edges)
+    assert num_nodes == ref_num_nodes
+    assert num_edges == ref_num_edges
+
+
+def assert_graph_connectivity(
+    g, num_global_nodes, bond_to_atom_map, atom_map_number, global_map_number
+):
+
+    # test atom to atom connection
+    etype = "bond"
+    src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+    pairs = [(s, d) for s, d in zip(src.numpy().tolist(), dst.numpy().tolist())]
+    for b, atoms in bond_to_atom_map.items():
+        x = {tuple(atoms), tuple(reversed(atoms))}
+        y = {pairs[2 * b], pairs[2 * b + 1]}
+        assert x == y
+
+    # NOTE, unnecessary to check global node edges, since no feats will be assigned
+    if num_global_nodes > 0:
+        # test global to atom connection
+        etype = "g2a"
+        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+        i = 0
+        for vv, aa in zip(global_map_number, atom_map_number):
+            for v in vv:
+                for a in aa:
+                    assert src[i] == v
+                    assert dst[i] == a
+                    i += 1
+
+        # test atom to global connection
+        etype = "a2g"
+        src, dst, eid = g.edges(form="all", order="eid", etype=etype)
+        i = 0
+        for vv, aa in zip(global_map_number, atom_map_number):
+            for v in vv:
+                for a in aa:
+                    assert src[i] == a
+                    assert dst[i] == v
+                    i += 1
+
+
+def assert_combine_graphs(
+    graphs,
+    na,
+    nb,
+    nv,
+    atom_map_number,
+    bond_map_number,
+    global_map_number,
+    bond_to_atom_map,
+):
+
+    ne_v = sum(i * j for i, j in zip(na, nv))  # number of atom-global edges
+    na = sum(na)
+    nb = sum(nb)
+    nv = sum(nv)
+    ne_a = 2 * nb  # num of atom-atom edges
+
+    g = combine_graphs(graphs, atom_map_number, bond_map_number)
+
+    assert_graph_quantity(g, na, nv, ne_a, ne_v)
+    assert_graph_connectivity(
+        g, nv, bond_to_atom_map, atom_map_number, global_map_number
     )
 
-    b2a = get_bond_to_atom_map(g)
-    a2b = get_atom_to_bond_map(g)
+    #
+    # test features
+    #
+    feats_atom = torch.cat([g.nodes["atom"].data["feat"] for g in graphs])
+    feats_bond = torch.cat([g.edges["bond"].data["feat"] for g in graphs])
 
-    # reference bond to atom and atom to bond map
-    ref_b2a_map = {0: [1, 3], 1: [3, 4], 2: [0, 2], 3: [0, 4]}
-    ref_a2b_map = defaultdict(list)
-    for b, atoms in ref_b2a_map.items():
-        for a in atoms:
-            ref_a2b_map[a].append(b)
-    ref_a2b_map = {a: sorted(bonds) for a, bonds in ref_a2b_map.items()}
+    reorder_atom = np.concatenate(atom_map_number).tolist()
+    reorder_atom = [reorder_atom.index(i) for i in range(len(reorder_atom))]
+    reorder_bond = np.concatenate(bond_map_number).tolist()
+    if reorder_bond:
+        reorder_bond = np.concatenate(
+            [[2 * i, 2 * i + 1] for i in reorder_bond]
+        ).tolist()
+        reorder_bond = [reorder_bond.index(i) for i in range(len(reorder_bond))]
 
-    assert b2a == ref_b2a_map
-    assert a2b == ref_a2b_map
+    assert torch.equal(g.nodes["atom"].data["feat"], feats_atom[reorder_atom])
+    assert torch.equal(g.edges["bond"].data["feat"], feats_bond[reorder_bond])
+
+    if nv > 0:
+        feats_global = torch.cat([g.nodes["global"].data["feat"] for g in graphs])
+        reorder_global = np.concatenate(global_map_number).tolist()
+        reorder_global = [reorder_global.index(i) for i in range(len(reorder_global))]
+
+        assert torch.equal(g.nodes["global"].data["feat"], feats_global[reorder_global])
