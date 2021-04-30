@@ -21,10 +21,17 @@ class BaseLightningModel(pl.LightningModule):
 
         self.backbone = self.init_backbone(self.hparams)
 
-        self.classification_tasks = {}
-        self.regression_tasks = {}
-        self.init_tasks()
+        decoder = self.init_decoder(self.hparams)
+        for name in decoder:
+            assert "decoder" in name, (
+                f"Please add `decoder` to decoder name for `{name}` in "
+                f"`self.init_decoder()`. We use the word `decoder` to detect which "
+                "modules to freeze when doing finetuning!"
+            )
+        self.decoder = nn.ModuleDict(decoder)
 
+        self.regression_tasks = self.init_regression_tasks(self.hparams)
+        self.classification_tasks = self.init_classification_tasks(self.hparams)
         self.metrics = self.init_metrics()
 
         self.timer = TimeMeter()
@@ -199,22 +206,24 @@ class BaseLightningModel(pl.LightningModule):
 
             for task_name, task_setting in self.classification_tasks.items():
                 n = task_setting["num_classes"]
+                average = task_setting["average"]
+
                 metrics[mode][task_name] = nn.ModuleDict(
                     {
                         "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                         "precision": pl.metrics.Precision(
                             num_classes=n,
-                            average="micro",
+                            average=average,
                             compute_on_step=False,
                         ),
                         "recall": pl.metrics.Recall(
                             num_classes=n,
-                            average="micro",
+                            average=average,
                             compute_on_step=False,
                         ),
                         "f1": pl.metrics.F1(
                             num_classes=n,
-                            average="micro",
+                            average=average,
                             compute_on_step=False,
                         ),
                     }
@@ -303,19 +312,18 @@ class BaseLightningModel(pl.LightningModule):
 
         return score
 
-    def init_backbone(self, params):
+    def init_backbone(self, params) -> nn.Module:
         """
         Create backbone model.
 
-        Args:
-            params:
-
         Return:
-            The model.
+            A pytorch or lightning model that can be called like:
+                `model(mol_graph, reaction_graph, feats, metadata)`
+                and the model should return (mol_feats, reaction_feats).
 
         Example:
 
-        model = ReactionRepresentation(
+        model = ReactionEncoder(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -339,32 +347,65 @@ class BaseLightningModel(pl.LightningModule):
             pool_kwargs=params.pool_kwargs,
         )
 
-        return model
+        Returns:
+            a model that is used as backbone
         """
         raise NotImplementedError
 
-    def init_tasks(self):
+    def init_decoder(self, params) -> Dict[str, nn.Module]:
         """
-        Define the tasks (decoders) and the associated metrics.
+        Create the decoder(s).
+
+        The decoder(s) takes the output of backbone model as input and maps them into
+        property, e.g. class label.
+
+        Returns:
+           A dictionary of decoders, {name: decoder}.
+        """
+        raise NotImplementedError
+
+    def init_regression_tasks(self, params) -> Dict:
+        """
+        Define the the regression tasks used for computing metrics.
+
+        Currently, `mae` metric is supported.
 
         Example:
 
-        self.classification_tasks = {
-            # "bond_hop_dist": {
-            #     "num_classes": self.hparams.bond_hop_dist_num_classes,
-            #     "to_score": {"f1": 1},
-            # }
+        regression_tasks = {
+            "reaction_energy": {
+                "label_scaler": "reaction_energy",
+                "to_score": {"mae": -1},
+            },
+            "activation_energy": {
+                "label_scaler": "activation_energy",
+                "to_score": {"mae": -1},
+            }
         }
 
-        self.regression_tasks = {
-            # "reaction_energy": {
-            #     "label_scaler": "reaction_energy",
-            #     "to_score": {"mae": -1},
-            # }
-        }
+        return regression_tasks
         """
+        return {}
 
-        raise NotImplementedError
+    def init_classification_tasks(self, params) -> Dict:
+        """
+        Define the the classification tasks used for computing metrics.
+
+        Currently, `accuracy`, `recall`, `precision`, and f1 metrics are supported.
+
+        Example:
+
+        regression_tasks = {
+            "reaction_type": {
+                "num_classes": params.num_reaction_classes,
+                "to_score": {"f1": 1},
+                "average": "micro"
+            }
+        }
+
+        return regression_tasks
+        """
+        return {}
 
     def decode(
         self,
@@ -373,7 +414,7 @@ class BaseLightningModel(pl.LightningModule):
         metadata: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         """
-        Decode the molecule and reaction features to properties.
+        User the decoders to compute predictions from molecule and reaction features.
 
         Args:
             feats: atom and bond (maybe global) features of molecules

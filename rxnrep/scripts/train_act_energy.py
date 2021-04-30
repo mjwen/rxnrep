@@ -5,9 +5,10 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts import argument
 from rxnrep.model.base_lit_model import BaseLightningModel
+from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.utils import MLP
+from rxnrep.scripts import argument
 from rxnrep.scripts.cross_validate import cross_validate
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
@@ -47,8 +48,7 @@ def parse_args(dataset):
 
 class LightningModel(BaseLightningModel):
     def init_backbone(self, params):
-
-        model = ReactionRepresentation(
+        model = ReactionEncoder(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -83,23 +83,25 @@ class LightningModel(BaseLightningModel):
             mlp_pool_layer_sizes=params.mlp_pool_layer_sizes,
             mlp_pool_layer_batch_norm=params.mlp_pool_layer_batch_norm,
             mlp_pool_layer_activation=params.activation,
-            # energy decoder
-            activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
-            activation_energy_decoder_activation=params.activation,
         )
 
         return model
 
-    def init_tasks(self):
-        self.regression_tasks = {
-            "activation_energy": {
-                "label_scaler": "activation_energy",
-                "to_score": {"mae": -1},
-            },
-        }
+    def init_decoder(self, params):
+        decoder = MLP(
+            in_size=self.backbone.reaction_feats_size,
+            hidden_sizes=params.activation_energy_decoder_hidden_layer_sizes,
+            activation=params.activation,
+            out_size=1,
+        )
+
+        return {"activation_energy_decoder": decoder}
 
     def decode(self, feats, reaction_feats, metadata):
-        return self.backbone.decode(feats, reaction_feats, metadata)
+        decoder = self.decoder["activation_energy_decoder"]
+        activation_energy = decoder(reaction_feats)
+
+        return {"activation_energy": activation_energy}
 
     def compute_loss(self, preds, labels):
 
@@ -112,6 +114,16 @@ class LightningModel(BaseLightningModel):
         all_loss[task] = loss
 
         return all_loss
+
+    def init_regression_tasks(self, params):
+        tasks = {
+            "activation_energy": {
+                "label_scaler": "activation_energy",
+                "to_score": {"mae": -1},
+            }
+        }
+
+        return tasks
 
 
 if __name__ == "__main__":
@@ -160,4 +172,4 @@ if __name__ == "__main__":
             project=project,
         )
 
-        logger.info(f"Finish training at: {datetime.now()}")
+    logger.info(f"Finish training at: {datetime.now()}")

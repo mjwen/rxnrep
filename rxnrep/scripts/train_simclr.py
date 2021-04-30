@@ -5,12 +5,12 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
+from rxnrep.model.base_contrastive_lit_model import BaseLightningModel
 from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.losses import nt_xent_loss
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
-from rxnrep.model.base_contrastive_lit_model import BaseLightningModel
 from rxnrep.scripts.load_contrastive_dataset import load_dataset
-from rxnrep.model.losses import nt_xent_loss
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import write_running_metadata
 
@@ -87,24 +87,21 @@ class LightningModel(BaseLightningModel):
             mlp_pool_layer_activation=params.activation,
         )
 
-        #
-        # decoder
-        #
-        # name this `.._decoder` so that we can easily freeze it when finetune
-        self.projection_decoder = MLP(
-            in_size=model.reaction_feats_size,
+        return model
+
+    def init_decoder(self, params):
+        projection_decoder = MLP(
+            in_size=self.backbone.reaction_feats_size,
             hidden_sizes=params.simclr_layer_sizes[:-1],
             activation=params.activation,
             out_size=params.simclr_layer_sizes[-1],
         )
 
-        return model
-
-    def init_tasks(self):
-        pass
+        return {"projection_head_decoder": projection_decoder}
 
     def decode(self, feats, reaction_feats, metadata):
-        z = self.projection_decoder(reaction_feats)
+        decoder = self.decoder["projection_head_decoder"]
+        z = decoder(reaction_feats)
 
         return z
 

@@ -5,9 +5,9 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
+from rxnrep.model.base_finetune_lit_model import BaseLightningModel
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
-from rxnrep.model.base_finetune_lit_model import BaseLightningModel
 from rxnrep.scripts.cross_validate import cross_validate
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
@@ -39,6 +39,7 @@ def parse_args(dataset):
     args = parser.parse_args()
     ####################
 
+    # TODO replace all these by backbone.reaction_feats_size
     #
     # set `--conv_layer_size` to be the value used in pretrained model, which will be
     # used in many adjusters. Essentially, we can extract this info from the pretrained
@@ -66,9 +67,6 @@ def parse_args(dataset):
 
 class LightningModel(BaseLightningModel):
     def init_backbone(self, params):
-        #
-        # backbone model
-        #
         model = PretrainedModel.load_from_checkpoint(params.pretrained_ckpt_path)
 
         # select parameters to freeze
@@ -81,42 +79,49 @@ class LightningModel(BaseLightningModel):
             # fix all backbone parameters
             model.freeze()
 
-        #
-        # decoder to predict classes
-        #
-        # The name SHOULD be self.prediction_head, as we specifically uses this in
-        # optimizer to get the parameters
-        self.prediction_head = MLP(
-            in_size=model.backbone.reaction_feats_size,
+        return model
+
+    def init_decoder(self, params):
+        decoder = MLP(
+            in_size=self.backbone.backbone.reaction_feats_size,
             hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
             activation=params.activation,
             out_size=params.num_reaction_classes,
         )
 
-        return model
-
-    def init_tasks(self):
-        self.classification_tasks = {
-            "reaction_type": {
-                "num_classes": self.hparams.num_reaction_classes,
-                "to_score": {"f1": 1},
-            }
-        }
+        return {"reaction_type_decoder": decoder}
 
     def decode(self, feats, reaction_feats, metadata):
-        preds = {"reaction_type": self.prediction_head(reaction_feats)}
-        return preds
+        decoder = self.decoder["reaction_type_decoder"]
+        reaction_type = decoder(reaction_feats)
+
+        return {"reaction_type": reaction_type}
 
     def compute_loss(self, preds, labels):
 
+        all_loss = {}
+
+        task = "reaction_type"
         loss = F.cross_entropy(
-            preds["reaction_type"],
-            labels["reaction_type"],
+            preds[task],
+            labels[task],
             reduction="mean",
             weight=self.hparams.reaction_class_weight.to(self.device),
         )
+        all_loss[task] = loss
 
-        return {"reaction_type": loss}
+        return all_loss
+
+    def init_classification_tasks(self, params):
+        tasks = {
+            "reaction_type": {
+                "num_classes": params.num_reaction_classes,
+                "to_score": {"f1": 1},
+                "average": "micro",
+            }
+        }
+
+        return tasks
 
     def on_train_epoch_start(self):
         # Although model.eval() is called in mode.freeze() when calling init_backbone(),
@@ -138,7 +143,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "wcq1m2ye"
+    pretrained_model_identifier = "1mysnzj7"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

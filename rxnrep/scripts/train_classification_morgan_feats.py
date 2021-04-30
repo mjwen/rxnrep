@@ -5,9 +5,9 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
+from rxnrep.model.base_lit_model import BaseLightningModel
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
-from rxnrep.model.base_lit_model import BaseLightningModel
 from rxnrep.scripts.cross_validate import cross_validate
 from rxnrep.scripts.load_predictive_dataset import load_morgan_feature_dataset
 from rxnrep.scripts.main import main
@@ -63,10 +63,10 @@ class LightningModel(BaseLightningModel):
             out_size=params.num_reaction_classes,
         )
 
-    def init_tasks(self):
+    def init_regression_tasks(self, params):
         self.classification_tasks = {
             "reaction_type": {
-                "num_classes": self.hparams.num_reaction_classes,
+                "num_classes": params.num_reaction_classes,
                 "to_score": {"f1": 1},
             }
         }

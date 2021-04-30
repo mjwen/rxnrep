@@ -5,9 +5,10 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts import argument
 from rxnrep.model.base_lit_model import BaseLightningModel
+from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.utils import MLP
+from rxnrep.scripts import argument
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.utils import write_running_metadata
@@ -48,8 +49,7 @@ def parse_args(dataset):
 
 class LightningModel(BaseLightningModel):
     def init_backbone(self, params):
-
-        model = ReactionRepresentation(
+        model = ReactionEncoder(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -68,6 +68,8 @@ class LightningModel(BaseLightningModel):
             #
             conv=params.conv,
             has_global_feats=params.has_global_feats,
+            #
+            combine_reactants_products=params.combine_reactants_products,
             # mlp diff
             mlp_diff_layer_sizes=params.mlp_diff_layer_sizes,
             mlp_diff_layer_batch_norm=params.mlp_diff_layer_batch_norm,
@@ -82,29 +84,38 @@ class LightningModel(BaseLightningModel):
             mlp_pool_layer_sizes=params.mlp_pool_layer_sizes,
             mlp_pool_layer_batch_norm=params.mlp_pool_layer_batch_norm,
             mlp_pool_layer_activation=params.activation,
-            # energy decoder
-            reaction_energy_decoder_hidden_layer_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
-            reaction_energy_decoder_activation=params.activation,
-            activation_energy_decoder_hidden_layer_sizes=params.activation_energy_decoder_hidden_layer_sizes,
-            activation_energy_decoder_activation=params.activation,
         )
 
         return model
 
-    def init_tasks(self):
-        self.regression_tasks = {
-            "reaction_energy": {
-                "label_scaler": "reaction_energy",
-                "to_score": [],
-            },
-            "activation_energy": {
-                "label_scaler": "activation_energy",
-                "to_score": {"mae": -1},
-            },
+    def init_decoder(self, params):
+        rxn_energy_decoder = MLP(
+            in_size=self.backbone.reaction_feats_size,
+            hidden_sizes=params.reaction_energy_decoder_hidden_layer_sizes,
+            activation=params.activation,
+            out_size=1,
+        )
+
+        act_energy_decoder = MLP(
+            in_size=self.backbone.reaction_feats_size,
+            hidden_sizes=params.activation_energy_decoder_hidden_layer_sizes,
+            activation=params.activation,
+            out_size=1,
+        )
+
+        return {
+            "reaction_energy_decoder": rxn_energy_decoder,
+            "activation_energy_decoder": act_energy_decoder,
         }
 
     def decode(self, feats, reaction_feats, metadata):
-        return self.backbone.decode(feats, reaction_feats, metadata)
+        rxn_energy_decoder = self.decoder["reaction_energy_decoder"]
+        rxn_energy = rxn_energy_decoder(reaction_feats)
+
+        act_energy_decoder = self.decoder["activation_energy_decoder"]
+        act_energy = act_energy_decoder(reaction_feats)
+
+        return {"reaction_energy": rxn_energy, "activation_energy": act_energy}
 
     def compute_loss(self, preds, labels):
 
@@ -123,6 +134,20 @@ class LightningModel(BaseLightningModel):
         all_loss[task] = loss
 
         return all_loss
+
+    def init_regression_tasks(self, params):
+        tasks = {
+            "reaction_energy": {
+                "label_scaler": "reaction_energy",
+                "to_score": [],
+            },
+            "activation_energy": {
+                "label_scaler": "activation_energy",
+                "to_score": {"mae": -1},
+            },
+        }
+
+        return tasks
 
 
 if __name__ == "__main__":

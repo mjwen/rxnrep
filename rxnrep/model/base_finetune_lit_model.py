@@ -17,11 +17,17 @@ class BaseLightningModel(LitModel):
 
         """
 
-        # params for prediction head
+        # params for prediction head decoder
+        assert (
+            len(self.decoder) == 1
+        ), f"Expect 1 decoder for finetune model, got {len(self.decoder)}"
+
+        prediction_head = list(self.decoder.values())[0]
+
         params_group = [
             {
                 "params": filter(
-                    lambda p: p.requires_grad, self.prediction_head.parameters()
+                    lambda p: p.requires_grad, prediction_head.parameters()
                 ),
                 "lr": self.hparams.lr,
                 "weight_decay": self.hparams.weight_decay,

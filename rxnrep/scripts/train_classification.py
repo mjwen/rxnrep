@@ -5,9 +5,10 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts import argument
 from rxnrep.model.base_lit_model import BaseLightningModel
+from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.utils import MLP
+from rxnrep.scripts import argument
 from rxnrep.scripts.cross_validate import cross_validate
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
@@ -47,8 +48,7 @@ def parse_args(dataset):
 
 class LightningModel(BaseLightningModel):
     def init_backbone(self, params):
-
-        model = ReactionRepresentation(
+        model = ReactionEncoder(
             in_feats=params.feature_size,
             embedding_size=params.embedding_size,
             # encoder
@@ -83,35 +83,51 @@ class LightningModel(BaseLightningModel):
             mlp_pool_layer_sizes=params.mlp_pool_layer_sizes,
             mlp_pool_layer_batch_norm=params.mlp_pool_layer_batch_norm,
             mlp_pool_layer_activation=params.activation,
-            # reaction type decoder
-            reaction_type_decoder_hidden_layer_sizes=params.reaction_type_decoder_hidden_layer_sizes,
-            reaction_type_decoder_activation=params.activation,
-            reaction_type_decoder_num_classes=params.num_reaction_classes,
         )
 
         return model
 
-    def init_tasks(self):
-        self.classification_tasks = {
-            "reaction_type": {
-                "num_classes": self.hparams.num_reaction_classes,
-                "to_score": {"f1": 1},
-            }
-        }
+    def init_decoder(self, params):
+        decoder = MLP(
+            in_size=self.backbone.reaction_feats_size,
+            hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
+            activation=params.activation,
+            out_size=params.num_reaction_classes,
+        )
+
+        return {"reaction_type_decoder": decoder}
 
     def decode(self, feats, reaction_feats, metadata):
-        return self.backbone.decode(feats, reaction_feats, metadata)
+        decoder = self.decoder["reaction_type_decoder"]
+        reaction_type = decoder(reaction_feats)
+
+        return {"reaction_type": reaction_type}
 
     def compute_loss(self, preds, labels):
 
+        all_loss = {}
+
+        task = "reaction_type"
         loss = F.cross_entropy(
-            preds["reaction_type"],
-            labels["reaction_type"],
+            preds[task],
+            labels[task],
             reduction="mean",
             weight=self.hparams.reaction_class_weight.to(self.device),
         )
+        all_loss[task] = loss
 
-        return {"reaction_type": loss}
+        return all_loss
+
+    def init_classification_tasks(self, params):
+        tasks = {
+            "reaction_type": {
+                "num_classes": params.num_reaction_classes,
+                "to_score": {"f1": 1},
+                "average": "micro",
+            }
+        }
+
+        return tasks
 
 
 if __name__ == "__main__":
