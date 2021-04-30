@@ -5,7 +5,7 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.base_lit_model import BaseLightningModel
+from rxnrep.model.model import BaseModel
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
 from rxnrep.scripts.cross_validate import cross_validate
@@ -53,7 +53,7 @@ def parse_args(dataset):
     return args
 
 
-class LightningModel(BaseLightningModel):
+class LightningModel(BaseModel):
     def init_backbone(self, params):
 
         self.reaction_type_decoder = MLP(

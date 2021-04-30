@@ -5,7 +5,7 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.base_finetune_lit_model import BaseLightningModel
+from rxnrep.model.model_finetune import BaseFinetuneModel
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
 from rxnrep.scripts.cross_validate import cross_validate
@@ -65,7 +65,7 @@ def parse_args(dataset):
     return args
 
 
-class LightningModel(BaseLightningModel):
+class LightningModel(BaseFinetuneModel):
     def init_backbone(self, params):
         model = PretrainedModel.load_from_checkpoint(params.pretrained_ckpt_path)
 

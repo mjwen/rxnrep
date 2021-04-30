@@ -5,7 +5,7 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.base_contrastive_lit_model import BaseLightningModel
+from rxnrep.model.model_contrastive import BaseContrastiveModel
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.losses import nt_xent_loss
 from rxnrep.model.utils import MLP
@@ -47,7 +47,7 @@ def parse_args(dataset):
     return args
 
 
-class LightningModel(BaseLightningModel):
+class LightningModel(BaseContrastiveModel):
     def init_backbone(self, params):
 
         model = ReactionEncoder(

@@ -6,10 +6,10 @@ import torch
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torch.optim import lr_scheduler
 
-from rxnrep.model.base_lit_model import BaseLightningModel as LitModel
+from rxnrep.model.model import BaseModel
 
 
-class BaseLightningModel(LitModel):
+class BaseFinetuneModel(BaseModel):
     def configure_optimizers(self):
         """
         Different learning rate for prediction head and backbone encoder (if it is

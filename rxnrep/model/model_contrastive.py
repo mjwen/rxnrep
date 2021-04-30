@@ -2,10 +2,10 @@
 Base model for Constrative representation learning.
 """
 
-from rxnrep.model.base_lit_model import BaseLightningModel as LitModel
+from rxnrep.model.model import BaseModel
 
 
-class BaseLightningModel(LitModel):
+class BaseContrastiveModel(BaseModel):
     def compute_z(self, mol_graphs, rxn_graphs, metadata):
         nodes = ["atom", "global"]
         feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}

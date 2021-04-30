@@ -5,7 +5,7 @@ from datetime import datetime
 import pytorch_lightning as pl
 import torch.nn.functional as F
 
-from rxnrep.model.base_lit_model import BaseLightningModel
+from rxnrep.model.model import BaseModel
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
@@ -47,7 +47,7 @@ def parse_args(dataset):
     return args
 
 
-class LightningModel(BaseLightningModel):
+class LightningModel(BaseModel):
     def init_backbone(self, params):
         model = ReactionEncoder(
             in_feats=params.feature_size,

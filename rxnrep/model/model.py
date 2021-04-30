@@ -13,7 +13,7 @@ from torch.optim import lr_scheduler
 from rxnrep.scripts.utils import TimeMeter
 
 
-class BaseLightningModel(pl.LightningModule):
+class BaseModel(pl.LightningModule):
     def __init__(self, params):
         super().__init__()
 
