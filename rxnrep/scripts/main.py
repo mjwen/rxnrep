@@ -20,7 +20,7 @@ def main(
     monitor_mode="max",
     project="tmp-rxnrep",
     run_test=True,
-    log_dir: Path = "wandb",
+    log_dir: Path = "rxnrep_log_dir",
 ):
 
     # callbacks

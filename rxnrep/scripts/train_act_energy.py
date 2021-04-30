@@ -6,12 +6,12 @@ import pytorch_lightning as pl
 import torch.nn.functional as F
 
 from rxnrep.model.model import ReactionRepresentation
-from rxnrep.scripts.load_predictive_dataset import load_dataset
-from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts import argument
 from rxnrep.scripts.base_lit_model import BaseLightningModel
 from rxnrep.scripts.cross_validate import cross_validate
+from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
+from rxnrep.scripts.utils import write_running_metadata
 
 logger = logging.getLogger(__name__)
 

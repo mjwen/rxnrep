@@ -74,7 +74,12 @@ def load_uspto_dataset(args):
     )
 
     train_loader, val_loader, test_loader = _get_loaders(
-        trainset, valset, testset, args.batch_size, args.num_workers
+        trainset,
+        valset,
+        testset,
+        trainset.collate_fn,
+        args.batch_size,
+        args.num_workers,
     )
 
     # Add info that will be used in the model to args for easy access
@@ -152,7 +157,12 @@ def load_green_dataset(args):
     )
 
     train_loader, val_loader, test_loader = _get_loaders(
-        trainset, valset, testset, args.batch_size, args.num_workers
+        trainset,
+        valset,
+        testset,
+        trainset.collate_fn,
+        args.batch_size,
+        args.num_workers,
     )
 
     # Add info that will be used in the model to args for easy access

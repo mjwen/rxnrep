@@ -6,12 +6,12 @@ import pytorch_lightning as pl
 import torch.nn.functional as F
 
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.load_predictive_dataset import load_dataset
-from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.scripts import argument
 from rxnrep.scripts.base_finetune_lit_model import BaseLightningModel
+from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.train_simclr import LightningModel as PretrainedModel
+from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.utils import yaml_load
 
 logger = logging.getLogger(__name__)

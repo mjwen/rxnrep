@@ -6,13 +6,13 @@ import pytorch_lightning as pl
 import torch.nn.functional as F
 
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.load_predictive_dataset import load_dataset
-from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.scripts import argument
 from rxnrep.scripts.base_finetune_lit_model import BaseLightningModel
 from rxnrep.scripts.cross_validate import cross_validate
+from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.train_simclr import LightningModel as PretrainedModel
+from rxnrep.scripts.utils import copy_trained_model, write_running_metadata
 from rxnrep.utils import yaml_load
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     #
     # pretrained model info
     #
-    pretrained_model_identifier = "3o0gz8eq"
+    pretrained_model_identifier = "wcq1m2ye"
     target_dir = "pretrained_model"
     copy_trained_model(pretrained_model_identifier, target_dir=target_dir)
 

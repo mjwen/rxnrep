@@ -101,7 +101,12 @@ def load_green_dataset(args):
     )
 
     train_loader, val_loader, test_loader = _get_loaders(
-        trainset, valset, testset, args.batch_size, args.num_workers
+        trainset,
+        valset,
+        testset,
+        trainset.collate_fn,
+        args.batch_size,
+        args.num_workers,
     )
 
     # TODO move this out the function? It's hard to know what's going on if we set args
@@ -180,7 +185,12 @@ def load_uspto_dataset(args):
     )
 
     train_loader, val_loader, test_loader = _get_loaders(
-        trainset, valset, testset, args.batch_size, args.num_workers
+        trainset,
+        valset,
+        testset,
+        trainset.collate_fn,
+        args.batch_size,
+        args.num_workers,
     )
 
     # Add info that will be used in the model to args for easy access
@@ -252,7 +262,12 @@ def load_electrolyte_dataset(args):
     )
 
     train_loader, val_loader, test_loader = _get_loaders(
-        trainset, valset, testset, args.batch_size, args.num_workers
+        trainset,
+        valset,
+        testset,
+        trainset.collate_fn,
+        args.batch_size,
+        args.num_workers,
     )
 
     # Add info that will be used in the model to args for easy access
@@ -317,7 +332,12 @@ def load_nrel_dataset(args):
     )
 
     train_loader, val_loader, test_loader = _get_loaders(
-        trainset, valset, testset, args.batch_size, args.num_workers
+        trainset,
+        valset,
+        testset,
+        trainset.collate_fn,
+        args.batch_size,
+        args.num_workers,
     )
 
     # Add info that will be used in the model to args for easy access
@@ -373,51 +393,56 @@ def load_morgan_feature_dataset(args):
         f"testset size: {len(testset)}."
     )
 
-    return _get_loaders(trainset, valset, testset, args.batch_size, args.num_workers)
+    return _get_loaders(
+        trainset, valset, testset, None, args.batch_size, args.num_workers
+    )
 
 
 def get_state_dict_filename(args):
     """
     Check dataset state dict if in restore mode
     """
-
-    # finetune mode
-    if "pretrained_dataset_state_dict_filename" in args:
-        if not Path(args.pretrained_dataset_state_dict_filename).exists():
-            raise ValueError(
-                f"args.pretrained_dataset_state_dict_filename: "
-                f"`{args.pretrained_dataset_state_dict_filename}` not found."
-            )
-        else:
-            state_dict_filename = args.pretrained_dataset_state_dict_filename
-
+    if args.kfold:
+        state_dict_filename = None
     else:
-        if args.restore:
-            if args.dataset_state_dict_filename is None:
-                warnings.warn(
-                    "Restore with `args.dataset_state_dict_filename` set to None."
+        # finetune mode
+        if "pretrained_dataset_state_dict_filename" in args:
+            if not Path(args.pretrained_dataset_state_dict_filename).exists():
+                raise ValueError(
+                    f"args.pretrained_dataset_state_dict_filename: "
+                    f"`{args.pretrained_dataset_state_dict_filename}` not found."
                 )
-                state_dict_filename = None
-            elif not Path(args.dataset_state_dict_filename).exists():
-                warnings.warn(
-                    f"args.dataset_state_dict_filename: `{args.dataset_state_dict_filename} "
-                    "not found; set to `None`."
-                )
-                state_dict_filename = None
             else:
-                state_dict_filename = args.dataset_state_dict_filename
+                state_dict_filename = args.pretrained_dataset_state_dict_filename
+
         else:
-            state_dict_filename = None
+            if args.restore:
+                if args.dataset_state_dict_filename is None:
+                    warnings.warn(
+                        "Restore with `args.dataset_state_dict_filename` set to None."
+                    )
+                    state_dict_filename = None
+                elif not Path(args.dataset_state_dict_filename).exists():
+                    warnings.warn(
+                        f"args.dataset_state_dict_filename: "
+                        f"`{args.dataset_state_dict_filename} not found; set to `None`."
+                    )
+                    state_dict_filename = None
+                else:
+                    state_dict_filename = args.dataset_state_dict_filename
+            else:
+                state_dict_filename = None
 
     return state_dict_filename
 
 
-def _get_loaders(trainset, valset, testset, batch_size, num_workers):
+def _get_loaders(trainset, valset, testset, collate_fn, batch_size, num_workers):
 
     train_loader = DataLoader(
         trainset,
         batch_size=batch_size,
         shuffle=True,
+        collate_fn=collate_fn,
         drop_last=False,
         pin_memory=True,
         num_workers=num_workers,
@@ -427,6 +452,7 @@ def _get_loaders(trainset, valset, testset, batch_size, num_workers):
         valset,
         batch_size=batch_size,
         shuffle=False,
+        collate_fn=collate_fn,
         drop_last=False,
         pin_memory=True,
         num_workers=num_workers,
@@ -436,6 +462,7 @@ def _get_loaders(trainset, valset, testset, batch_size, num_workers):
         testset,
         batch_size=batch_size,
         shuffle=False,
+        collate_fn=collate_fn,
         drop_last=False,
         pin_memory=True,
         num_workers=num_workers,

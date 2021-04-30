@@ -7,12 +7,12 @@ import torch.nn.functional as F
 
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.utils import write_running_metadata
 from rxnrep.scripts import argument
 from rxnrep.scripts.base_contrastive_lit_model import BaseLightningModel
 from rxnrep.scripts.load_contrastive_dataset import load_dataset
 from rxnrep.scripts.losses import nt_xent_loss
 from rxnrep.scripts.main import main
+from rxnrep.scripts.utils import write_running_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +130,8 @@ if __name__ == "__main__":
     write_running_metadata(filename, repo_path)
 
     # args
-    dataset = "schneider"
-    # dataset = "green"
+    # dataset = "schneider"
+    dataset = "green"
     args = parse_args(dataset)
     logger.info(args)
 
