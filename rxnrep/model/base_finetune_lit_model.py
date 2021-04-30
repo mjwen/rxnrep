@@ -6,7 +6,7 @@ import torch
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torch.optim import lr_scheduler
 
-from rxnrep.scripts.base_lit_model import BaseLightningModel as LitModel
+from rxnrep.model.base_lit_model import BaseLightningModel as LitModel
 
 
 class BaseLightningModel(LitModel):

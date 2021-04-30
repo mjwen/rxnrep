@@ -2,7 +2,7 @@
 Base model for Constrative representation learning.
 """
 
-from rxnrep.scripts.base_lit_model import BaseLightningModel as LitModel
+from rxnrep.model.base_lit_model import BaseLightningModel as LitModel
 
 
 class BaseLightningModel(LitModel):

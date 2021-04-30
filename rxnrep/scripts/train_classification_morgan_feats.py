@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
-from rxnrep.scripts.base_lit_model import BaseLightningModel
+from rxnrep.model.base_lit_model import BaseLightningModel
 from rxnrep.scripts.cross_validate import cross_validate
 from rxnrep.scripts.load_predictive_dataset import load_morgan_feature_dataset
 from rxnrep.scripts.main import main
