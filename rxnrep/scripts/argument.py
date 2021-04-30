@@ -86,16 +86,21 @@ def dataset_args(parser, dataset: str):
 
 def training_args(parser):
 
-    # restore
     parser.add_argument("--restore", type=int, default=0, help="restore training")
-
-    # accelerator
-    parser.add_argument("--num_nodes", type=int, default=1, help="number of nodes")
     parser.add_argument(
-        "--gpus", type=int, default=None, help="number of gpus per node"
+        "--num_nodes", type=int, default=1, help="number of cluster nodes"
     )
     parser.add_argument(
-        "--accelerator", type=str, default=None, help="backend, e.g. `ddp`"
+        "--gpus",
+        type=int,
+        default=None,
+        help="number of gpus per cluster node, `None` to not use GPU.",
+    )
+    parser.add_argument(
+        "--accelerator",
+        type=str,
+        default=None,
+        help="PytorchLightning distributed training backend e.g. `ddp`.",
     )
     parser.add_argument(
         "--num_workers", type=int, default=0, help="number of workers for dataloader"
@@ -119,15 +124,27 @@ def training_args(parser):
         type=str,
         # default="reduce_on_plateau",
         default="cosine",
-        help="`reduce_on_plateau` or cosine",
+        help="`reduce_on_plateau` or `cosine`",
     )
-    parser.add_argument("--lr_warmup_step", type=int, default=10)
 
-    # this is only for cosine scheduler
-    parser.add_argument("--lr_min", type=float, default=1e-6, help="min learning rate")
+    # lr_warmup_step and lr_min only for cosine scheduler
+    parser.add_argument(
+        "--lr_warmup_step",
+        type=int,
+        default=10,
+        help="warmup steps for cosine scheduler",
+    )
+    parser.add_argument(
+        "--lr_min", type=float, default=1e-6, help="minimum learning rate"
+    )
 
     # cross validation
-    parser.add_argument("--kfold", type=int, default=None, help="cross validation")
+    parser.add_argument(
+        "--kfold",
+        type=int,
+        default=None,
+        help="number of folds for cross validation, `None` to not use cross validation",
+    )
     # only for classification cv
     parser.add_argument("--trainset_size", type=int, default=10)
     parser.add_argument("--testset_size_min", type=int, default=4)
@@ -151,11 +168,17 @@ def encoder_args(parser):
         default="GatedGCNConv",
         # default="GINConvGlobal",
         # default="GINConv",
+        # default="GINConvOriginal",
     )
-    parser.add_argument("--has_global_feats", type=int, default=None)
 
     # embedding
-    parser.add_argument("--embedding_size", type=int, default=None)
+    parser.add_argument(
+        "--embedding_size",
+        type=int,
+        default=None,
+        help="feature size to map input features to, before feeding to conv layers. "
+        "set to --conv_layer_size if None",
+    )
 
     # encoder
     parser.add_argument(
@@ -164,16 +187,22 @@ def encoder_args(parser):
     parser.add_argument("--molecule_num_fc_layers", type=int, default=2)
     parser.add_argument("--molecule_batch_norm", type=int, default=1)
     parser.add_argument("--molecule_residual", type=int, default=1)
-    parser.add_argument("--molecule_dropout", type=float, default="0.0")
+    parser.add_argument("--molecule_dropout", type=float, default=0.0)
 
     parser.add_argument("--reaction_conv_layer_sizes", type=int, nargs="+", default=[])
     parser.add_argument("--reaction_num_fc_layers", type=int, default=2)
     parser.add_argument("--reaction_batch_norm", type=int, default=1)
     parser.add_argument("--reaction_residual", type=int, default=1)
-    parser.add_argument("--reaction_dropout", type=float, default="0.0")
+    parser.add_argument("--reaction_dropout", type=float, default=0.0)
 
     # combine reactants and products features
-    parser.add_argument("--combine_reactants_products", type=str, default="difference")
+    parser.add_argument(
+        "--combine_reactants_products",
+        type=str,
+        default="difference",
+        help="how to combine reactants features and products features "
+        "`difference` or `concatenate`",
+    )
 
     # mlp diff
     parser.add_argument(
@@ -181,7 +210,8 @@ def encoder_args(parser):
         type=int,
         nargs="+",
         default=None,
-        help="`None` to not use it",
+        help="Number of MLP layers applied to the combined reactants and products "
+        "features. `None` to not use it",
     )
     parser.add_argument("--mlp_diff_layer_batch_norm", type=int, default=1)
 
@@ -202,7 +232,7 @@ def encoder_args(parser):
     parser.add_argument(
         "--pool_attentive_reduce_activation",
         type=str,
-        default="LeakyReLU",
+        default="Sigmoid",
         help="Activation used for attentive reduce `LeakyReLU` or `Sigmoid`",
     )
 
@@ -212,7 +242,8 @@ def encoder_args(parser):
         type=int,
         nargs="+",
         default=None,
-        help="`None` to not use it",
+        help="Number of MLP layers applied to the features after pooling, `None` to not "
+        "use it",
     )
     parser.add_argument("--mlp_pool_layer_batch_norm", type=int, default=1)
 
@@ -236,13 +267,13 @@ def encoder_helper(parser):
 
 def encoder_adjuster(args):
     # conv
-    if args.has_global_feats is None:
-        if args.conv in ["GINConv", "GINConvOriginal"]:
-            args.has_global_feats = 0
-        elif args.conv in ["GINConvGlobal", "GatedGCNConv"]:
-            args.has_global_feats = 1
-        else:
-            raise ValueError("Unsupported conv")
+    # --has_global_feats: whether the conv model supports global features
+    if args.conv in ["GINConv", "GINConvOriginal"]:
+        args.has_global_feats = 0
+    elif args.conv in ["GINConvGlobal", "GatedGCNConv"]:
+        args.has_global_feats = 1
+    else:
+        raise ValueError("Unsupported conv")
 
     # embedding
     if args.embedding_size is None:
