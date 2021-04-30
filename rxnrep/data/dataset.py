@@ -15,7 +15,7 @@ from torch.utils.data import Dataset
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
 from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
-from rxnrep.data.to_graph import build_graph_and_featurize_reaction
+from rxnrep.data.grapher import build_graph_and_featurize_reaction
 from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
 from rxnrep.utils import (
     pickle_dump,

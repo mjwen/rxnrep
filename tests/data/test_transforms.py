@@ -4,7 +4,7 @@ import dgl
 import torch
 
 from rxnrep.core.reaction import smiles_to_reaction
-from rxnrep.data.to_graph import combine_graphs, create_reaction_graph
+from rxnrep.data.grapher import combine_graphs, create_reaction_graph
 from rxnrep.data.transforms import (
     DropAtom,
     DropBond,

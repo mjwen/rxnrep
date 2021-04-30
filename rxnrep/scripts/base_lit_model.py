@@ -1,5 +1,5 @@
 """
-Base model for contrastive representation learning.
+Base Lightning model for regression and classification.
 """
 
 from typing import Dict, Optional

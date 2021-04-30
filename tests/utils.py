@@ -1,7 +1,7 @@
 import torch
 
 from rxnrep.core.molecule import Molecule
-from rxnrep.data.to_graph import mol_to_graph
+from rxnrep.data.grapher import mol_to_graph
 
 
 def create_graph(m, n_a, n_b, n_v, feat_dim=3):

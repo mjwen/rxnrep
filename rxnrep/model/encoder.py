@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from dgl.ops import segment_reduce
 
-from rxnrep.model.gatedconv2 import GatedGCNConv
+from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.gin import GINConv, GINConvGlobal, GINConvOriginal
 from rxnrep.model.readout import get_reaction_feature_pooling
 from rxnrep.model.utils import MLP, UnifySize

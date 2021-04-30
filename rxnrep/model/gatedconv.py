@@ -1,3 +1,8 @@
+"""
+GatedConv as in gatedconv.py (where bond is represented as node), but here bonds are
+represented as edges.
+"""
+
 from typing import Callable, Dict, Union
 
 import dgl
@@ -5,52 +10,23 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-from rxnrep.model.utils import MLP
+from rxnrep.model.utils import MLP, get_activation
 
 
 class GatedGCNConv(nn.Module):
-    """
-    Gated graph convolutional layer to update molecular features.
-
-    It update bond, atom, and global features in sequence. See the BonDNet paper for
-    details. This is a direct extension of the Residual Gated Graph ConvNets
-    (https://arxiv.org/abs/1711.07553) by adding global features.
-
-    Args:
-        in_size: input feature dimension
-        out_size: output feature dimension
-        num_fc_layers: number of NN layers to transform input to output. In `Residual
-            Gated Graph ConvNets` the number of layers is set to 1. Here we make it a
-            variable to accept any number of layers.
-        graph_norm: whether to apply the graph norm proposed in
-            Benchmarking Graph Neural Networks (https://arxiv.org/abs/2003.00982)
-        batch_norm: whether to apply batch normalization
-        activation: activation function
-        residual: whether to add residual connection as in the ResNet:
-            Deep Residual Learning for Image Recognition (https://arxiv.org/abs/1512.03385)
-        dropout: dropout ratio. Note, dropout is applied after residual connection.
-            If `None`, do not apply dropout.
-    """
-
     def __init__(
         self,
         in_size: int,
         out_size: int,
         num_fc_layers: int = 1,
-        graph_norm: bool = False,
         batch_norm: bool = True,
         activation: Callable = nn.ReLU(),
+        out_batch_norm: bool = True,
+        out_activation: Callable = nn.ReLU(),
         residual: bool = False,
         dropout: Union[float, None] = None,
     ):
-        super(GatedGCNConv, self).__init__()
-        self.graph_norm = graph_norm
-        self.batch_norm = batch_norm
-        self.activation = activation
-        self.residual = residual
-
-        if in_size != out_size:
-            self.residual = False
+        super().__init__()
 
         # A, B, ... I are phi_1, phi_2, ..., phi_9 in the BonDNet paper
         hidden = [out_size] * (num_fc_layers - 1)
@@ -64,62 +40,41 @@ class GatedGCNConv(nn.Module):
         self.H = MLP(out_size, hidden, activation=activation, out_size=out_size)
         self.I = MLP(in_size, hidden, activation=activation, out_size=out_size)
 
-        if self.batch_norm:
+        if out_batch_norm:
+            self.out_batch_norm = True
             self.bn_node_h = nn.BatchNorm1d(out_size)
             self.bn_node_e = nn.BatchNorm1d(out_size)
             self.bn_node_u = nn.BatchNorm1d(out_size)
-
-        delta = 1e-3
-        if dropout is None or dropout < delta:
-            self.dropout = nn.Identity()
         else:
+            self.out_batch_norm = False
+
+        if out_activation:
+            self.out_activation = get_activation(out_activation)
+        else:
+            self.out_activation = False
+
+        self.residual = residual
+        if in_size != out_size:
+            self.residual = False
+
+        delta = 1e-2
+        if dropout and dropout > delta:
             self.dropout = nn.Dropout(dropout)
-
-    @staticmethod
-    def message_fn(edges):
-        return {
-            "Eh_sum": edges.src["Eh_sum"],
-            "sigma_eij": torch.sigmoid(edges.src["e"]),
-        }
-
-    @staticmethod
-    def reduce_fn(nodes):
-        Eh_i = nodes.data["Eh"]
-        Eh_sum = nodes.mailbox["Eh_sum"]
-        sigma_eij = nodes.mailbox["sigma_eij"]
-
-        # Eh_i is a 2D tensor (d0, d1)
-        # d0: node batch dim
-        # d1: feature dim
-        #
-        # Eh_sum and e are 3D tensors (d0, d1, d2).
-        # d0: node batch dim, i.e. the messages for different node
-        # d1: message dim, i.e. all messages for one node from other node
-        # d2: feature dim
-        shape = Eh_i.shape
-        Eh_j = Eh_sum - Eh_i.view(shape[0], 1, shape[1])
-
-        # (sum_j eta_ij * Ehj)/(sum_j' eta_ij') <= dense attention
-        h = torch.sum(sigma_eij * Eh_j, dim=1) / (torch.sum(sigma_eij, dim=1) + 1e-6)
-
-        return {"h": h}
+        else:
+            self.dropout = False
 
     def forward(
         self,
         g: dgl.DGLGraph,
         feats: Dict[str, torch.Tensor],
-        norm_atom: torch.Tensor = None,
-        norm_bond: torch.Tensor = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Args:
-            g: the graph
-            feats: node features. Allowed node types are `atom`, `bond` and `global`.
-            norm_atom: values used to normalize atom features as proposed in graph norm.
-            norm_bond: values used to normalize bond features as proposed in graph norm.
+            g: the graphm bond as edges
+            feats: {name, feats}. Atom, bond, and global features.
 
         Returns:
-            updated node features.
+            updated features.
         """
 
         g = g.local_var()
@@ -128,87 +83,135 @@ class GatedGCNConv(nn.Module):
         e = feats["bond"]
         u = feats["global"]
 
-        # for residual connection
-        h_in = h
-        e_in = e
-        u_in = u
-
-        g.nodes["atom"].data.update({"Ah": self.A(h), "Eh": self.E(h)})
-        g.nodes["global"].data.update({"Cu": self.C(u), "Fu": self.F(u)})
-
+        #
         # update bond feature e
-        g.multi_update_all(
-            {
-                "a2b": (fn.copy_u("Ah", "m"), fn.sum("m", "e")),  # A * (h_i + h_j)
-                "g2b": (fn.copy_u("Cu", "m"), fn.sum("m", "e")),  # C * u
-            },
-            "sum",
-        )
-        e = g.nodes["bond"].data["e"] + self.B(e)  # B * e_ij
+        #
+        g.nodes["atom"].data["Ah"] = self.A(h)
+        g.nodes["global"].data["Cu"] = self.C(u)
 
-        if self.graph_norm:
-            e = e * norm_bond
-        if self.batch_norm:
+        # global feats to edge
+        # step 1, a simpy copy to atom node (sum operates on 1 tensor since there is
+        # only 1 global node connected to each atom node)
+        # step 2, copy from atom node to edge, only need to grab from src
+        g.update_all(fn.copy_u("Cu", "m"), fn.sum("m", "Cu"), etype="g2a")
+        g.apply_edges(fn.copy_u("Cu", "Cu"), etype="bond")
+        Cu = g.edges["bond"].data.pop("Cu")
+
+        # sum of atom feats to edge
+        g.apply_edges(fn.u_add_v("Ah", "Ah", "sum_Ah"), etype="bond")
+        sum_Ah = g.edges["bond"].data.pop("sum_Ah")
+
+        # aggregate
+        e = sum_Ah + self.B(e) + Cu
+
+        # del for memory efficiency
+        del g.nodes["atom"].data["Ah"]
+        del g.nodes["atom"].data["Cu"]
+        del g.nodes["global"].data["Cu"]
+
+        if self.out_batch_norm:
             e = self.bn_node_e(e)
-        e = self.activation(e)
+        if self.out_activation:
+            e = self.out_activation(e)
         if self.residual:
-            e = e_in + e
-        g.nodes["bond"].data["e"] = e
+            e = feats["bond"] + e
 
+        #
         # update atom feature h
+        #
+        # step 1
+        # edge feats to atom nodes: sum_j e_ij [Had] Eh_j
+        g.nodes["atom"].data["Eh"] = self.E(h)
+        g.edges["bond"].data["e"] = e
+        g.update_all(atom_message_fn, atom_reduce_fn, etype="bond")
+        try:
+            h1 = g.nodes["atom"].data.pop("h1")
+        except KeyError:
+            # This only happens when there is no edges (e.g. single atom molecule H+).
+            # Will not happen when the single atom molecule is batched with other
+            # molecules. When batched, the batched graph has edges; thus `atom_reduce_fn`
+            # will be called, and `h1` for the single atom molecule is initialized to a
+            # zero tensor by dgl.
+            h1 = 0.0
 
-        # We do this in a two step fashion: Eh_j -> bond node -> atom i node
-        # To get e_ij [Had] Eh_j, we use the trick:
-        # e_ij [Had] Eh_j = e_ij [Had] [(Eh_j + Eh_i) - Eh_i]
-        # This is achieved in two steps:
-        # step 1: Eh_sum = Eh_j + Eh_i
-        # step 2: e_ij[Had] Eh_j = e_ij[Had][Eh_sum - Eh_i]
+        # step 2
+        # global feats to atom node (a simpy copy, sum operates on 1 tensor,
+        # since we have only one global nodes connected to each atom node)
+        g.nodes["global"].data["Fu"] = self.F(u)
+        g.update_all(fn.copy_u("Fu", "m"), fn.sum("m", "Fu"), etype="g2a")
+        h2 = g.nodes["atom"].data.pop("Fu")
 
-        g.update_all(fn.copy_u("Eh", "m"), fn.sum("m", "Eh_sum"), etype="a2b")  # step 1
+        h = self.D(h) + h1 + h2
 
-        g.multi_update_all(
-            {
-                "b2a": (self.message_fn, self.reduce_fn),  # step 2
-                "g2a": (fn.copy_u("Fu", "m"), fn.sum("m", "h")),  # F * u
-            },
-            "sum",
-        )
-        h = g.nodes["atom"].data["h"] + self.D(h)  # D * h_i
+        # del for memory efficiency
+        del g.nodes["atom"].data["Eh"]
 
-        if self.graph_norm:
-            h = h * norm_atom
-        if self.batch_norm:
+        if self.out_batch_norm:
             h = self.bn_node_h(h)
-        h = self.activation(h)
+        if self.out_activation:
+            h = self.out_activation(h)
         if self.residual:
-            h = h_in + h
-        g.nodes["atom"].data["h"] = h
+            h = feats["atom"] + h
 
+        #
         # update global feature u
+        #
+        g.nodes["atom"].data["Gh"] = self.G(h)
+        g.edges["bond"].data["He"] = self.H(e)
 
-        g.nodes["atom"].data.update({"Gh": self.G(h)})
-        g.nodes["bond"].data.update({"He": self.H(e)})
-        g.multi_update_all(
-            {
-                "a2g": (fn.copy_u("Gh", "m"), fn.mean("m", "u")),  # G * (mean_i h_i)
-                "b2g": (fn.copy_u("He", "m"), fn.mean("m", "u")),  # H * (mean_ij e_ij)
-            },
-            "sum",
-        )
-        u = g.nodes["global"].data["u"] + self.I(u)  # I * u
+        # edge feats to global
+        # Each bond has two edges, we do not need to divide 2 since divide by num_edges
+        # already takes care of it
+        g.update_all(fn.copy_e("He", "m"), fn.sum("m", "He_sum"), etype="bond")
+        g.update_all(fn.copy_u("He_sum", "m"), fn.sum("m", "He_sum"), etype="a2g")
+        num_edges = g.num_edges("bond")
+        if num_edges == 0:
+            # single atom molecule
+            num_edges = 1
+        mean_He = g.nodes["global"].data.pop("He_sum") / num_edges
 
-        # do not apply batch norm if it there is only one graph
-        if self.batch_norm and u.shape[0] > 1:
-            u = self.bn_node_u(u)
-        u = self.activation(u)
+        # atom nodes to global
+        g.update_all(fn.copy_u("Gh", "m"), fn.mean("m", "Gh_sum"), etype="a2g")
+        mean_Gh = g.nodes["global"].data.pop("Gh_sum")
+
+        # aggregate
+        u = mean_Gh + mean_He + self.I(u)
+
+        if self.out_batch_norm:
+            # do not apply batch norm if it there is only one graph and it is in
+            # training mode, BN complains about it
+            if u.shape[0] <= 1 and self.training:
+                pass
+            else:
+                u = self.bn_node_u(u)
+        if self.out_activation:
+            u = self.out_activation(u)
         if self.residual:
-            u = u_in + u
+            u = feats["global"] + u
 
         # dropout
-        h = self.dropout(h)
-        e = self.dropout(e)
-        u = self.dropout(u)
+        if self.dropout:
+            h = self.dropout(h)
+            e = self.dropout(e)
+            u = self.dropout(u)
 
         feats = {"atom": h, "bond": e, "global": u}
 
         return feats
+
+
+def atom_message_fn(edges):
+    return {
+        "Eh_j": edges.src["Eh"],
+        "sigma_eij": torch.sigmoid(edges.data["e"]),
+    }
+
+
+def atom_reduce_fn(nodes):
+    Eh_j = nodes.mailbox["Eh_j"]
+    sigma_eij = nodes.mailbox["sigma_eij"]
+
+    # (sum_j eta_ij * Ehj)/(sum_j' eta_ij') <= dense attention
+    h1 = torch.sum(sigma_eij * Eh_j, dim=1) / (torch.sum(sigma_eij, dim=1) + 1e-6)
+
+    return {"h1": h1}

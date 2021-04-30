@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 from rxnrep.core.molecule import Molecule
-from rxnrep.data.to_graph import combine_graphs, create_reaction_graph, mol_to_graph
+from rxnrep.data.grapher import combine_graphs, create_reaction_graph, mol_to_graph
 
 from ..utils import create_graph_C, create_graph_CO2
 
