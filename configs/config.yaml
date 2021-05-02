@@ -17,7 +17,7 @@ defaults:
   - callbacks: default.yaml
 
 # other configs
-restore: True
+restore: True # continue a training, with checkpoint and dataset_state_dict automatically determined
 seed: 35
 git_repo_path: null # path to this git repo
 skip_test: False # skip running model against test set after training finishes

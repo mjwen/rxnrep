@@ -36,7 +36,7 @@ def adjust_encoder_config(config: DictConfig):
     # adjust existing args
     #
 
-    if not cfg.get("embedding_size"):
+    if not cfg.get("embedding_size", None):
         cfg.embedding_size = cfg.conv_layer_size
 
     # pool
