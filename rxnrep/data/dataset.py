@@ -20,12 +20,11 @@ from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
 from rxnrep.utils import (
     pickle_dump,
     pickle_load,
-    tensor_to_list,
     to_path,
-    to_tensor,
     yaml_dump,
     yaml_load,
 )
+from rxnrep.model.utils import tensor_to_list, to_tensor
 
 logger = logging.getLogger(__name__)
 

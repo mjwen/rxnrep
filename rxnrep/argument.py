@@ -44,18 +44,6 @@ def adjust_encoder_config(config: DictConfig):
         cfg.pool_global_feats = False
 
 
-def adjust_reaction_type_decoder(config: DictConfig):
-    size = determine_layer_size_by_pool_method(config.model.encoder)
-
-    #
-    # add new args
-    #
-    cfg = config.model.decoder.model_class
-    cfg.reaction_type_decoder_hidden_layer_sizes = [
-        max(size // 2 ** i, 50) for i in range(cfg.reaction_type_decoder_num_layers)
-    ]
-
-
 def determine_layer_size_by_pool_method(encoder_cfg):
     n = sum(
         [

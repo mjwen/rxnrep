@@ -1,53 +1,21 @@
-import logging
-from datetime import datetime
-
-import pytorch_lightning as pl
 import torch.nn.functional as F
 from omegaconf import DictConfig
 
+from rxnrep.argument import adjust_encoder_config, determine_layer_size_by_pool_method
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.model import BaseModel
 from rxnrep.model.utils import MLP
-from rxnrep.scripts.cross_validate import cross_validate
-from rxnrep.scripts.load_predictive_dataset import load_dataset
-from rxnrep.scripts.main import main
-from rxnrep.scripts.utils import write_running_metadata
-
-logger = logging.getLogger(__name__)
-
-
-# def parse_args(dataset):
-#     parser = argparse.ArgumentParser()
-#
-#     # ========== dataset ==========
-#     parser = argument.dataset_args(parser, dataset)
-#
-#     # ========== model ==========
-#     parser = argument.general_args(parser)
-#     parser = argument.encoder_args(parser)
-#     parser = argument.reaction_type_decoder_args(parser)
-#
-#     # ========== training ==========
-#     parser = argument.training_args(parser)
-#
-#     # ========== helper ==========
-#     parser = argument.encoder_helper(parser)
-#     parser = argument.reaction_type_decoder_helper(parser)
-#
-#     ####################
-#     args = parser.parse_args()
-#     ####################
-#
-#     # ========== adjuster ==========
-#     args = argument.encoder_adjuster(args)
-#     args = argument.reaction_type_decoder_adjuster(args)
-#
-#     return args
 
 
 def adjust_config(config: DictConfig):
+    adjust_encoder_config(config)
 
-    return config
+    # adjust decoder configs
+    size = determine_layer_size_by_pool_method(config.model.encoder)
+    cfg = config.model.decoder.model_class
+    cfg.reaction_type_decoder_hidden_layer_sizes = [
+        max(size // 2 ** i, 50) for i in range(cfg.reaction_type_decoder_num_layers)
+    ]
 
 
 class LightningModel(BaseModel):
@@ -132,53 +100,3 @@ class LightningModel(BaseModel):
         }
 
         return tasks
-
-
-#
-# if __name__ == "__main__":
-#
-#     logger.info(f"Start training at: {datetime.now()}")
-#     pl.seed_everything(25)
-#
-#     filename = "running_metadata.yaml"
-#     repo_path = "/Users/mjwen/Applications/rxnrep"
-#     write_running_metadata(filename, repo_path)
-#
-#     # args
-#     # dataset = "schneider_classification"
-#     dataset = "green_classification"
-#     args = parse_args(dataset)
-#     logger.info(args)
-#
-#     project = "tmp-rxnrep"
-#
-#     if args.kfold:
-#         cross_validate(
-#             args,
-#             LightningModel,
-#             load_dataset,
-#             main,
-#             stratify_column="reaction_type",
-#             fold=args.kfold,
-#             project=project,
-#         )
-#
-#     else:
-#
-#         # dataset
-#         train_loader, val_loader, test_loader = load_dataset(args)
-#
-#         # model
-#         model = LightningModel(args)
-#
-#         main(
-#             args,
-#             model,
-#             train_loader,
-#             val_loader,
-#             test_loader,
-#             __file__,
-#             project=project,
-#         )
-#
-#     logger.info(f"Finish training at: {datetime.now()}")
