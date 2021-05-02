@@ -68,7 +68,7 @@ def load_checkpoint_wandb(
     Get the latest checkpoint path and the identifier when using wandb logger.
 
     Args:
-        save_dir: name of the directory to save wandb log, e.g. /some/path/wandb/
+        save_dir: name of the directory to save wandb logger, e.g. /some/path/wandb/
         project: project name of the wandb run
         run_directory: the directory for the run that stores files, logs, and run info,
             e.g. run-20210203_142512-6eooscnj
@@ -107,7 +107,7 @@ def get_repo_git_commit(repo_path: Path) -> str:
     Returns:
         latest commit info
     """
-    output = subprocess.check_output(["git", "log"], cwd=Path(repo_path))
+    output = subprocess.check_output(["git", "logger"], cwd=Path(repo_path))
     output = output.decode("utf-8").split("\n")[:6]
     latest_commit = "\n".join(output)
     return latest_commit

@@ -40,7 +40,7 @@ class BaseContrastiveModel(BaseModel):
         # ========== compute losses ==========
         all_loss = self.compute_loss(preds, labels)
 
-        # ========== log the loss ==========
+        # ========== logger the loss ==========
         total_loss = sum(all_loss.values())
 
         self.log_dict(

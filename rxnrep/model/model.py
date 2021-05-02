@@ -14,10 +14,10 @@ from rxnrep.scripts.utils import TimeMeter
 
 
 class BaseModel(pl.LightningModule):
-    def __init__(self, params):
+    def __init__(self, **kwargs):
         super().__init__()
 
-        self.save_hyperparameters(params)
+        self.save_hyperparameters()
 
         self.backbone = self.init_backbone(self.hparams)
 
@@ -154,7 +154,7 @@ class BaseModel(pl.LightningModule):
         # ========== compute losses ==========
         all_loss = self.compute_loss(preds, labels)
 
-        # ========== log the loss ==========
+        # ========== logger the loss ==========
         total_loss = sum(all_loss.values())
 
         self.log_dict(
@@ -257,7 +257,7 @@ class BaseModel(pl.LightningModule):
 
     def compute_metrics(self, mode):
         """
-        Compute metric and log it at each epoch.
+        Compute metric and logger it at each epoch.
         """
         mode = "metric_" + mode
 

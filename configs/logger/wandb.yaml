@@ -1,0 +1,13 @@
+# @package _group_
+
+# https://wandb.ai (Weights&Biases)
+
+wandb:
+  _target_: pytorch_lightning.loggers.wandb.WandbLogger
+  save_dir: "."
+  project: tmp-rxnrep
+  id: null # wandb identifier, null to create new
+  # entity: ""  # set to name of your wandb team or just remove it
+  # offline: False  # set True to store all logs only locally
+  # job_type: "train"
+  # group: ""

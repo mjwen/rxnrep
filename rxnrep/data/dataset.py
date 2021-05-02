@@ -320,7 +320,7 @@ class BaseDataset(Dataset):
                 build_reaction_graph=self.build_reaction_graph,
             )
 
-        # log feature name and size
+        # logger feature name and size
         for k in self.feature_name:
             ft_name = self.feature_name[k]
             ft_size = self.feature_size[k]

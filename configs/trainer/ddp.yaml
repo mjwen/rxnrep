@@ -1,0 +1,7 @@
+# @package _group_
+
+_target_: pytorch_lightning.Trainer
+
+num_nodes: 1
+gpus: 2
+accelerator: ddp

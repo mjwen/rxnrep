@@ -1,0 +1,8 @@
+# @package _group_
+
+lr: 1e-3
+weight_decay: 1e-6
+lr_scheduler: cosine
+lr_warmup_step: 10 # only for cosine scheduler
+lr_min: 1e-6 # minimum learning rate for cosine scheduler
+epochs: ${trainer.max_epochs}

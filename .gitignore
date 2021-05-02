@@ -134,11 +134,14 @@ dmypy.json
 
 # data files
 *.yaml
+!configs/*.yaml
+!configs/*/*.yaml
+!configs/*/*/*.yaml
 *.csv
 *.tsv
 *.pkl
 *.txt
 *.json
 *.ckpt
-wandb
+outputs/
 

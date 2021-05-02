@@ -1,0 +1,6 @@
+# @package _group_
+
+_target_: pytorch_lightning.Trainer
+
+gpus:
+max_epochs: 10

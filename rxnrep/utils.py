@@ -13,11 +13,11 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def to_path(path: Union[str, Path]) -> Path:
+def to_path(path: os.PathLike) -> Path:
     return Path(path).expanduser().resolve()
 
 
-def create_directory(path: Union[str, Path], is_directory=False):
+def create_directory(path: os.PathLike, is_directory=False):
     p = to_path(path)
     if is_directory:
         dirname = p

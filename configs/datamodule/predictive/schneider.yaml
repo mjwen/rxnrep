@@ -1,0 +1,12 @@
+# @package _group_
+
+_target_: rxnrep.data.datamodule.UsptoDataModule
+trainset_filename: /Users/mjwen/Documents/Dataset/uspto/Schneider50k/schneider50k_n400_processed_train.tsv
+valset_filename: ${datamodule.predictive.trainset_filename}
+
+testset_filename: ${datamodule.predictive.trainset_filename}
+batch_size: 100
+num_workers: 0
+pin_memory: True
+state_dict_filename: dataset_state_dict_filename.yaml # path relative to cwd determined by hydra
+num_reaction_classes: 46

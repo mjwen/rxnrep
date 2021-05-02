@@ -34,7 +34,7 @@ class BasePooling(nn.Module):
             raise ValueError(
                 "Expect one of atom/bond/global pool to be true; got False for all"
             )
-        if reducer not in ["sum", "mean"]:
+        if reducer not in ["sum", "mean", None]:
             raise ValueError(f"Expect reducer be sum or mean; got {reducer}")
 
         self.in_size = in_size
@@ -201,8 +201,8 @@ class AttentiveReducePool(BasePooling):
         pool_atom_feats: bool = True,
         pool_bond_feats: bool = True,
         pool_global_feats: bool = True,
-        reducer="mean",
-        activation: str = "LeakyReLU",
+        reducer="sum",
+        activation: str = "Sigmoid",
     ):
         self.activation = activation
         super().__init__(
@@ -266,7 +266,7 @@ class Set2SetPool(BasePooling):
         pool_atom_feats: bool = True,
         pool_bond_feats: bool = True,
         pool_global_feats: bool = True,
-        reducer="mean",
+        reducer=None,
         num_iterations=6,
         num_layers=3,
     ):
@@ -389,7 +389,7 @@ class AttentiveReduce(nn.Module):
             is obtained as the weighted mean, not weight sum.
     """
 
-    def __init__(self, in_size, activation: str = "LeakyReRU", reducer="sum"):
+    def __init__(self, in_size, activation: str = "Sigmoid", reducer="sum"):
         super().__init__()
         assert reducer in [
             "sum",
@@ -542,7 +542,7 @@ def get_reaction_feature_pooling(
         reducer = pool_method.split("_")[-1]
 
         if pool_kwargs is None:
-            activation = "LeakyReLU"
+            activation = "Sigmoid"
         else:
             activation = pool_kwargs["activation"]
 
