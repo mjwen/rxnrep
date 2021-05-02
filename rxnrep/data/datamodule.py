@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.uspto import USPTODataset
-from rxnrep.utils import to_path
+from rxnrep.utils.io import to_path
 
 logger = logging.getLogger(__file__)
 

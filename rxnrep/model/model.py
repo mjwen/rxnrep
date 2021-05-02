@@ -10,7 +10,7 @@ import torch.nn as nn
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torch.optim import lr_scheduler
 
-from rxnrep.scripts.utils import TimeMeter
+from rxnrep.model.utils import TimeMeter
 
 
 class BaseModel(pl.LightningModule):

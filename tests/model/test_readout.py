@@ -3,7 +3,7 @@ import torch
 from dgl.nn import Set2Set as Set2SetDGL
 
 from rxnrep.model.readout import Set2Set
-from rxnrep.utils import seed_all
+from rxnrep.utils.io import seed_all
 
 
 def create_graph_CO2():

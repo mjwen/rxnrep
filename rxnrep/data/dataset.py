@@ -17,7 +17,7 @@ from rxnrep.core.reaction import Reaction
 from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
 from rxnrep.data.grapher import build_graph_and_featurize_reaction
 from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
-from rxnrep.utils import (
+from rxnrep.utils.io import (
     pickle_dump,
     pickle_load,
     to_path,

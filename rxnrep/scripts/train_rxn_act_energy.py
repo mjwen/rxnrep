@@ -11,7 +11,7 @@ from rxnrep.model.utils import MLP
 from rxnrep.scripts import argument
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
-from rxnrep.scripts.utils import write_running_metadata
+from rxnrep.utils.training import write_running_metadata
 
 logger = logging.getLogger(__name__)
 

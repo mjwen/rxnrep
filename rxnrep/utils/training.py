@@ -3,47 +3,12 @@ import logging
 import os
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from rxnrep.utils import create_directory, to_path, yaml_dump
+from rxnrep.utils.io import create_directory, to_path, yaml_dump
 
 logger = logging.getLogger(__name__)
-
-
-class TimeMeter:
-    """
-    Measure running time.
-    """
-
-    def __init__(self, frequency=1):
-        self.frequency = frequency
-        self.t0 = time.time()
-        self.t = self.t0
-
-    def update(self):
-        t = time.time()
-        delta_t = t - self.t
-        cumulative_t = t - self.t0
-        self.t = t
-        return delta_t, cumulative_t
-
-    def display(self, counter, message=None, flush=False):
-        t = time.time()
-        delta_t = t - self.t
-        cumulative_t = t - self.t0
-        self.t = t
-
-        if counter % self.frequency == 0:
-            message = "\t\t" if message is None else f"\t\t{message} "
-            message = message + " " * (45 - len(message))
-            print(
-                f"{message}delta time: {delta_t:.2f} cumulative time: {cumulative_t:.2f}",
-                flush=flush,
-            )
-
-        return delta_t, cumulative_t
 
 
 def load_checkpoint_tensorboard(save_dir="./lightning_logs"):
@@ -149,7 +114,7 @@ def save_files_to_wandb(wandb_logger, files: List[str] = None):
     for f in files:
         fname = Path.cwd().joinpath(f)
         if fname.exists():
-            wandb.save(str(fname), policy="now", base_path=".")
+            wandb.save(str(fname), policy="now", base_path="../scripts")
 
 
 def get_wandb_run_path(identifier: str, path="."):
@@ -219,5 +184,5 @@ def copy_trained_model(
     shutil.copy(f, target_dir.joinpath("config.yaml"))
 
     # copy dataset state dict
-    f = to_path(run_path).joinpath("files", "dataset_state_dict.yaml")
+    f = to_path(run_path).joinpath("files", "../scripts/dataset_state_dict.yaml")
     shutil.copy(f, target_dir.joinpath("dataset_state_dict.yaml"))

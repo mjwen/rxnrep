@@ -14,7 +14,7 @@ from rxnrep.data.transforms import (
     SubgraphBFS,
     get_node_subgraph,
 )
-from rxnrep.utils import seed_all
+from rxnrep.utils.io import seed_all
 
 from ..utils import create_graph
 
