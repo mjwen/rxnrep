@@ -1,21 +1,47 @@
 import torch.nn.functional as F
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
-from rxnrep.argument import adjust_encoder_config, determine_layer_size_by_pool_method
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.model import BaseModel
 from rxnrep.model.utils import MLP
+from rxnrep.utils.adjust_config import (
+    adjust_encoder_config,
+    determine_layer_size_by_pool_method,
+)
 
 
-def adjust_config(config: DictConfig):
-    adjust_encoder_config(config)
-
-    # adjust decoder configs
+def adjust_decoder_config(config: DictConfig):
     size = determine_layer_size_by_pool_method(config.model.encoder)
-    cfg = config.model.decoder.model_class
-    cfg.reaction_type_decoder_hidden_layer_sizes = [
-        max(size // 2 ** i, 50) for i in range(cfg.reaction_type_decoder_num_layers)
-    ]
+
+    num_layers = config.model.decoder.model_class.reaction_type_decoder_num_layers
+    hidden_layer_sizes = [max(size // 2 ** i, 50) for i in range(num_layers)]
+
+    new_config = OmegaConf.create(
+        {
+            "model": {
+                "decoder": {
+                    "model_class": {
+                        "reaction_type_decoder_hidden_layer_sizes": hidden_layer_sizes
+                    }
+                }
+            }
+        }
+    )
+
+    return new_config
+
+
+def adjust_config(config: DictConfig) -> DictConfig:
+    encoder_config = adjust_encoder_config(config)
+
+    # create a temporary one to merge original and encoder
+    OmegaConf.set_struct(config, False)
+    merged = OmegaConf.merge(config, encoder_config)
+    OmegaConf.set_struct(config, True)
+
+    decoder_config = adjust_decoder_config(merged)
+
+    return OmegaConf.merge(encoder_config, decoder_config)
 
 
 class LightningModel(BaseModel):
