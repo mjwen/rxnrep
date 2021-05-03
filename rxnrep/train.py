@@ -116,8 +116,10 @@ def train(config: DictConfig) -> Optional[float]:
         files_to_save = [
             running_meta,
             "dataset_state_dict.yaml",
+            "hydra_cfg_original.yaml",
+            "hydra_cfg_update.yaml",
+            "hydra_cfg_final.yaml",
             "run.log",
-            "running_metadata.yaml",
             # might exist
             "submit.sh",
             "sweep.py",

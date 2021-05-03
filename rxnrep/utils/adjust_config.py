@@ -71,7 +71,7 @@ def print_config(
     label: str = "CONFIG",
     resolve: bool = True,
     sort_keys: bool = True,
-) -> None:
+):
     """
     Prints content of DictConfig using Rich library and its tree structure.
 

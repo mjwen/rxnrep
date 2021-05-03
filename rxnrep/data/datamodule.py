@@ -1,6 +1,6 @@
 import logging
-import os
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
@@ -42,8 +42,8 @@ class UsptoDataModule(LightningDataModule):
         pin_memory: bool = True,
         num_processes: int = 1,
         restore: bool = False,
-        state_dict_filename: Optional[os.PathLike] = None,
-        pretrained_model_state_dict_filename: Optional[os.PathLike] = None,
+        state_dict_filename: Optional[Union[str, Path]] = None,
+        pretrained_model_state_dict_filename: Optional[Union[str, Path]] = None,
         build_reaction_graph: bool = True,
         num_reaction_classes: Optional[int] = None,
     ):

@@ -3,20 +3,22 @@ import os
 import pickle
 import random
 from pathlib import Path
+from typing import Union
 
 import dgl
 import numpy as np
 import torch
 import yaml
+from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
 
-def to_path(path: os.PathLike) -> Path:
+def to_path(path: Union[str, Path]) -> Path:
     return Path(path).expanduser().resolve()
 
 
-def create_directory(path: os.PathLike, is_directory=False):
+def create_directory(path: Union[str, Path], is_directory: bool = False):
     p = to_path(path)
     if is_directory:
         dirname = p
@@ -67,3 +69,11 @@ def seed_all(seed=35, cudnn_benchmark=False, cudnn_deterministic=False):
     torch.backends.cudnn.deterministic = cudnn_deterministic
 
     dgl.random.seed(seed)
+
+
+def dump_hydra_config(cfg: DictConfig, filename: Union[str, Path]):
+    """
+    Save OmegaConfig to a yaml file.
+    """
+    with open(to_path(filename), "w") as f:
+        OmegaConf.save(cfg, f, resolve=True)

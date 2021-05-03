@@ -64,7 +64,7 @@ def load_checkpoint_wandb(
     return ckpt_path, identifier
 
 
-def get_repo_git_commit(repo_path: Path) -> str:
+def get_git_repo_commit(repo_path: Path) -> str:
     """
     Get the latest git commit info of a github repository.
 
@@ -78,6 +78,18 @@ def get_repo_git_commit(repo_path: Path) -> str:
     output = output.decode("utf-8").split("\n")[:6]
     latest_commit = "\n".join(output)
     return latest_commit
+
+
+def get_hostname() -> str:
+    """
+    Get the hostname of the machine.
+
+    Returns:
+        hostname
+    """
+    output = subprocess.check_output("hostname")
+    hostname = output.decode("utf-8").strip()
+    return hostname
 
 
 def write_running_metadata(
@@ -95,9 +107,9 @@ def write_running_metadata(
         git_repo: path to the git repo, if None, do not use this info.
     """
 
-    d = {"running_dir": Path.cwd().as_posix()}
+    d = {"running_dir": Path.cwd().as_posix(), "hostname": get_hostname()}
     if git_repo is not None:
-        d["git_commit"] = get_repo_git_commit(git_repo)
+        d["git_commit"] = get_git_repo_commit(git_repo)
 
     yaml_dump(d, filename)
 
@@ -105,7 +117,7 @@ def write_running_metadata(
 @rank_zero_only
 def save_files_to_wandb(wandb_logger, files: List[str] = None):
     """
-    Save files to wandb.
+    Save files to wandb. The files should be given relative to cwd.
 
     Args:
         wandb_logger: lightning wandb logger
