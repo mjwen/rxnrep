@@ -28,8 +28,17 @@ class UsptoDataModule(LightningDataModule):
         https://pytorch-lightning.readthedocs.io/en/latest/extensions/datamodules.html
 
     Args:
+        state_dict_filename: path to save the state dict of the data module.
+        restore_state_dict_filename: If not `None`, the model is running in
+            restore mode and the initial state dict is read from this file. If `None`,
+            the model in running in regular mode and this is ignored.
+            Note the difference between this and `state_dict_filename`.
+            `state_dict_filename` only specifies the output state dict, does not care
+            about how the initial state dict is obtained: it could be restored from
+            `restore_state_dict_file` or computed from the dataset.
+            pretrained model used in finetune?
         num_reaction_classes: number of reaction class of the dataset. `None` means the
-        dataset has no reaction type label.
+            dataset has no reaction type label.
     """
 
     def __init__(
@@ -41,9 +50,8 @@ class UsptoDataModule(LightningDataModule):
         num_workers: int = 0,
         pin_memory: bool = True,
         num_processes: int = 1,
-        restore: bool = False,
-        state_dict_filename: Optional[Union[str, Path]] = None,
-        pretrained_model_state_dict_filename: Optional[Union[str, Path]] = None,
+        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
+        restore_state_dict_filename: Optional[Union[str, Path]] = None,
         build_reaction_graph: bool = True,
         num_reaction_classes: Optional[int] = None,
     ):
@@ -58,9 +66,8 @@ class UsptoDataModule(LightningDataModule):
         self.pin_memory = pin_memory
         self.num_processes = num_processes
 
-        self.restore = restore
         self.state_dict_filename = state_dict_filename
-        self.pretrained_model_state_dict_filename = pretrained_model_state_dict_filename
+        self.restore_state_dict_filename = restore_state_dict_filename
 
         self.build_reaction_graph = build_reaction_graph
         self.num_reaction_classes = num_reaction_classes
@@ -87,7 +94,7 @@ class UsptoDataModule(LightningDataModule):
         Set variables: self.data_train, self.data_val, self.data_test.
         """
 
-        init_state_dict = self.determine_init_state_dict()
+        init_state_dict = self.get_init_state_dict()
 
         has_class_label = self.num_reaction_classes is not None
 
@@ -185,52 +192,28 @@ class UsptoDataModule(LightningDataModule):
 
         return d
 
-    def determine_init_state_dict(self):
+    def get_init_state_dict(self):
         """
         Determine the value of dataset state dict based on:
         - whether this is in finetune model based on pretrained_model_state_dict_filename
-        - restore
+        - restore_state_dict_filename
         """
 
-        # finetune mode
-        if self.pretrained_model_state_dict_filename:
+        # restore training
+        if self.restore_state_dict_filename:
+            filename = to_path(self.state_dict_filename).name
+            init_state_dict = to_path(self.restore_state_dict_filename).joinpath(
+                filename
+            )
 
-            if not to_path(self.pretrained_model_state_dict_filename).exists():
+            if not init_state_dict.exists():
                 raise FileNotFoundError(
-                    f"Cannot find pretrained model state dict file at: "
-                    f"{self.pretrained_model_state_dict_filename}"
+                    "Cannot restore datamodule. Dataset state dict file does not "
+                    "exist: {init_state_dict}"
                 )
-            else:
-                init_state_dict = self.pretrained_model_state_dict_filename
 
         # regular training mode
         else:
-            if self.restore:
-
-                if self.state_dict_filename is None:
-                    logger.warning(
-                        "Restore training but `state_dict_filename=None`. Dataset "
-                        "statistics (e.g. feature mean and standard deviation) will be "
-                        "computed from trainset."
-                    )
-                    init_state_dict = None
-
-                elif not to_path(self.state_dict_filename).exists():
-                    # we throw a warning instead of error because when training on HPC,
-                    # it may fail before data dict is generated.
-                    logger.warning(
-                        f"Restore training with "
-                        f"`state_dict_filename={self.state_dict_filename}`. "
-                        f"But cannot find this file. Setting it to `None` to compute "
-                        f"dataset statistics (e.g. feature mean and standard deviation) "
-                        "from the trainset."
-                    )
-                    init_state_dict = None
-
-                else:
-                    init_state_dict = self.state_dict_filename
-
-            else:
-                init_state_dict = None
+            init_state_dict = None
 
         return init_state_dict
