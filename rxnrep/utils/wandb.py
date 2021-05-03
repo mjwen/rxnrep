@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from pytorch_lightning.utilities import rank_zero_only
+
 from rxnrep.utils.io import create_directory, to_path, yaml_dump
 
 logger = logging.getLogger(__name__)
@@ -79,7 +81,7 @@ def get_repo_git_commit(repo_path: Path) -> str:
 
 
 def write_running_metadata(
-    filename: str = "running_metadata.yaml", git_repo: Optional[Path] = None
+    git_repo: Optional[Path] = None, filename: str = "running_metadata.yaml"
 ):
     """
     Write additional running metadata to a file and then copy it to wandb.
@@ -100,6 +102,7 @@ def write_running_metadata(
     yaml_dump(d, filename)
 
 
+@rank_zero_only
 def save_files_to_wandb(wandb_logger, files: List[str] = None):
     """
     Save files to wandb.
@@ -112,9 +115,9 @@ def save_files_to_wandb(wandb_logger, files: List[str] = None):
     wandb = wandb_logger.experiment
 
     for f in files:
-        fname = Path.cwd().joinpath(f)
-        if fname.exists():
-            wandb.save(str(fname), policy="now", base_path="../scripts")
+        p = Path.cwd().joinpath(f)
+        if p.exists():
+            wandb.save(p.as_posix(), policy="now", base_path=".")
 
 
 def get_wandb_run_path(identifier: str, path="."):

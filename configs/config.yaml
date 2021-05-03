@@ -19,6 +19,6 @@ defaults:
 # other configs
 restore: True # continue a training, with checkpoint and dataset_state_dict automatically determined
 seed: 35
-git_repo_path: null # path to this git repo
 skip_test: False # skip running model against test set after training finishes
 finetune: False # whether this is a finetune model @@@TODO maybe determine it automatically
+git_repo_path: null # path to the git repo (used to log commit)

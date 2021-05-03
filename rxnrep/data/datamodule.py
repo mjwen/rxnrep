@@ -153,7 +153,7 @@ class UsptoDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            shuffle=True,
+            shuffle=False,
             drop_last=False,
         )
 
@@ -164,7 +164,7 @@ class UsptoDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            shuffle=True,
+            shuffle=False,
             drop_last=False,
         )
 

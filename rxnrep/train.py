@@ -10,7 +10,9 @@ from pytorch_lightning import (
     Trainer,
     seed_everything,
 )
-from pytorch_lightning.loggers import LightningLoggerBase
+from pytorch_lightning.loggers import LightningLoggerBase, WandbLogger
+
+from rxnrep.utils.wandb import save_files_to_wandb, write_running_metadata
 
 logger = logging.getLogger(__file__)
 
@@ -91,17 +93,6 @@ def train(config: DictConfig) -> Optional[float]:
         logger=lit_logger,
     )
 
-    # # Send some parameters from config to all lightning loggers
-    # logger.info("Logging hyperparameters!")
-    # template_utils.log_hyperparameters(
-    #     config=config,
-    #     model=model,
-    #     datamodule=datamodule,
-    #     trainer=trainer,
-    #     callbacks=callbacks,
-    #     logger=lit_logger,
-    # )
-
     # Train the model
     logger.info("Starting training!")
     trainer.fit(model=model, datamodule=datamodule)
@@ -111,12 +102,36 @@ def train(config: DictConfig) -> Optional[float]:
         logger.info("Starting testing!")
         trainer.test()
 
+    # Save additional files to wandb
+    wandb_logger = None
+    for ll in lit_logger:
+        if isinstance(ll, WandbLogger):
+            wandb_logger = ll
+            break
+
+    if wandb_logger:
+        running_meta = "running_metadata.yaml"
+        write_running_metadata(config.get("git_repo_path", None), filename=running_meta)
+
+        files_to_save = [
+            running_meta,
+            "dataset_state_dict.yaml",
+            "run.log",
+            "running_metadata.yaml",
+            # might exist
+            "submit.sh",
+            "sweep.py",
+        ]
+
+        logger.info(f"Saving extra files to wandb: {', '.join(files_to_save)}")
+        save_files_to_wandb(wandb_logger, files_to_save)
+
     # Print path to best checkpoint
     logger.info(f"Best checkpoint path: {trainer.checkpoint_callback.best_model_path}")
+
+    logger.info("Finalizing!")
 
     # Return metric score
     optimized_metric = config.get("optimized_metric", None)
     if optimized_metric:
         return trainer.callback_metrics[optimized_metric]
-
-    logger.info("Finalizing!")

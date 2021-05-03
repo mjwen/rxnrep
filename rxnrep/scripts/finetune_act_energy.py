@@ -11,7 +11,7 @@ from rxnrep.scripts import argument
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main
 from rxnrep.scripts.train_simclr import LightningModel as PretrainedModel
-from rxnrep.utils.training import copy_trained_model, write_running_metadata
+from rxnrep.utils.wandb import copy_trained_model, write_running_metadata
 from rxnrep.utils.io import yaml_load
 
 logger = logging.getLogger(__name__)

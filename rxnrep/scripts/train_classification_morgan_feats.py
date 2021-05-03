@@ -11,7 +11,7 @@ from rxnrep.scripts import argument
 from rxnrep.utils.cross_validate import cross_validate
 from rxnrep.scripts.load_predictive_dataset import load_morgan_feature_dataset
 from rxnrep.scripts.main import main
-from rxnrep.utils.training import write_running_metadata
+from rxnrep.utils.wandb import write_running_metadata
 
 logger = logging.getLogger(__name__)
 
