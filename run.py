@@ -12,8 +12,8 @@ def main(cfg: DictConfig):
 
     # Put inside for autocompletion
     from rxnrep.train import train
-    from rxnrep.utils.io import dump_hydra_config
-    from rxnrep.utils.wandb import get_restore_config
+    from rxnrep.utils.hydra_config import dump_hydra_config
+    from rxnrep.utils.hydra_config import get_restore_config
 
     # Update cfg, new or modified ones by encoder and decoder
     # this will not change the behavior of the model, just transform some args from one

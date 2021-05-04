@@ -9,7 +9,6 @@ import dgl
 import numpy as np
 import torch
 import yaml
-from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +68,3 @@ def seed_all(seed=35, cudnn_benchmark=False, cudnn_deterministic=False):
     torch.backends.cudnn.deterministic = cudnn_deterministic
 
     dgl.random.seed(seed)
-
-
-def dump_hydra_config(cfg: DictConfig, filename: Union[str, Path]):
-    """
-    Save OmegaConfig to a yaml file.
-    """
-    with open(to_path(filename), "w") as f:
-        OmegaConf.save(cfg, f, resolve=True)
