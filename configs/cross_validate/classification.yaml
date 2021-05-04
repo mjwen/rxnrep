@@ -1,8 +1,7 @@
 # @package _group_
 
-_target_: rxnrep.utils.cross_validate.split_classification_data
-filename: null # not used, will be overwrite by datamodule.trainset_filename
-trainset_size: 10
-testset_size_min: 10
-stratify_column: reaction_type
-num_folds: 2
+_target_: rxnrep.utils.cross_validate.kfold_split
+filename: null # not used, will be overwritten by trainset_filename of datamodule
+n_splits: 5
+shuffle: True
+random_state: 35

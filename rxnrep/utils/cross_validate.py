@@ -1,57 +1,108 @@
 import json
 import os
 from pathlib import Path
+from typing import List, Tuple, Union
 
 import pandas as pd
 from sklearn.model_selection import KFold
 
 from rxnrep.data.splitter import train_test_split
+from rxnrep.utils.io import to_path
 
 
-def split_regression_data(filename, num_folds=5):
+def kfold_split(
+    filename: Union[str, Path],
+    save_dir: Union[str, Path] = ".",
+    n_splits: int = 5,
+    shuffle: bool = True,
+    random_state: int = 35,
+) -> List[Tuple[Path, Path]]:
     """
-    Split dataset into equally nfold and use n-1 fold as training set and 1 fold as
-    test set.
+    Kfold split of a data file.
+
+    This creates `n_splits` directory named cv_fold_0, cv_fold_1... in the path give by
+    `save_dir`. In each directory, a train file (e.g. train.tsv) and a test file (e.g.
+    test.tsv) are save in each cv_fold_<n>.
+
+    Currently support `tsv`, `csv` and `json` files, and the file type are determined
+    based on suffix of the input file.
+
     Args:
-        filename:
-        num_folds:
+        filename: name of the data file to split.
+        save_dir: path to create the split directories.
+        n_splits:
+        shuffle:
+        random_state:
 
     Returns:
-        List of a tuple (train_filename, test_filename) of the k fold split.
+        A list of (train, test) files.
     """
-    with open(filename, "r") as f:
-        data = json.load(f)
 
-    kf = KFold(n_splits=num_folds, shuffle=True, random_state=35)
+    filename = to_path(filename)
+    file_type = filename.suffix.strip(".")
+
+    supported = ["tsv", "csv", "json"]
+    if file_type not in supported:
+        raise ValueError(f"Expect one of {supported} file type, got {file_type}")
+
+    # read data
+    if file_type == "json":
+        with open(filename, "r") as f:
+            data = json.load(f)
+    elif file_type == "csv":
+        data = pd.read_csv(filename, sep=",")
+    elif file_type == "tsv":
+        data = pd.read_csv(filename, sep="\t")
+    else:
+        raise ValueError
+
+    # split
+    kf = KFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
 
     fold_filenames = []
     for i, (train_index, test_index) in enumerate(kf.split(data)):
-        train = [data[j] for j in train_index]
-        test = [data[j] for j in test_index]
 
-        prefix = Path.cwd().joinpath(f"cv_fold{i}")
+        prefix = to_path(save_dir).joinpath(f"cv_fold_{i}")
         if not prefix.exists():
             os.makedirs(prefix)
-
-        train_fname = prefix.joinpath("train.tsv")
-        with open(train_fname, "w") as f:
-            json.dump(train, f)
-
-        test_fname = prefix.joinpath("test.tsv")
-        with open(test_fname, "w") as f:
-            json.dump(test, f)
-
+        train_fname = prefix.joinpath("train." + file_type)
+        test_fname = prefix.joinpath("test." + file_type)
         fold_filenames.append((train_fname, test_fname))
+
+        if file_type == "json":
+            train = [data[j] for j in train_index]
+            test = [data[j] for j in test_index]
+
+            with open(train_fname, "w") as f:
+                json.dump(train, f)
+
+            with open(test_fname, "w") as f:
+                json.dump(test, f)
+
+        elif file_type in ["tsv", "csv"]:
+            train = data.iloc[train_index]
+            test = data.iloc[test_index]
+
+            sep = ","
+            if file_type == "tsv":
+                sep = "\t"
+
+            train.to_csv(train_fname, index=False, sep=sep)
+            test.to_csv(test_fname, index=False, sep=sep)
+
+        else:
+            raise ValueError
 
     return fold_filenames
 
 
-def split_classification_data(
+def multi_train_test_split(
     filename, trainset_size, testset_size_min, stratify_column, num_folds=5
 ):
     """
-    Stratified split of data in a monte carlo way, i.e. draw samples randomly in each
-    group.
+    Stratified train test split of data multiple times.
+
+    Note, this is not folded split, i.e. each split is not related to the previous one.
 
     Args:
         trainset_size: number of datapoints of each group to enter in trainset.
@@ -71,7 +122,7 @@ def split_classification_data(
             stratify_column=stratify_column,
             random_seed=i,
         )
-        prefix = Path.cwd().joinpath(f"cv_fold{i}")
+        prefix = Path.cwd().joinpath(f"cv_fold_{i}")
         if not prefix.exists():
             os.makedirs(prefix)
 
@@ -84,53 +135,3 @@ def split_classification_data(
         fold_filenames.append((train_fname, test_fname))
 
     return fold_filenames
-
-
-def cross_validate(
-    args,
-    ModelClass,
-    load_dataset_fn,
-    main_train_fn,
-    mode="classification",
-    stratify_column=None,
-    fold=5,
-    project="tmp-rxnrep",
-):
-
-    # split data
-
-    # all data provided via trainset_filename
-    if mode == "classification":
-        filenames = split_classification_data(
-            args.trainset_filename,
-            args.trainset_size,
-            args.testset_size_min,
-            stratify_column=stratify_column,
-            num_folds=fold,
-        )
-    elif mode == "regression":
-        filenames = split_regression_data(args.trainset_filename, num_folds=fold)
-    else:
-        raise ValueError(f"Not supported cross validation mode {mode}")
-
-    for k, (train_filename, val_filename) in enumerate(filenames):
-
-        # modify dataset path
-        args.trainset_filename = train_filename
-        args.valset_filename = args.testset_filename = val_filename
-
-        # dataset
-        train_loader, val_loader, test_loader = load_dataset_fn(args)
-
-        # model
-        model = ModelClass(args)
-
-        main_train_fn(
-            args,
-            model,
-            train_loader,
-            val_loader,
-            test_loader,
-            project=project,
-            log_dir=train_filename.parent,
-        )
