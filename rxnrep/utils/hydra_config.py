@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Tuple, Union
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -14,12 +14,35 @@ from rxnrep.utils.wandb import (
 logger = logging.getLogger(__file__)
 
 
-def dump_hydra_config(cfg: DictConfig, filename: Union[str, Path]):
+def dump_hydra_config(config: DictConfig, filename: Union[str, Path]):
     """
     Save OmegaConfig to a yaml file.
     """
     with open(to_path(filename), "w") as f:
-        OmegaConf.save(cfg, f, resolve=True)
+        OmegaConf.save(config, f, resolve=True)
+
+
+def get_datamodule_config(config: DictConfig) -> Tuple[DictConfig, str]:
+    """
+    Get datamodule config.
+
+    Args:
+        config: main config
+
+    Returns:
+        dm_config: datamodule config
+        dm_name: name of the datamodule (directory name in configs/datamodule). For
+            example, `predictive`, `contrastive`.
+    """
+
+    # There is essentially one datamodule config; but since we group datamodule config
+    # into predictive, contrastive, finetune... we do not know the datamodule name.
+    # So, we first get the name and then get the module.
+
+    dm_name = list(config.datamodule.keys())[0]
+    dm_config = config.datamodule[dm_name]
+
+    return dm_config, dm_name
 
 
 def get_restore_config(config: DictConfig) -> DictConfig:
@@ -35,13 +58,7 @@ def get_restore_config(config: DictConfig) -> DictConfig:
         DictConfig with info related to restoring the model.
     """
 
-    # Get datamodule config
-    # we do the for loop to get it because we group datamodule config into: predictive,
-    # contrastive, finetune...
-    for name in config.datamodule:
-        dm_name = name
-        dm_config = config.datamodule[name]
-        break
+    dm_config, dm_name = get_datamodule_config(config)
 
     dataset_state_dict_filename = dm_config.get(
         "state_dict_filename", "dataset_state_dict.yaml"

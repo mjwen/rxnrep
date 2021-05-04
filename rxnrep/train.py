@@ -12,6 +12,7 @@ from pytorch_lightning import (
 )
 from pytorch_lightning.loggers import LightningLoggerBase, WandbLogger
 
+from rxnrep.utils.hydra_config import get_datamodule_config
 from rxnrep.utils.wandb import save_files_to_wandb, write_running_metadata
 
 logger = logging.getLogger(__file__)
@@ -34,13 +35,7 @@ def train(config: DictConfig) -> Optional[float]:
     if "seed" in config:
         seed_everything(config.seed)
 
-    # Init Lightning datamodule
-    if "contrastive" in config.datamodule:
-        dm_config = config.datamodule.contrastive
-    elif "predictive" in config.datamodule:
-        dm_config = config.datamodule.predictive
-    else:
-        raise RuntimeError(f"Unsupported datamodule {config.datamodule}")
+    dm_config, _ = get_datamodule_config(config)
 
     logger.info(f"Instantiating datamodule: {dm_config._target_}")
     datamodule: LightningDataModule = hydra.utils.instantiate(dm_config)
