@@ -201,15 +201,12 @@ class UsptoDataModule(LightningDataModule):
 
         # restore training
         if self.restore_state_dict_filename:
-            filename = to_path(self.state_dict_filename).name
-            init_state_dict = to_path(self.restore_state_dict_filename).joinpath(
-                filename
-            )
+            init_state_dict = to_path(self.restore_state_dict_filename)
 
             if not init_state_dict.exists():
                 raise FileNotFoundError(
                     "Cannot restore datamodule. Dataset state dict file does not "
-                    "exist: {init_state_dict}"
+                    f"exist: {init_state_dict}"
                 )
 
         # regular training mode
