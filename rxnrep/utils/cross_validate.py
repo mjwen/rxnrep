@@ -8,13 +8,13 @@ from sklearn.model_selection import KFold
 from rxnrep.data.splitter import train_test_split
 
 
-def split_regression_data(filename, fold=5):
+def split_regression_data(filename, num_folds=5):
     """
     Split dataset into equally nfold and use n-1 fold as training set and 1 fold as
     test set.
     Args:
         filename:
-        fold:
+        num_folds:
 
     Returns:
         List of a tuple (train_filename, test_filename) of the k fold split.
@@ -22,14 +22,14 @@ def split_regression_data(filename, fold=5):
     with open(filename, "r") as f:
         data = json.load(f)
 
-    kf = KFold(n_splits=fold, shuffle=True, random_state=35)
+    kf = KFold(n_splits=num_folds, shuffle=True, random_state=35)
 
     fold_filenames = []
     for i, (train_index, test_index) in enumerate(kf.split(data)):
         train = [data[j] for j in train_index]
         test = [data[j] for j in test_index]
 
-        prefix = Path.cwd().joinpath("wandb", f"cv_fold{i}")
+        prefix = Path.cwd().joinpath(f"cv_fold{i}")
         if not prefix.exists():
             os.makedirs(prefix)
 
@@ -47,7 +47,7 @@ def split_regression_data(filename, fold=5):
 
 
 def split_classification_data(
-    filename, trainset_size, testset_size_min, stratify_column=None, fold=5
+    filename, trainset_size, testset_size_min, stratify_column, num_folds=5
 ):
     """
     Stratified split of data in a monte carlo way, i.e. draw samples randomly in each
@@ -62,7 +62,7 @@ def split_classification_data(
     df = pd.read_csv(filename, sep="\t")
 
     fold_filenames = []
-    for i in range(fold):
+    for i in range(num_folds):
         df1, df2 = train_test_split(
             df,
             ratio=None,
@@ -71,7 +71,7 @@ def split_classification_data(
             stratify_column=stratify_column,
             random_seed=i,
         )
-        prefix = Path.cwd().joinpath("wandb", f"cv_fold{i}")
+        prefix = Path.cwd().joinpath(f"cv_fold{i}")
         if not prefix.exists():
             os.makedirs(prefix)
 
@@ -106,10 +106,10 @@ def cross_validate(
             args.trainset_size,
             args.testset_size_min,
             stratify_column=stratify_column,
-            fold=fold,
+            num_folds=fold,
         )
     elif mode == "regression":
-        filenames = split_regression_data(args.trainset_filename, fold=fold)
+        filenames = split_regression_data(args.trainset_filename, num_folds=fold)
     else:
         raise ValueError(f"Not supported cross validation mode {mode}")
 

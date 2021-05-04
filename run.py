@@ -3,6 +3,9 @@ import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from rxnrep.train import train
+from rxnrep.utils.hydra_config import dump_hydra_config, get_restore_config
+
 # HYDRA_FULL_ERROR=1 for complete stack trace
 os.environ["HYDRA_FULL_ERROR"] = "1"
 
@@ -10,14 +13,8 @@ os.environ["HYDRA_FULL_ERROR"] = "1"
 @hydra.main(config_path="configs", config_name="config.yaml")
 def main(cfg: DictConfig):
 
-    # Put inside for autocompletion
-    from rxnrep.train import train
-    from rxnrep.utils.hydra_config import dump_hydra_config
-    from rxnrep.utils.hydra_config import get_restore_config
-
     # Update cfg, new or modified ones by encoder and decoder
-    # this will not change the behavior of the model, just transform some args from one
-    # from to another
+    # won't change the model behavior, only add some helper args
     cfg_update = hydra.utils.call(cfg.model.decoder.cfg_adjuster, cfg)
 
     # Restore cfg from latest run

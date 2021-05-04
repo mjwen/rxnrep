@@ -1,0 +1,34 @@
+# main config file for cross validation
+
+defaults:
+  - model/encoder: encoder.yaml
+  - model/decoder: classifier.yaml
+
+  - datamodule: predictive/schneider.yaml
+
+  - cross_validate: classification.yaml
+
+  # training
+  - optimizer: adams.yaml
+
+  # lightning settings
+  - trainer: default.yaml
+  - trainer: minimal.yaml # this will be combined with trainer: default.yaml
+
+  - logger: wandb.yaml
+  - callbacks: default.yaml
+
+# other configs
+seed: 35
+skip_test: False # skip running model against test set after training finishes
+finetune: False # whether this is a finetune model @@@TODO maybe determine it automatically
+git_repo_path: null # path to the git repo (used to log commit)
+# git_repo_path: /Users/mjwen/Applications/rxnrep
+
+
+# path to original working directory
+# hydra hijacks working directory by changing it to the current log directory,
+# something like: .../outputs/2021-05-03/11-26-06
+# It's useful to have original working directory ...
+# learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+original_working_dir: ${hydra:runtime.cwd}
