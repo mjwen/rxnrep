@@ -107,13 +107,13 @@ def read_mrnet_reaction_dataset(filename: Path, nprocs: int = 1):
             entries in the dataset file.
     """
 
-    pmg_reactions = loadfn(filename)
+    mrnet_reactions = loadfn(filename)
 
     if nprocs == 1:
-        reactions = [mrnet_rxn_helper(rxn, i) for i, rxn in enumerate(pmg_reactions)]
+        reactions = [mrnet_rxn_helper(rxn, i) for i, rxn in enumerate(mrnet_reactions)]
     else:
-        ids = list(range(len(pmg_reactions)))
-        args = zip(pmg_reactions, ids)
+        ids = list(range(len(mrnet_reactions)))
+        args = zip(mrnet_reactions, ids)
         with multiprocessing.Pool(nprocs) as p:
             reactions = p.starmap(mrnet_rxn_helper, args)
 
@@ -152,19 +152,21 @@ def smiles_to_reaction_helper(
     return reaction
 
 
-def mrnet_rxn_helper(pmg_reaction: MrnetReaction, index: int) -> Union[Reaction, None]:
+def mrnet_rxn_helper(
+    mrnet_reaction: MrnetReaction, index: int
+) -> Union[Reaction, None]:
     """
     Helper function to process one reaction.
     """
     try:
-        reaction = mrnet_reaction_to_reaction(pmg_reaction, index)
+        reaction = mrnet_reaction_to_reaction(mrnet_reaction, index)
     except (MoleculeError, ReactionError):
         return None
 
     return reaction
 
 
-def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> Reaction:
+def mrnet_reaction_to_reaction(mrnet_reaction: MrnetReaction, index: int) -> Reaction:
     """
     Convert a pymatgen reaction to a rxnrep reaction.
 
@@ -172,16 +174,18 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
     if the provided mrnet reaction does not have the corresponding energy.
 
     Args:
-        pmg_reaction: pymatgen reaction
+        mrnet_reaction: mrnet reaction
         index: index of the reaction in the whole dataset
 
     Returns:
         a rxnrep reaction
     """
     # check map numbers are the same set in all the reactants and products
-    reactants_map_numbers = [mp.values() for mp in pmg_reaction.reactants_atom_mapping]
+    reactants_map_numbers = [
+        mp.values() for mp in mrnet_reaction.reactants_atom_mapping
+    ]
     reactants_map_numbers = sorted(itertools.chain.from_iterable(reactants_map_numbers))
-    products_map_numbers = [mp.values() for mp in pmg_reaction.products_atom_mapping]
+    products_map_numbers = [mp.values() for mp in mrnet_reaction.products_atom_mapping]
     products_map_numbers = sorted(itertools.chain.from_iterable(products_map_numbers))
     if reactants_map_numbers != products_map_numbers:
         raise ValueError(
@@ -196,32 +200,32 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
         converter = 1 - min_val
         reactants_atom_mapping = [
             {k: v + converter for k, v in mp.items()}
-            for mp in pmg_reaction.reactants_atom_mapping
+            for mp in mrnet_reaction.reactants_atom_mapping
         ]
         products_atom_mapping = [
             {k: v + converter for k, v in mp.items()}
-            for mp in pmg_reaction.products_atom_mapping
+            for mp in mrnet_reaction.products_atom_mapping
         ]
     else:
-        reactants_atom_mapping = pmg_reaction.reactants_atom_mapping
-        products_atom_mapping = pmg_reaction.products_atom_mapping
+        reactants_atom_mapping = mrnet_reaction.reactants_atom_mapping
+        products_atom_mapping = mrnet_reaction.products_atom_mapping
 
     reactants = [
         mrnet_mol_entry_to_molecule(entry, mapping)
-        for entry, mapping in zip(pmg_reaction.reactants, reactants_atom_mapping)
+        for entry, mapping in zip(mrnet_reaction.reactants, reactants_atom_mapping)
     ]
 
     products = [
         mrnet_mol_entry_to_molecule(entry, mapping)
-        for entry, mapping in zip(pmg_reaction.products, products_atom_mapping)
+        for entry, mapping in zip(mrnet_reaction.products, products_atom_mapping)
     ]
 
-    reactant_ids = "+".join([str(i) for i in pmg_reaction.reactant_ids])
-    product_ids = "+".join([str(i) for i in pmg_reaction.product_ids])
+    reactant_ids = "+".join([str(i) for i in mrnet_reaction.reactant_ids])
+    product_ids = "+".join([str(i) for i in mrnet_reaction.product_ids])
     reaction_id = f"{reactant_ids}->{product_ids}_index-{index}"
 
     #
-    # additional property
+    # properties
     #
     # reaction energy
     reactant_energy = [m.get_property("free_energy") for m in products]
@@ -231,21 +235,15 @@ def mrnet_reaction_to_reaction(pmg_reaction: MrnetReaction, index: int) -> React
     else:
         reaction_energy = sum(reactant_energy) - sum(product_energy)
 
-    # override it if reaction energy is provided in parameters
-    reaction_energy = pmg_reaction.parameters.get("reaction_energy", reaction_energy)
+    properties = {"reaction_energy": reaction_energy}
 
-    # reaction energy
-    activation_energy = pmg_reaction.parameters.get("activation_energy", None)
+    # other properties stored in mrnet_reaction.parameters
+    # note, this might overwrite `reaction_energy`, this is typically what we want if
+    # it is specifically provided as a reaction parameter
+    properties.update(mrnet_reaction.parameters)
 
     reaction = Reaction(
-        reactants,
-        products,
-        id=reaction_id,
-        sanity_check=False,
-        properties={
-            "reaction_energy": reaction_energy,
-            "activation_energy": activation_energy,
-        },
+        reactants, products, id=reaction_id, sanity_check=False, properties=properties
     )
 
     return reaction
