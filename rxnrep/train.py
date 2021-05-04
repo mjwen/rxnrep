@@ -36,22 +36,20 @@ def train(config: DictConfig) -> Optional[float]:
 
     # Init Lightning datamodule
     if "contrastive" in config.datamodule:
-        dm = config.datamodule.contrastive
+        dm_config = config.datamodule.contrastive
     elif "predictive" in config.datamodule:
-        dm = config.datamodule.predictive
+        dm_config = config.datamodule.predictive
     else:
         raise RuntimeError(f"Unsupported datamodule {config.datamodule}")
 
-    logger.info(f"Instantiating datamodule: {dm._target_}")
-    datamodule: LightningDataModule = hydra.utils.instantiate(
-        dm, restore=config.restore
-    )
+    logger.info(f"Instantiating datamodule: {dm_config._target_}")
+    datamodule: LightningDataModule = hydra.utils.instantiate(dm_config)
 
     # manually call them to get data to set up the model
     # (Lightning still ensures the method runs on the correct devices)
     datamodule.prepare_data()
     datamodule.setup()
-    logger.info(f"Finished instantiating datamodule: {dm._target_}")
+    logger.info(f"Finished instantiating datamodule: {dm_config._target_}")
 
     # datamodule info passed to model
     dataset_info = datamodule.get_to_model_info()
