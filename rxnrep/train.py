@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 
 import hydra
 import wandb
@@ -19,7 +19,7 @@ from rxnrep.utils.wandb import save_files_to_wandb, write_running_metadata
 logger = logging.getLogger(__file__)
 
 
-def train(config: DictConfig) -> Optional[float]:
+def train(config: DictConfig) -> Union[float, Dict[str, float]]:
     """
     Contains training pipeline.
 
@@ -94,7 +94,9 @@ def train(config: DictConfig) -> Optional[float]:
     # Evaluate model on test set after training
     if not config.get("skip_test", None):
         logger.info("Starting testing!")
-        trainer.test()
+        test_metric_score = trainer.test()
+    else:
+        test_metric_score = [{}]
 
     # Save additional files to wandb
     wandb_logger = None
@@ -125,13 +127,20 @@ def train(config: DictConfig) -> Optional[float]:
     # Print path to best checkpoint
     logger.info(f"Best checkpoint path: {trainer.checkpoint_callback.best_model_path}")
 
-    logger.info("Finalizing!")
+    # Return test/val metric score
+    if config.get("return_val_metric_score", None):
+        monitor = config.callbacks.model_checkpoint.monitor
+        metric_score = trainer.callback_metrics[monitor]
+        logger.info(f"Val metric score ({monitor}): {metric_score}")
+    else:
+        # test_metric_score is a list, each for one test dataloader
+        # here we return the first as we only use one dataloader
+        metric_score = test_metric_score[0]
+
     # Finalizing
+    logger.info("Finalizing!")
     for lg in lit_logger:
         if isinstance(lg, WandbLogger):
             wandb.finish()
 
-    # Return metric score
-    optimized_metric = config.get("optimized_metric", None)
-    if optimized_metric:
-        return trainer.callback_metrics[optimized_metric]
+    return metric_score

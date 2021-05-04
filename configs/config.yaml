@@ -17,12 +17,13 @@ defaults:
   - callbacks: default.yaml
 
 # other configs
-restore: False # resume a training, with previous run info automatically determined
 seed: 35
+restore: False # resume a training, with previous run info automatically determined
 skip_test: False # skip running model against test set after training finishes
 finetune: False # whether this is a finetune model @@@TODO maybe determine it automatically
 git_repo_path: null # path to the git repo (used to log commit)
 # git_repo_path: /Users/mjwen/Applications/rxnrep
+return_val_metric_score: False # let the train function return val metric instead of test metric
 
 
 # path to original working directory

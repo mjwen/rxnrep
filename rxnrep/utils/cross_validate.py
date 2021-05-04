@@ -1,8 +1,10 @@
 import json
 import os
+from collections import defaultdict
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
 
@@ -135,3 +137,18 @@ def multi_train_test_split(
         fold_filenames.append((train_fname, test_fname))
 
     return fold_filenames
+
+
+def compute_metric_statistics(data: List[Dict[str, float]]):
+    """
+    Compute statistics of multiple properties given in a list of dict.
+    """
+    aggregated = defaultdict(list)  # type: Dict[str, List[float]]
+    for d in data:
+        for k, v in d.items():
+            aggregated[k].append(v)
+
+    mean = {k: np.mean(v) for k, v in aggregated.items()}
+    std = {k: np.std(v) for k, v in aggregated.items()}
+
+    return dict(aggregated), mean, std

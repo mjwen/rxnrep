@@ -5,6 +5,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.train import train
+from rxnrep.utils.cross_validate import compute_metric_statistics
 from rxnrep.utils.hydra_config import (
     dump_hydra_config,
     get_datamodule_config,
@@ -46,6 +47,7 @@ def main(cfg: DictConfig):
 
     data_splits = hydra.utils.call(cfg_final.cross_validate)
 
+    metric_scores = []
     for i, (trainset, testset) in enumerate(data_splits):
 
         OmegaConf.set_struct(cfg_final, False)
@@ -74,7 +76,13 @@ def main(cfg: DictConfig):
         )
 
         # train the model
-        train(cfg_final)
+        score = train(cfg_final)
+        metric_scores.append(score)
+
+    metrics, mean, std = compute_metric_statistics(metric_scores)
+    logger.info(f"Cross validation metrics (all): {metrics}")
+    logger.info(f"Cross validation metrics (mean): {mean}")
+    logger.info(f"Cross validation metrics (std): {std}")
 
 
 if __name__ == "__main__":
