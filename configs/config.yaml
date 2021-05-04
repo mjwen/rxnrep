@@ -22,3 +22,11 @@ seed: 35
 skip_test: False # skip running model against test set after training finishes
 finetune: False # whether this is a finetune model @@@TODO maybe determine it automatically
 git_repo_path: null # path to the git repo (used to log commit)
+
+
+# path to original working directory
+# hydra hijacks working directory by changing it to the current log directory,
+# something like: .../outputs/2021-05-03/11-26-06
+# It's useful to have original working directory ...
+# learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+original_working_dir: ${hydra:runtime.cwd}
