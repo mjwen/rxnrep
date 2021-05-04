@@ -45,6 +45,24 @@ def get_datamodule_config(config: DictConfig) -> Tuple[DictConfig, str]:
     return dm_config, dm_name
 
 
+def get_wandb_logger_config(config: DictConfig) -> Union[DictConfig, None]:
+    """
+    Get wandb logger config.
+
+    Args:
+        config: main config.
+
+    Returns:
+        wandb logger config. None if no wandb logger is used.
+    """
+    logger_config = None
+    for name in config.logger:
+        if name == "wandb":
+            logger_config = config.logger[name]
+
+    return logger_config
+
+
 def get_restore_config(config: DictConfig) -> DictConfig:
     """
     Get the config info used to restore the model from the latest run.
@@ -67,10 +85,10 @@ def get_restore_config(config: DictConfig) -> DictConfig:
     path = to_path(config.original_working_dir).joinpath("outputs")
 
     dataset_state_dict = get_dataset_state_dict_latest_run(
-        path, dataset_state_dict_filename
+        path, dataset_state_dict_filename, index=-2
     )
-    checkpoint = get_wandb_checkpoint_latest_run(path, project)
-    identifier = get_wandb_identifier_latest_run(path)
+    checkpoint = get_wandb_checkpoint_latest_run(path, project, index=-2)
+    identifier = get_wandb_identifier_latest_run(path, index=-2)
 
     d = {
         "datamodule": {dm_name: {"restore_state_dict_filename": dataset_state_dict}},

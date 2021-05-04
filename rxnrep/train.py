@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 
 import hydra
+import wandb
 from omegaconf import DictConfig
 from pytorch_lightning import (
     Callback,
@@ -125,6 +126,10 @@ def train(config: DictConfig) -> Optional[float]:
     logger.info(f"Best checkpoint path: {trainer.checkpoint_callback.best_model_path}")
 
     logger.info("Finalizing!")
+    # Finalizing
+    for lg in lit_logger:
+        if isinstance(lg, WandbLogger):
+            wandb.finish()
 
     # Return metric score
     optimized_metric = config.get("optimized_metric", None)

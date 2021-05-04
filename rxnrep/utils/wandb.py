@@ -102,7 +102,7 @@ def get_hydra_latest_run(path: Union[str, Path], index: int = -1) -> Union[Path,
         relative to the hydra current working directory cwd.
         index: index to the hydra runs to return. By default, -1 returns the last one.
             But this may not be the one we want when we are calling this from a hydra
-            run, in that case, -1 will index to itself. In this case, we can pass -2 to
+            run, since -1 is the index to itself. In this case, set index to -2 to
             get the latest one before the current one.
 
     Returns:
@@ -111,9 +111,9 @@ def get_hydra_latest_run(path: Union[str, Path], index: int = -1) -> Union[Path,
 
     path = to_path(path)
     all_paths = []
-    for data in os.listdir(path):
-        for time in os.listdir(path.joinpath(data)):
-            all_paths.append(path.joinpath(data, time))
+    for date in os.listdir(path):
+        for time in os.listdir(path.joinpath(date)):
+            all_paths.append(path.joinpath(date, time))
     all_paths = sorted(all_paths, key=lambda p: p.as_posix())
 
     if len(all_paths) < abs(index):
@@ -123,7 +123,7 @@ def get_hydra_latest_run(path: Union[str, Path], index: int = -1) -> Union[Path,
 
 
 def get_dataset_state_dict_latest_run(
-    path: Union[str, Path], name: str
+    path: Union[str, Path], name: str, index: int = -1
 ) -> Union[str, None]:
     """
     Get path to the dataset state dict of the latest run.
@@ -132,11 +132,15 @@ def get_dataset_state_dict_latest_run(
         path: path to hydra `outputs` directory. For example, this should be `../../`
             relative to the hydra current working directory cwd.
         name: name of the dataset state dict file
+        index: index to the hydra runs to return. By default, -1 returns the last one.
+            But this may not be the one we want when we are calling this from a hydra
+            run, since -1 is the index to itself. In this case, set index to -2 to
+            get the latest one before the current one.
 
     Returns:
         path to the dataset state dict yaml file. None if cannot find the file
     """
-    latest = get_hydra_latest_run(path, index=-2)
+    latest = get_hydra_latest_run(path, index=index)
 
     if latest is not None:
         dataset_state_dict = latest.joinpath(name)
@@ -146,18 +150,27 @@ def get_dataset_state_dict_latest_run(
     return None
 
 
-def get_wandb_identifier_latest_run(path: Union[str, Path]) -> Union[str, None]:
+def get_wandb_identifier_latest_run(
+    path: Union[str, Path], index: int = -1
+) -> Union[str, None]:
     """
     Get the wandb unique identifier of the latest run.
+
+    This assumes wandb logger `save_dir` is set to `.`, i.e. relative to hydra working
+    directory.
 
     Args:
         path: path to hydra `outputs` directory. For example, this should be `../../`
             relative to the hydra current working directory cwd.
+        index: index to the hydra runs to return. By default, -1 returns the last one.
+            But this may not be the one we want when we are calling this from a hydra
+            run, since -1 is the index to itself. In this case, set index to -2 to
+            get the latest one before the current one.
 
     Returns:
         identifier str, None if cannot find the run
     """
-    latest = get_hydra_latest_run(path, index=-2)
+    latest = get_hydra_latest_run(path, index=index)
 
     if latest is not None:
         latest_run = latest.joinpath("wandb", "latest-run").resolve()
@@ -170,7 +183,7 @@ def get_wandb_identifier_latest_run(path: Union[str, Path]) -> Union[str, None]:
 
 
 def get_wandb_checkpoint_latest_run(
-    path: Union[str, Path], project: str
+    path: Union[str, Path], project: str, index: int = -1
 ) -> Union[str, None]:
     """
     Get the wandb checkpoint of the latest run.
@@ -179,11 +192,15 @@ def get_wandb_checkpoint_latest_run(
         path: path to hydra `outputs` directory. For example, this should be `../../`
             relative to the hydra current working directory cwd.
         project: project name of the wandb run
+        index: index to the hydra runs to return. By default, -1 returns the last one.
+            But this may not be the one we want when we are calling this from a hydra
+            run, since -1 is the index to itself. In this case, set index to -2 to
+            get the latest one before the current one.
 
     Returns:
         path to the latest checkpoint, None if it does not exist
     """
-    latest = get_hydra_latest_run(path, index=-2)
+    latest = get_hydra_latest_run(path, index=index)
 
     if latest is not None:
         identifier = get_wandb_identifier_latest_run(path)
