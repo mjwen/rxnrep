@@ -47,17 +47,23 @@ def main(cfg: DictConfig):
 
     data_splits = hydra.utils.call(cfg_final.cross_validate)
 
+    # Determine whether testset_filename is provided in datamodule
+    # (should not do this in the loop since dm_cfg.testset_filename is reset)
+    dm_cfg, _ = get_datamodule_config(cfg_final)
+    if dm_cfg.testset_filename:
+        dm_has_testset = True
+    else:
+        dm_has_testset = False
+
     metric_scores = []
     for i, (trainset, testset) in enumerate(data_splits):
 
         OmegaConf.set_struct(cfg_final, False)
 
         # Update datamodule (trainset_filename, valset_filename, and testset_filename)
-        # set testfile_name only if it is not provided in datamoldule
-        dm_cfg, _ = get_datamodule_config(cfg_final)
         dm_cfg.trainset_filename = str(trainset)
         dm_cfg.valset_filename = str(testset)
-        if not dm_cfg.testset_filename:
+        if not dm_has_testset:
             dm_cfg.testset_filename = str(testset)
 
         # Update wandb logger info (save_dir)
