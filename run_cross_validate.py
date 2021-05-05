@@ -1,3 +1,17 @@
+"""
+Cross validation.
+
+Data split:
+- the dataset for cv should be provided as dm.trainset_filename; dm.valset_fileanme is
+  always ignored; and dm.testset_filename is used if provided
+- the dataset provided via dm.trainset_filename is split into kfolds of train set and
+  test set
+- for each fold, the train set is reassigned to dm.trainset_filename and the test set is
+  assigned to dm.valset_filename
+- if dm.testset_filename is provided, it is used for test; if not, the test set in each
+  fold is assigned to dm.testset_filename (then in each fold the val set and the test set
+  are the same)
+"""
 import logging
 import os
 
