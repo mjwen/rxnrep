@@ -10,9 +10,7 @@ defaults:
   - optimizer: adams.yaml
 
   # lightning settings
-  - trainer: default.yaml
-  - trainer: minimal.yaml # this will be combined with trainer: default.yaml
-
+  - trainer: minimal.yaml
   - logger: wandb.yaml
   - callbacks: default.yaml
 

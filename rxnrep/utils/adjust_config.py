@@ -65,6 +65,7 @@ def determine_layer_size_by_pool_method(encoder_cfg):
     return size
 
 
+# TODO, remove this and the dependence on rich? It is never used.
 @rank_zero_only
 def print_config(
     config: DictConfig,

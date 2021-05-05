@@ -6,7 +6,12 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - omegaconf
+  - numpy
+  - scikit-learn
+  - pytorch-lightning
+  - hydra-core
+  - pandas
+  - rich
   - pymatgen==2020.8.13
   - rdkit==2020.03.5
   - openbabel==3.1.1

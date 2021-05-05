@@ -4,19 +4,18 @@ defaults:
   - model/encoder: encoder.yaml
   - model/decoder: classifier.yaml
 
-  - datamodule: predictive/schneider.yaml
-
-  - cross_validate: classification.yaml
+  - datamodule: classification/schneider.yaml
 
   # training
   - optimizer: adams.yaml
 
   # lightning settings
-  - trainer: default.yaml
-  - trainer: minimal.yaml # this will be combined with trainer: default.yaml
-
+  - trainer: minimal.yaml
   - logger: wandb.yaml
   - callbacks: default.yaml
+
+  # cv
+  - cross_validate: classification.yaml
 
 # other configs
 seed: 35
