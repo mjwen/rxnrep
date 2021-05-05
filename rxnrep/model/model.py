@@ -206,18 +206,26 @@ class BaseModel(pl.LightningModule):
 
             for task_name, task_setting in self.classification_tasks.items():
                 n = task_setting["num_classes"]
+
+                # special treatment for binary precision and recall: no num_class input
+                # is needed
+                if n == 2:
+                    n_prec_recall = None
+                else:
+                    n_prec_recall = n
+
                 average = task_setting["average"]
 
                 metrics[mode][task_name] = nn.ModuleDict(
                     {
                         "accuracy": pl.metrics.Accuracy(compute_on_step=False),
                         "precision": pl.metrics.Precision(
-                            num_classes=n,
+                            num_classes=n_prec_recall,
                             average=average,
                             compute_on_step=False,
                         ),
                         "recall": pl.metrics.Recall(
-                            num_classes=n,
+                            num_classes=n_prec_recall,
                             average=average,
                             compute_on_step=False,
                         ),
@@ -252,8 +260,14 @@ class BaseModel(pl.LightningModule):
         for task_name in self.classification_tasks:
             for metric in self.metrics[mode][task_name]:
                 metric_obj = self.metrics[mode][task_name][metric]
-                p = torch.softmax(preds[task_name], dim=1)
-                metric_obj(p, labels[task_name])
+                p = preds[task_name]
+                if p.shape[1] == 1:
+                    # binary
+                    prop = torch.sigmoid(p.reshape(-1))
+                else:
+                    # multiclass
+                    prop = torch.softmax(p, dim=1)
+                metric_obj(prop, labels[task_name])
 
     def compute_metrics(self, mode):
         """
