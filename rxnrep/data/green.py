@@ -1,7 +1,7 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Optional, Union
+from typing import Dict
 
 import torch
 from sklearn.utils import class_weight
