@@ -1,16 +1,18 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional, Union, Any
 
 import torch
 from sklearn.utils import class_weight
 
+from rxnrep.data.datamodule import BaseDataModule
 from rxnrep.data.dataset import (
     BaseContrastiveDataset,
     BaseLabelledDataset,
     ClassicalFeatureDataset,
 )
+from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
@@ -128,6 +130,109 @@ class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
                 {"reaction_type": torch.as_tensor(int(rxn_class), dtype=torch.int64)}
             )
         return labels
+
+
+class UsptoDataModule(BaseDataModule):
+    """
+    Uspto dataset.
+
+    Args:
+        num_reaction_classes: number of reaction class of the dataset. `None` means the
+            dataset has no reaction type label.
+    """
+
+    def __init__(
+        self,
+        trainset_filename: Union[str, Path],
+        valset_filename: Union[str, Path],
+        testset_filename: Union[str, Path],
+        *,
+        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
+        restore_state_dict_filename: Optional[Union[str, Path]] = None,
+        batch_size: int = 100,
+        num_workers: int = 0,
+        pin_memory: bool = True,
+        num_processes: int = 1,
+        build_reaction_graph: bool = True,
+        num_reaction_classes: Optional[int] = None,
+    ):
+        super().__init__(
+            trainset_filename,
+            valset_filename,
+            testset_filename,
+            state_dict_filename=state_dict_filename,
+            restore_state_dict_filename=restore_state_dict_filename,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            num_processes=num_processes,
+            build_reaction_graph=build_reaction_graph,
+        )
+
+        self.num_reaction_classes = num_reaction_classes
+
+    def setup(self, stage: Optional[str] = None):
+
+        init_state_dict = self.get_init_state_dict()
+
+        has_class_label = self.num_reaction_classes is not None
+
+        self.data_train = USPTODataset(
+            filename=self.trainset_filename,
+            atom_featurizer=AtomFeaturizer(),
+            bond_featurizer=BondFeaturizer(),
+            global_featurizer=GlobalFeaturizer(),
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=init_state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            # label args
+            has_class_label=has_class_label,
+        )
+
+        state_dict = self.data_train.state_dict()
+
+        self.data_val = USPTODataset(
+            filename=self.valset_filename,
+            atom_featurizer=AtomFeaturizer(),
+            bond_featurizer=BondFeaturizer(),
+            global_featurizer=GlobalFeaturizer(),
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            # label args
+            has_class_label=has_class_label,
+        )
+
+        self.data_test = USPTODataset(
+            filename=self.testset_filename,
+            atom_featurizer=AtomFeaturizer(),
+            bond_featurizer=BondFeaturizer(),
+            global_featurizer=GlobalFeaturizer(),
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            # label args
+            has_class_label=has_class_label,
+        )
+
+        # save dataset state dict
+        self.data_train.save_state_dict_file(self.state_dict_filename)
+
+    def get_to_model_info(self) -> Dict[str, Any]:
+        d = {"feature_size": self.data_train.feature_size}
+
+        if self.num_reaction_classes:
+            d["num_reaction_classes"] = self.num_reaction_classes
+
+            class_weight = self.data_train.get_class_weight(
+                num_reaction_classes=self.num_reaction_classes, class_weight_as_1=True
+            )
+            d["reaction_class_weight"] = class_weight["reaction_type"]
+
+        return d
 
 
 def read_uspto_file(filename: Path, nprocs):
