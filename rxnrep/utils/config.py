@@ -154,7 +154,6 @@ def dump_config(config: DictConfig, filename: Union[str, Path]):
         OmegaConf.save(config, f, resolve=True)
 
 
-# TODO, remove this and the dependence on rich? It is never used.
 @rank_zero_only
 def print_config(
     config: DictConfig,

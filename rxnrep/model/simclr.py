@@ -2,7 +2,8 @@ import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.model import BaseModel
+from rxnrep.model.losses import nt_xent_loss
+from rxnrep.model.model_contrastive import BaseContrastiveModel
 from rxnrep.model.utils import MLP
 from rxnrep.utils.adapt_config import (
     adjust_encoder_config,
@@ -11,20 +12,17 @@ from rxnrep.utils.adapt_config import (
 from rxnrep.utils.config import merge_configs
 
 
-def adjust_decoder_config(config: DictConfig):
+def adjust_decoder_config(config: DictConfig) -> DictConfig:
     size = determine_layer_size_by_pool_method(config.model.encoder)
+    minimum = config.model.encoder.conv_layer_size
 
-    num_layers = config.model.decoder.model_class.reaction_type_decoder_num_layers
-    hidden_layer_sizes = [max(size // 2 ** i, 50) for i in range(num_layers)]
+    num_layers = config.model.decoder.model_class.simclr_decoder_num_layers
+    layer_sizes = [max(size // 2 ** i, minimum) for i in range(num_layers)]
 
     new_config = OmegaConf.create(
         {
             "model": {
-                "decoder": {
-                    "model_class": {
-                        "reaction_type_decoder_hidden_layer_sizes": hidden_layer_sizes
-                    }
-                }
+                "decoder": {"model_class": {"simclr_decoder_layer_sizes": layer_sizes}}
             }
         }
     )
@@ -47,8 +45,9 @@ def adjust_config(config: DictConfig) -> DictConfig:
     return model_config
 
 
-class LightningModel(BaseModel):
+class LightningModel(BaseContrastiveModel):
     def init_backbone(self, params):
+
         model = ReactionEncoder(
             in_feats=params.dataset_info["feature_size"],
             embedding_size=params.embedding_size,
@@ -89,43 +88,28 @@ class LightningModel(BaseModel):
         return model
 
     def init_decoder(self, params):
-        decoder = MLP(
+        projection_decoder = MLP(
             in_size=self.backbone.reaction_feats_size,
-            hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
+            hidden_sizes=params.simclr_decoder_layer_sizes[:-1],
             activation=params.activation,
-            out_size=params.dataset_info["num_reaction_classes"],
+            out_size=params.simclr_decoder_layer_sizes[-1],
         )
 
-        return {"reaction_type_decoder": decoder}
+        return {"projection_head_decoder": projection_decoder}
 
     def decode(self, feats, reaction_feats, metadata):
-        decoder = self.decoder["reaction_type_decoder"]
-        reaction_type = decoder(reaction_feats)
+        decoder = self.decoder["projection_head_decoder"]
+        z = decoder(reaction_feats)
 
-        return {"reaction_type": reaction_type}
+        return z
 
     def compute_loss(self, preds, labels):
+        z1 = preds["z1"]
+        z2 = preds["z2"]
 
-        all_loss = {}
+        z1 = F.normalize(z1, dim=-1)
+        z2 = F.normalize(z2, dim=-1)
 
-        task = "reaction_type"
-        loss = F.cross_entropy(
-            preds[task],
-            labels[task],
-            reduction="mean",
-            weight=self.hparams.dataset_info["reaction_class_weight"].to(self.device),
-        )
-        all_loss[task] = loss
+        loss = nt_xent_loss(z1, z2, self.hparams.simclr_temperature)
 
-        return all_loss
-
-    def init_classification_tasks(self, params):
-        tasks = {
-            "reaction_type": {
-                "num_classes": params.dataset_info["num_reaction_classes"],
-                "to_score": {"f1": 1},
-                "average": "micro",
-            }
-        }
-
-        return tasks
+        return {"contrastive": loss}
