@@ -1,0 +1,6 @@
+# @package _group_
+
+_target_: rxnrep.data.transforms.SubgraphBFS
+ratio: 0.2
+select_mode: ratio
+ratio_multiplier: out_center

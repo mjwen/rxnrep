@@ -1,0 +1,7 @@
+# @package _group_
+
+_target_: rxnrep.data.transforms.MaskAtomAttribute
+ratio: 0.2
+select_mode: ratio
+ratio_multiplier: out_center
+mask_value: 1.0

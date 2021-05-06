@@ -1,10 +1,12 @@
-# main config file for cross validation
+# cross validation config for regression/classification
 
 defaults:
+  # data
+  - datamodule: classification/schneider.yaml
+
+  # model
   - model/encoder: encoder.yaml
   - model/decoder: classifier_multi.yaml
-
-  - datamodule: classification/schneider.yaml
 
   # training
   - optimizer: adams.yaml
@@ -12,7 +14,7 @@ defaults:
   # lightning settings
   - trainer: minimal.yaml
   - logger: wandb.yaml
-  - callbacks: default.yaml
+  - callbacks: predictive.yaml
 
   # cv
   - cross_validate: classification.yaml

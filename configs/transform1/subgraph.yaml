@@ -1,0 +1,8 @@
+# @package _group_
+
+_target_: rxnrep.data.transforms.Subgraph
+ratio: 0.2
+select_mode: ratio
+ratio_multiplier: out_center
+reaction_center_mode: functional_group
+functional_group_smarts_filenames: /Users/mjwen/Applications/rxnrep_analysis/rxnrep_analysis/data_cleaning/smarts_daylight.tsv

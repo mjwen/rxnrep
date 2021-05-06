@@ -1,0 +1,9 @@
+# @package _group_
+
+cfg_adjuster:
+  _target_: rxnrep.model.simclr.adjust_config
+
+model_class:
+  _target_: rxnrep.model.simclr.LightningModel
+  simclr_temperature: 0.1
+  simclr_decoder_num_layers: 2
