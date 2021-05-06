@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from rxnrep.model.classifier import adjust_config as multi_adjust_config
+from rxnrep.model.classifier_multi import adjust_config as multi_adjust_config
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.model import BaseModel
 from rxnrep.model.utils import MLP
