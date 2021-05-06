@@ -4,9 +4,10 @@ from omegaconf import DictConfig, OmegaConf
 from rxnrep.model.encoder import ReactionEncoder
 from rxnrep.model.model import BaseModel
 from rxnrep.model.utils import MLP
-from rxnrep.utils.adjust_config import (
+from rxnrep.utils.adapt_config import (
     adjust_encoder_config,
     determine_layer_size_by_pool_method,
+    merge_configs,
 )
 
 
@@ -32,16 +33,18 @@ def adjust_decoder_config(config: DictConfig):
 
 
 def adjust_config(config: DictConfig) -> DictConfig:
+    """
+    Adjust model config, both encoder and decoder.
+    """
     encoder_config = adjust_encoder_config(config)
 
     # create a temporary one to merge original and encoder
-    OmegaConf.set_struct(config, False)
-    merged = OmegaConf.merge(config, encoder_config)
-    OmegaConf.set_struct(config, True)
-
+    # this is needed since info from both config is needed to adjust decoder config
+    merged = merge_configs(config, encoder_config)
     decoder_config = adjust_decoder_config(merged)
+    model_config = merge_configs(encoder_config, decoder_config)
 
-    return OmegaConf.merge(encoder_config, decoder_config)
+    return model_config
 
 
 class LightningModel(BaseModel):

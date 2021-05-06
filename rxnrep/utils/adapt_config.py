@@ -9,6 +9,35 @@ from rich.syntax import Syntax
 from rich.tree import Tree
 
 
+def merge_configs(*configs: DictConfig) -> DictConfig:
+    """
+    Merge multi configs into one.
+
+    The `struct` flag of input configs will not be altered.
+
+    Return:
+        merged config
+    """
+    assert len(configs) > 1, f"Expect more than 1 config to merge, got {len(configs)}"
+
+    # set all struct info to False
+    is_struct = []
+    for c in configs:
+        s = OmegaConf.is_struct(c)
+        is_struct.append(s)
+        if s:
+            OmegaConf.set_struct(c, False)
+
+    merged = OmegaConf.merge(*configs)
+
+    # restore struct info
+    for c, s in zip(configs, is_struct):
+        if s:
+            OmegaConf.set_struct(c, True)
+
+    return merged
+
+
 def adjust_encoder_config(config: DictConfig) -> DictConfig:
 
     cfg = config.model.encoder
