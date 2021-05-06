@@ -20,8 +20,8 @@ from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.train import train
 from rxnrep.utils.cross_validate import compute_metric_statistics
-from rxnrep.utils.hydra_config import (
-    dump_hydra_config,
+from rxnrep.utils.config import (
+    dump_config,
     get_datamodule_config,
     get_wandb_logger_config,
 )
@@ -53,9 +53,9 @@ def main(cfg: DictConfig):
     OmegaConf.set_struct(cfg_final, True)
 
     # Save configs to file
-    dump_hydra_config(cfg, "hydra_cfg_original.yaml")
-    dump_hydra_config(cfg_update, "hydra_cfg_update.yaml")
-    dump_hydra_config(cfg_final, "hydra_cfg_final.yaml")
+    dump_config(cfg, "hydra_cfg_original.yaml")
+    dump_config(cfg_update, "hydra_cfg_update.yaml")
+    dump_config(cfg_final, "hydra_cfg_final.yaml")
 
     # Get CV data split
 

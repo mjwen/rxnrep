@@ -2,7 +2,11 @@ import logging
 from pathlib import Path
 from typing import Tuple, Union
 
+import rich
 from omegaconf import DictConfig, OmegaConf
+from pytorch_lightning.utilities import rank_zero_only
+from rich.syntax import Syntax
+from rich.tree import Tree
 
 from rxnrep.utils.io import to_path
 from rxnrep.utils.wandb import (
@@ -12,14 +16,6 @@ from rxnrep.utils.wandb import (
 )
 
 logger = logging.getLogger(__file__)
-
-
-def dump_hydra_config(config: DictConfig, filename: Union[str, Path]):
-    """
-    Save OmegaConfig to a yaml file.
-    """
-    with open(to_path(filename), "w") as f:
-        OmegaConf.save(config, f, resolve=True)
 
 
 def get_datamodule_config(config: DictConfig) -> Tuple[DictConfig, str]:
@@ -119,3 +115,75 @@ def get_restore_config(config: DictConfig) -> DictConfig:
     restore_config = OmegaConf.create(d)
 
     return restore_config
+
+
+def merge_configs(*configs: DictConfig) -> DictConfig:
+    """
+    Merge multi configs into one.
+
+    The `struct` flag of input configs will not be altered.
+
+    Return:
+        merged config
+    """
+    assert len(configs) > 1, f"Expect more than 1 config to merge, got {len(configs)}"
+
+    # set all struct info to False
+    is_struct = []
+    for c in configs:
+        s = OmegaConf.is_struct(c)
+        is_struct.append(s)
+        if s:
+            OmegaConf.set_struct(c, False)
+
+    merged = OmegaConf.merge(*configs)
+
+    # restore struct info
+    for c, s in zip(configs, is_struct):
+        if s:
+            OmegaConf.set_struct(c, True)
+
+    return merged
+
+
+def dump_config(config: DictConfig, filename: Union[str, Path]):
+    """
+    Save OmegaConfig to a yaml file.
+    """
+    with open(to_path(filename), "w") as f:
+        OmegaConf.save(config, f, resolve=True)
+
+
+# TODO, remove this and the dependence on rich? It is never used.
+@rank_zero_only
+def print_config(
+    config: DictConfig,
+    label: str = "CONFIG",
+    resolve: bool = True,
+    sort_keys: bool = True,
+):
+    """
+    Prints content of DictConfig using Rich library and its tree structure.
+
+    Args:
+        config: Config.
+        label: label of the config.
+        resolve: whether to resolve reference fields of DictConfig.
+        sort_keys: whether to sort config keys.
+    """
+
+    tree = Tree(f":gear: {label}")
+
+    for field, config_section in config.items():
+        branch = tree.add(field)
+
+        if isinstance(config_section, DictConfig):
+            branch_content = OmegaConf.to_yaml(
+                config_section, resolve=resolve, sort_keys=sort_keys
+            )
+        else:
+            branch_content = str(config_section)
+
+        branch.add(Syntax(branch_content, "yaml"))
+
+    rich.print(tree)

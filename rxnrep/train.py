@@ -13,7 +13,7 @@ from pytorch_lightning import (
 )
 from pytorch_lightning.loggers import LightningLoggerBase, WandbLogger
 
-from rxnrep.utils.hydra_config import get_datamodule_config
+from rxnrep.utils.config import get_datamodule_config
 from rxnrep.utils.wandb import save_files_to_wandb, write_running_metadata
 
 logger = logging.getLogger(__file__)
