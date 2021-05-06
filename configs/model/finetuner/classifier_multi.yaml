@@ -1,0 +1,19 @@
+# @package _group_
+
+# this should only contain the decoder part, the encoder part is in encoder.yaml
+
+cfg_adjuster:
+  _target_: rxnrep.model.finetuner.adjust_config
+
+model_class:
+  # decoder
+  _target_: rxnrep.model.finetuner.LightningModel
+  reaction_type_decoder_num_layers: 2
+
+  # pretrained model
+  pretrained_dataset_state_dict_filename: pretrained_model/dataset_state_dict.yaml  # this will override datamodule.restore_state_dict_filename
+  pretrained_config_filename: pretrained_model/hydra_cfg_final.yaml
+  pretrained_checkpoint_filename: pretrained_model/checkpoint.ckpt
+  finetune_tune_encoder: False # Whether to optimize params in the encoder of the pretrained model. Note, parameters in the decoders of the pretrained model are set to be fixed (since they are not used).
+  finetune_lr_encoder: 1e-4 # learning rate for the encoder part if `finetune_tune_encoder` is true. # this belongs to optimization, but we just add it here since it is so closed related to `finetune_tune_encoder`
+  activation: ReLU

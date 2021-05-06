@@ -214,7 +214,7 @@ def get_wandb_checkpoint_latest_run(
     return None
 
 
-def get_wandb_run_path(identifier: str, path="."):
+def get_wandb_run_path(identifier: str, path: Union[str, Path] = "."):
     """
     Args:
         identifier: wandb unique identifier of experiment, e.g. 2i3rocdl
@@ -234,7 +234,7 @@ def get_wandb_run_path(identifier: str, path="."):
     raise RuntimeError(f"Cannot found job {identifier} in {path}")
 
 
-def get_wandb_checkpoint_path(identifier: str, path="."):
+def get_wandb_checkpoint_path(identifier: str, path: Union[str, Path] = "."):
     """
     Args:
         identifier: wandb unique identifier of experiment, e.g. 2i3rocdl
@@ -250,8 +250,10 @@ def get_wandb_checkpoint_path(identifier: str, path="."):
     raise RuntimeError(f"Cannot found job {identifier} in {path}")
 
 
-def copy_trained_model(
-    identifier: str, source_dir: Path = ".", target_dir: Path = "trained_model"
+def copy_pretrained_model(
+    identifier: str,
+    source_dir: Union[str, Path] = ".",
+    target_dir: Path = "pretrained_model",
 ):
     """
     Copy the last checkpoint and dataset_state_dict.yaml to a directory.
@@ -273,15 +275,15 @@ def copy_trained_model(
     checkpoints = sorted(checkpoints)
     shutil.copy(checkpoints[-1], target_dir.joinpath("checkpoint.ckpt"))
 
-    # copy config.yaml file
     run_path = get_wandb_run_path(identifier, source_dir)
     print("wandb run path:", run_path)
 
-    f = to_path(run_path).joinpath("files", "config.yaml")
-    shutil.copy(f, target_dir.joinpath("config.yaml"))
+    # copy hydra_cfg_final.yaml file
+    f = to_path(run_path).joinpath("files", "hydra_cfg_final.yaml").resolve()
+    shutil.copy(f, target_dir.joinpath("hydra_cfg_final.yaml"))
 
     # copy dataset state dict
-    f = to_path(run_path).joinpath("files", "dataset_state_dict.yaml")
+    f = to_path(run_path).joinpath("files", "dataset_state_dict.yaml").resolve()
     shutil.copy(f, target_dir.joinpath("dataset_state_dict.yaml"))
 
 

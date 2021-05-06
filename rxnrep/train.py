@@ -44,15 +44,15 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
 
     logger.info(f"Instantiating datamodule: {dm_config._target_}")
 
-    if config.get("transform1", None) and config.get("transform2", None):
-        # contrastive
+    # contrastive
+    if "transform1" in config and "transform2" in config:
         transform1: Transform = hydra.utils.instantiate(config.transform1)
         transform2: Transform = hydra.utils.instantiate(config.transform2)
         datamodule: LightningDataModule = hydra.utils.instantiate(
             dm_config, transform1=transform1, transform2=transform2
         )
+    # predictive (regression/classification)
     else:
-        # predictive (regression/classification)
         datamodule: LightningDataModule = hydra.utils.instantiate(dm_config)
 
     # manually call them to get data needed for setting up the model
@@ -67,16 +67,31 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
     #
     # Init Lightning model
     #
-    logger.info(f"Instantiating model: {config.model.decoder.model_class._target_}")
 
-    # note encoder only provides args, decoder has the actual _target_
-    encoder = config.model.encoder
-    model: LightningModule = hydra.utils.instantiate(
-        config.model.decoder.model_class,
-        dataset_info=dataset_info,
-        **encoder,
-        **config.optimizer,
-    )
+    # regular training
+    if "decoder" in config.model:
+        # encoder only provides args, decoder has the actual _target_
+        logger.info(f"Instantiating model: {config.model.decoder.model_class._target_}")
+        encoder = config.model.encoder
+        model: LightningModule = hydra.utils.instantiate(
+            config.model.decoder.model_class,
+            dataset_info=dataset_info,
+            **encoder,
+            **config.optimizer,
+        )
+    # finetune
+    elif "finetuner" in config.model:
+        logger.info(
+            f"Instantiating model: {config.model.finetuner.model_class._target_}"
+        )
+        model: LightningModule = hydra.utils.instantiate(
+            config.model.finetuner.model_class,
+            dataset_info=dataset_info,
+            **config.optimizer,
+        )
+
+    else:
+        raise ValueError("Only support `decoder` model and `finetune` model")
 
     #
     # Init Lightning callbacks
@@ -103,7 +118,7 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
     #
     logger.info(f"Instantiating trainer: {config.trainer._target_}")
     trainer: Trainer = hydra.utils.instantiate(
-        #     config.trainer, callbacks=callbacks, logger=lit_logger, _convert_="partial"
+        # config.trainer, callbacks=callbacks, logger=lit_logger, _convert_="partial"
         config.trainer,
         callbacks=callbacks,
         logger=lit_logger,
