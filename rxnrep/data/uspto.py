@@ -1,7 +1,7 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Optional, Union, Any
+from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 from sklearn.utils import class_weight
@@ -16,6 +16,22 @@ from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturi
 from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
+
+
+def read_uspto_file(filename: Path, nprocs):
+    logger.info("Start reading dataset ...")
+
+    succeed_reactions, failed = read_smiles_tsv_dataset(
+        filename, remove_H=True, nprocs=nprocs
+    )
+
+    counter = Counter(failed)
+    logger.info(
+        f"Finish reading dataset. Number succeed {counter[False]}, "
+        f"number failed {counter[True]}."
+    )
+
+    return succeed_reactions, failed
 
 
 class USPTODataset(BaseLabelledDataset):
@@ -177,11 +193,15 @@ class UsptoDataModule(BaseDataModule):
 
         has_class_label = self.num_reaction_classes is not None
 
+        atom_featurizer = AtomFeaturizer()
+        bond_featurizer = BondFeaturizer()
+        global_featurizer = GlobalFeaturizer()
+
         self.data_train = USPTODataset(
             filename=self.trainset_filename,
-            atom_featurizer=AtomFeaturizer(),
-            bond_featurizer=BondFeaturizer(),
-            global_featurizer=GlobalFeaturizer(),
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
             build_reaction_graph=self.build_reaction_graph,
             init_state_dict=init_state_dict,
             num_processes=self.num_processes,
@@ -194,9 +214,9 @@ class UsptoDataModule(BaseDataModule):
 
         self.data_val = USPTODataset(
             filename=self.valset_filename,
-            atom_featurizer=AtomFeaturizer(),
-            bond_featurizer=BondFeaturizer(),
-            global_featurizer=GlobalFeaturizer(),
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
             build_reaction_graph=self.build_reaction_graph,
             init_state_dict=state_dict,
             num_processes=self.num_processes,
@@ -207,9 +227,9 @@ class UsptoDataModule(BaseDataModule):
 
         self.data_test = USPTODataset(
             filename=self.testset_filename,
-            atom_featurizer=AtomFeaturizer(),
-            bond_featurizer=BondFeaturizer(),
-            global_featurizer=GlobalFeaturizer(),
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
             build_reaction_graph=self.build_reaction_graph,
             init_state_dict=state_dict,
             num_processes=self.num_processes,
@@ -235,17 +255,99 @@ class UsptoDataModule(BaseDataModule):
         return d
 
 
-def read_uspto_file(filename: Path, nprocs):
-    logger.info("Start reading dataset ...")
+class UsptoContrastiveDataModule(BaseDataModule):
+    """
+    Uspto datamodule for contrastive learning.
 
-    succeed_reactions, failed = read_smiles_tsv_dataset(
-        filename, remove_H=True, nprocs=nprocs
-    )
+    Args:
+        transform1: graph augmentation instance, see `transforms.py`
+        transform2: graph augmentation instance, see `transforms.py`
+    """
 
-    counter = Counter(failed)
-    logger.info(
-        f"Finish reading dataset. Number succeed {counter[False]}, "
-        f"number failed {counter[True]}."
-    )
+    def __init__(
+        self,
+        trainset_filename: Union[str, Path],
+        valset_filename: Union[str, Path],
+        testset_filename: Union[str, Path],
+        *,
+        transform1: Callable,
+        transform2: Callable,
+        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
+        restore_state_dict_filename: Optional[Union[str, Path]] = None,
+        batch_size: int = 100,
+        num_workers: int = 0,
+        pin_memory: bool = True,
+        num_processes: int = 1,
+        build_reaction_graph: bool = True,
+    ):
+        super().__init__(
+            trainset_filename,
+            valset_filename,
+            testset_filename,
+            state_dict_filename=state_dict_filename,
+            restore_state_dict_filename=restore_state_dict_filename,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            num_processes=num_processes,
+            build_reaction_graph=build_reaction_graph,
+        )
+        self.transform1 = transform1
+        self.transform2 = transform2
 
-    return succeed_reactions, failed
+    def setup(self, stage: Optional[str] = None):
+
+        init_state_dict = self.get_init_state_dict()
+
+        atom_featurizer = AtomFeaturizer()
+        bond_featurizer = BondFeaturizer()
+        global_featurizer = GlobalFeaturizer()
+
+        self.data_train = USPTOContrastiveDataset(
+            filename=self.trainset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=init_state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            transform1=self.transform1,
+            transform2=self.transform2,
+        )
+
+        state_dict = self.data_train.state_dict()
+
+        self.data_val = USPTOContrastiveDataset(
+            filename=self.valset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            transform1=self.transform1,
+            transform2=self.transform2,
+        )
+
+        self.data_test = USPTOContrastiveDataset(
+            filename=self.testset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            transform1=self.transform1,
+            transform2=self.transform2,
+        )
+
+        # save dataset state dict
+        self.data_train.save_state_dict_file(self.state_dict_filename)
+
+    def get_to_model_info(self) -> Dict[str, Any]:
+        d = {"feature_size": self.data_train.feature_size}
+
+        return d

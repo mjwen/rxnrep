@@ -295,9 +295,9 @@ class Subgraph(Transform):
             reaction center. If `altered_bonds`, atoms associated with broken and
             formed bonds in the reaction are regarded as center. If `functional_group`,
             functional groups associated with alternated bonds are regarded as center.
-        functional_group_smarts_filenames: a list of tsv files containing the smarts of
-            the functional groups. Should have a column named `smarts`. Only effective
-            when reaction_center_mode = `functional_group`.
+        functional_group_smarts_filenames: a tsv or a list of tsv files containing the
+            smarts of the functional groups. Should have a column named `smarts`.
+            Only effective when reaction_center_mode = `functional_group`.
     """
 
     def __init__(
@@ -306,13 +306,15 @@ class Subgraph(Transform):
         select_mode: str = "ratio",
         ratio_multiplier: str = "out_center",
         reaction_center_mode: str = "altered_bonds",
-        functional_group_smarts_filenames: List[Path] = None,
+        functional_group_smarts_filenames: Union[Path, List[Path]] = None,
     ):
         super().__init__(ratio, select_mode, ratio_multiplier)
         self.reaction_center_mode = reaction_center_mode
 
         # init all functional group
         if self.reaction_center_mode == "functional_group":
+            if not isinstance(functional_group_smarts_filenames, list):
+                functional_group_smarts_filenames = [functional_group_smarts_filenames]
             dfs = [pd.read_csv(f, sep="\t") for f in functional_group_smarts_filenames]
             df = pd.concat(dfs)
             self.functional_groups = [Chem.MolFromSmarts(m) for m in df["smarts"]]
@@ -471,6 +473,27 @@ class IdentityTransform(Transform):
     ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
 
         return reactants_g, products_g, reaction_g, reaction
+
+
+def subgraph_or_identity(
+    ratio,
+    select_mode,
+    ratio_multiplier,
+    reaction_center_mode,
+    functional_group_smarts_filenames,
+    subgraph_probability,
+):
+    t1 = Subgraph(
+        ratio,
+        select_mode,
+        ratio_multiplier,
+        reaction_center_mode,
+        functional_group_smarts_filenames,
+    )
+    t2 = IdentityTransform(ratio, select_mode, ratio_multiplier)
+    t = OneOrTheOtherTransform(t1, t2, first_probability=subgraph_probability)
+
+    return t
 
 
 def get_edge_subgraph(g, edges: List[int], edge_type: str = "bond"):
