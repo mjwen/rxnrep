@@ -4,7 +4,12 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.train import train
-from rxnrep.utils.config import dump_config, get_restore_config, print_config
+from rxnrep.utils.config import (
+    dump_config,
+    get_restore_config,
+    merge_configs,
+    print_config,
+)
 from rxnrep.utils.io import to_path
 from rxnrep.utils.wandb import copy_pretrained_model
 
@@ -22,21 +27,27 @@ def main(cfg: DictConfig):
             path = to_path(cfg.original_working_dir).joinpath("outputs")
             copy_pretrained_model(wandb_id, source_dir=path)
 
-    # Update cfg, new or modified ones by encoder and decoder
+    # Restore cfg from latest run (restore_dataset_state_dict, checkpoint, and wandb_id)
+    if cfg.restore:
+        cfg_restore = get_restore_config(cfg)
+    else:
+        cfg_restore = None
+
+    # Update cfg, new or modified ones by model encoder and decoder
     # won't change the model behavior, only add some helper args
+    # (this should come after get_restore_config(), since finetuner will modify
+    # restore_dataset_state_dict)
     if "finetuner" in cfg.model:
         cfg_update = hydra.utils.call(cfg.model.finetuner.cfg_adjuster, cfg)
     else:
         cfg_update = hydra.utils.call(cfg.model.decoder.cfg_adjuster, cfg)
 
-    # Restore cfg from latest run (dataset_state_dict, checkpoint, and wandb_id)
-    if cfg.restore:
-        cfg_restore = get_restore_config(cfg)
-        cfg_update = OmegaConf.merge(cfg_update, cfg_restore)
+    # Combine restore and model update
+    if cfg_restore:
+        cfg_update = merge_configs(cfg_update, cfg_restore)
 
     # Merge cfg
-    OmegaConf.set_struct(cfg, False)
-    cfg_final = OmegaConf.merge(cfg, cfg_update)
+    cfg_final = merge_configs(cfg, cfg_update)
     OmegaConf.set_struct(cfg_final, True)
 
     # Save configs to file

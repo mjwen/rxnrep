@@ -23,8 +23,9 @@ git_repo_path: null # path to the git repo (used to log commit)
 # git_repo_path: /Users/mjwen/Applications/rxnrep
 return_val_metric_score: False # let the train function return val metric instead of test metric
 
-# Copy pretrained model to current directory
-pretrained_wandb_id: o817ixt6
+# Copy pretrained model to current directory (e.g. o817ixt6)
+# if null, should provide pretrained_checkpoint_filename etc in finetuner
+pretrained_wandb_id: null
 
 # path to original working directory
 # hydra hijacks working directory by changing it to the current log directory,
