@@ -5,7 +5,7 @@ defaults:
   - datamodule: classification/schneider.yaml
 
   # model
-  - model/finetuner: classifier_multi.yaml
+  - model/finetuner: classifier.yaml
 
   # training
   - optimizer: adams.yaml

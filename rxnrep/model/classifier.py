@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 
@@ -89,11 +90,21 @@ class LightningModel(BaseModel):
         return model
 
     def init_decoder(self, params):
+
+        num_reaction_classes = params.dataset_info["num_reaction_classes"]
+
+        if num_reaction_classes == 2:
+            self.is_binary = True
+            out_size = 1
+        else:
+            self.is_binary = False
+            out_size = num_reaction_classes
+
         decoder = MLP(
             in_size=self.backbone.reaction_feats_size,
             hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
             activation=params.activation,
-            out_size=params.dataset_info["num_reaction_classes"],
+            out_size=out_size,
         )
 
         return {"reaction_type_decoder": decoder}
@@ -109,12 +120,23 @@ class LightningModel(BaseModel):
         all_loss = {}
 
         task = "reaction_type"
-        loss = F.cross_entropy(
-            preds[task],
-            labels[task],
-            reduction="mean",
-            weight=self.hparams.dataset_info["reaction_class_weight"].to(self.device),
-        )
+
+        if self.is_binary:
+            loss = F.binary_cross_entropy_with_logits(
+                preds[task].reshape(-1),
+                labels[task].to(torch.float),  # input label is int for metric purpose
+                reduction="mean",
+            )
+        else:
+            loss = F.cross_entropy(
+                preds[task],
+                labels[task],
+                reduction="mean",
+                weight=self.hparams.dataset_info["reaction_class_weight"].to(
+                    self.device
+                ),
+            )
+
         all_loss[task] = loss
 
         return all_loss

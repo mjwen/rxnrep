@@ -6,7 +6,7 @@ defaults:
 
   # model
   - model/encoder: encoder.yaml
-  - model/decoder: classifier_multi.yaml
+  - model/decoder: classifier.yaml
 
   # training
   - optimizer: adams.yaml
