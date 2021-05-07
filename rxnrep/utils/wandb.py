@@ -203,7 +203,7 @@ def get_wandb_checkpoint_latest_run(
     latest = get_hydra_latest_run(path, index=index)
 
     if latest is not None:
-        identifier = get_wandb_identifier_latest_run(path)
+        identifier = get_wandb_identifier_latest_run(path, index=index)
         if identifier is not None:
             checkpoint = latest.joinpath(
                 project, identifier, "checkpoints", "last.ckpt"
