@@ -4,7 +4,7 @@ _target_: pytorch_lightning.Trainer
 
 # common settings
 weights_summary: top
-flush_logs_every_n_steps: 50
+progress_bar_refresh_rate: 100
 num_sanity_val_steps: 2
 sync_batchnorm: True
 resume_from_checkpoint: null # this will be overwritten if `config.restore` is true

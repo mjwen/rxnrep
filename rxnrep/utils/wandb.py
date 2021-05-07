@@ -131,7 +131,7 @@ def get_dataset_state_dict_latest_run(
     Args:
         path: path to hydra `outputs` directory. For example, this should be `../../`
             relative to the hydra current working directory cwd.
-        name: name of the dataset state dict file
+        name: name of the dataset state dict file, e.g. dataset_state_dict.yaml
         index: index to the hydra runs to return. By default, -1 returns the last one.
             But this may not be the one we want when we are calling this from a hydra
             run, since -1 is the index to itself. In this case, set index to -2 to
@@ -182,6 +182,7 @@ def get_wandb_identifier_latest_run(
     return None
 
 
+# TODO this can be written such that project is not needed
 def get_wandb_checkpoint_latest_run(
     path: Union[str, Path], project: str, index: int = -1
 ) -> Union[str, None]:
