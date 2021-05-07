@@ -86,33 +86,42 @@ def get_restore_config(config: DictConfig) -> DictConfig:
     checkpoint = get_wandb_checkpoint_latest_run(path, project, index=-2)
     identifier = get_wandb_identifier_latest_run(path, index=-2)
 
-    d = {
-        "datamodule": {dm_name: {"restore_state_dict_filename": dataset_state_dict}},
-        "callbacks": {"wandb": {"id": identifier}},
-        "trainer": {"resume_from_checkpoint": checkpoint},
-    }
-
-    logger.info(f"Restoring training with automatically determined info: {d}")
+    restore_config = OmegaConf.create({})
 
     if dataset_state_dict is None:
         logger.warning(
-            f"Trying to automatically restore dataset state dict, but cannot find latest "
-            f"dataset state dict file. Now, we set it to `None` to compute dataset "
-            f"statistics (e.g. feature mean and standard deviation) from the trainset."
+            "Trying to automatically restore dataset state dict, but cannot find latest "
+            "dataset state dict file. Dataset statistics (e.g. feature mean and "
+            "standard deviation) from the trainset."
         )
+    else:
+        OmegaConf.update(
+            restore_config,
+            f"datamodule.{dm_name}.restore_state_dict_filename",
+            dataset_state_dict,
+        )
+
     if checkpoint is None:
         logger.warning(
             f"Trying to automatically restore model from checkpoint, but cannot find "
-            f"latest checkpoint file. Proceed without restoring."
+            f"latest checkpoint file. Proceed without restoring checkpoint."
         )
+    else:
+        OmegaConf.update(restore_config, "callbacks.wandb.id", identifier)
+
     if identifier is None:
         logger.warning(
             f"Trying to automatically restore training with the same wandb identifier, "
             f"but cannot find the identifier of latest run. A new wandb identifier will "
             f"be assigned."
         )
+    else:
+        OmegaConf.update(restore_config, "trainer.resume_from_checkpoint", checkpoint)
 
-    restore_config = OmegaConf.create(d)
+    if any((dataset_state_dict, checkpoint, identifier)):
+        logger.info(
+            f"Restoring training with automatically determined info: {restore_config}"
+        )
 
     return restore_config
 

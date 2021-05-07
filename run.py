@@ -27,23 +27,21 @@ def main(cfg: DictConfig):
             path = to_path(cfg.original_working_dir).joinpath("outputs")
             copy_pretrained_model(wandb_id, source_dir=path)
 
-    # Restore cfg from latest run (restore_dataset_state_dict, checkpoint, and wandb_id)
-    if cfg.restore:
-        cfg_restore = get_restore_config(cfg)
-    else:
-        cfg_restore = None
-
     # Update cfg, new or modified ones by model encoder and decoder
     # won't change the model behavior, only add some helper args
-    # (this should come after get_restore_config(), since finetuner will modify
-    # restore_dataset_state_dict)
     if "finetuner" in cfg.model:
         cfg_update = hydra.utils.call(cfg.model.finetuner.cfg_adjuster, cfg)
     else:
         cfg_update = hydra.utils.call(cfg.model.decoder.cfg_adjuster, cfg)
 
-    # Combine restore and model update
-    if cfg_restore:
+    # Restore cfg from latest run (restore_dataset_state_dict, checkpoint, and wandb_id)
+    if cfg.restore:
+        cfg_restore = get_restore_config(cfg)
+        # WARNING, order matters in the below line
+        # cfg_update and cfg_restore can both update `restore_dataset_state_dict`;
+        # cfg_restore comes after since restored value has higher precedence.
+        # Don't worry, cfg_restore is empty if no model is found to restore,
+        # so it won't ruin the value in cfg_update.
         cfg_update = merge_configs(cfg_update, cfg_restore)
 
     # Merge cfg
