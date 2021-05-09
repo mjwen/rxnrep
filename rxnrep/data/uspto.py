@@ -241,6 +241,11 @@ class UsptoDataModule(BaseDataModule):
         # save dataset state dict
         self.data_train.save_state_dict_file(self.state_dict_filename)
 
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
+
     def get_to_model_info(self) -> Dict[str, Any]:
         d = {"feature_size": self.data_train.feature_size}
 
@@ -346,6 +351,11 @@ class UsptoContrastiveDataModule(BaseDataModule):
 
         # save dataset state dict
         self.data_train.save_state_dict_file(self.state_dict_filename)
+
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
 
     def get_to_model_info(self) -> Dict[str, Any]:
         d = {"feature_size": self.data_train.feature_size}
