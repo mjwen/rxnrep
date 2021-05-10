@@ -17,7 +17,7 @@ def adjust_encoder_config(config: DictConfig) -> DictConfig:
     #
 
     # has_global_feats: whether the conv model supports global features
-    if cfg.conv in ["GINConv", "GINConvOriginal"]:
+    if cfg.conv in ["GINConv", "GINConvOriginal", "GATConv"]:
         new_cfg.has_global_feats = False
     elif cfg.conv in ["GINConvGlobal", "GatedGCNConv"]:
         new_cfg.has_global_feats = True

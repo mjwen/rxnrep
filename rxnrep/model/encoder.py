@@ -8,6 +8,7 @@ from dgl.ops import segment_reduce
 
 from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.gin import GINConv, GINConvGlobal, GINConvOriginal
+from rxnrep.model.gatconv import GATConv
 from rxnrep.model.readout import get_reaction_feature_pooling
 from rxnrep.model.utils import MLP, UnifySize
 
@@ -30,8 +31,10 @@ class ReactionEncoder(nn.Module):
 
     Support conv method:
         GatedGCNConv
-        GINConvGlobal
+        GINConvOriginal
         GINConv
+        GINConvGlobal
+        GATConv
 
     Args:
         embedding_size: Typically, atom, bond, and global features do not have the same
@@ -147,6 +150,8 @@ class ReactionEncoder(nn.Module):
             assert (
                 not has_global_feats
             ), f"Select `{conv}`, but `has_global_feats = True`"
+        elif conv == "GATConv":
+            conv_class = GATConv
         else:
             raise ValueError(f"Got unexpected conv {conv}")
 
