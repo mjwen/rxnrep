@@ -19,13 +19,16 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.train import train
-from rxnrep.utils.cross_validate import compute_metric_statistics
 from rxnrep.utils.config import (
     dump_config,
     get_datamodule_config,
     get_wandb_logger_config,
+    merge_configs,
+    print_config,
 )
+from rxnrep.utils.cross_validate import compute_metric_statistics
 from rxnrep.utils.io import to_path
+from rxnrep.utils.wandb import copy_pretrained_model
 
 logger = logging.getLogger(__file__)
 
@@ -36,26 +39,38 @@ os.environ["HYDRA_FULL_ERROR"] = "1"
 @hydra.main(config_path="configs", config_name="config_cross_validate.yaml")
 def main(cfg: DictConfig):
 
-    # Update cfg, new or modified ones by encoder and decoder
+    # The copy_trained_model fn here is only for test purpose, should remove
+    if "finetuner" in cfg.model:
+        wandb_id = cfg.get("pretrained_wandb_id", None)
+        if wandb_id:
+            path = to_path(cfg.original_working_dir).joinpath("outputs")
+            copy_pretrained_model(wandb_id, source_dir=path)
+
+    # Update cfg, new or modified ones by model encoder and decoder
     # won't change the model behavior, only add some helper args
-    cfg_update = hydra.utils.call(cfg.model.decoder.cfg_adjuster, cfg)
+    if "finetuner" in cfg.model:
+        cfg_update = hydra.utils.call(cfg.model.finetuner.cfg_adjuster, cfg)
+    else:
+        cfg_update = hydra.utils.call(cfg.model.decoder.cfg_adjuster, cfg)
 
     # Reset CV filename to trainset filename of datamodule
     dm_cfg, _ = get_datamodule_config(cfg)
     cv_filename = OmegaConf.create(
         {"cross_validate": {"filename": dm_cfg.trainset_filename}}
     )
-    cfg_update = OmegaConf.merge(cfg_update, cv_filename)
+    cfg_update = merge_configs(cfg_update, cv_filename)
 
     # Merge cfg
-    OmegaConf.set_struct(cfg, False)
-    cfg_final = OmegaConf.merge(cfg, cfg_update)
+    cfg_final = merge_configs(cfg, cfg_update)
     OmegaConf.set_struct(cfg_final, True)
 
     # Save configs to file
     dump_config(cfg, "hydra_cfg_original.yaml")
     dump_config(cfg_update, "hydra_cfg_update.yaml")
     dump_config(cfg_final, "hydra_cfg_final.yaml")
+
+    # It does not bother to print it again, useful for debug
+    print_config(cfg_final, label="CONFIG", resolve=True, sort_keys=True)
 
     # Get CV data split
 
