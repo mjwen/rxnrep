@@ -1,0 +1,11 @@
+# @package _group_
+
+# this data split is not kfold, but split randomly multiple times with certain constraints
+
+_target_: rxnrep.utils.cross_validate.multi_train_test_split
+filename: null # not used, will be overwritten by trainset_filename of datamodule
+trainset_size: 16
+testset_size_min: 4
+stratify: reaction_type
+n_splits: 5
+random_state: 35

@@ -99,32 +99,49 @@ def kfold_split(
 
 
 def multi_train_test_split(
-    filename, trainset_size, testset_size_min, stratify_column, num_folds=5
-):
+    filename: Union[str, Path],
+    trainset_size: int,
+    testset_size_min: int,
+    stratify: str = None,
+    save_dir: Union[str, Path] = ".",
+    n_splits: int = 5,
+    random_state: int = 35,
+) -> List[Tuple[Path, Path]]:
     """
     Stratified train test split of data multiple times.
 
     Note, this is not folded split, i.e. each split is not related to the previous one.
+    Here, each split is independent of the previous one.
 
     Args:
-        trainset_size: number of datapoints of each group to enter in trainset.
-        testset_size_min: at least this number in each group should go to testset.
+        filename: name of the data file to split.
+        trainset_size: number of data points of each stratify group to enter trainset.
+        testset_size_min: at least this number of data points in each stratify group
+            should enter testset.
+        stratify: column name of the tsv data where the dataset class (group) info is
+            stored.
+        save_dir: path to create the split directories.
+        n_splits:
+        random_state:
 
+    Returns:
+        A list of (train, test) files.
     """
 
     df = pd.read_csv(filename, sep="\t")
 
     fold_filenames = []
-    for i in range(num_folds):
+    for i in range(n_splits):
         df1, df2 = train_test_split(
             df,
             ratio=None,
             size=trainset_size,
             test_min=testset_size_min,
-            stratify_column=stratify_column,
-            random_seed=i,
+            stratify_column=stratify,
+            random_seed=random_state + i,
         )
-        prefix = Path.cwd().joinpath(f"cv_fold_{i}")
+
+        prefix = to_path(save_dir).joinpath(f"cv_fold_{i}")
         if not prefix.exists():
             os.makedirs(prefix)
 
