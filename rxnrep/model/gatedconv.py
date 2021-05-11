@@ -51,7 +51,7 @@ class GatedGCNConv(nn.Module):
         if out_activation:
             self.out_activation = get_activation(out_activation)
         else:
-            self.out_activation = False
+            self.out_activation = None
 
         self.residual = residual
         if in_size != out_size:
@@ -61,7 +61,7 @@ class GatedGCNConv(nn.Module):
         if dropout and dropout > delta:
             self.dropout = nn.Dropout(dropout)
         else:
-            self.dropout = False
+            self.dropout = None
 
     def forward(
         self,

@@ -1,12 +1,11 @@
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 
-from rxnrep.model.encoder import ReactionEncoder
+from rxnrep.model.encoder import ReactionEncoder, adjust_encoder_config
 from rxnrep.model.losses import nt_xent_loss
 from rxnrep.model.model_contrastive import BaseContrastiveModel
 from rxnrep.model.utils import MLP
 from rxnrep.utils.adapt_config import (
-    adjust_encoder_config,
     determine_layer_size_by_pool_method,
 )
 from rxnrep.utils.config import merge_configs

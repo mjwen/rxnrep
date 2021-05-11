@@ -5,12 +5,14 @@ import dgl
 import torch
 import torch.nn as nn
 from dgl.ops import segment_reduce
+from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.model.gatedconv import GatedGCNConv
 from rxnrep.model.gin import GINConv, GINConvGlobal, GINConvOriginal
-from rxnrep.model.gatconv import GATConv
+from rxnrep.model.gatconv import GATConv, GATConvGlobal
 from rxnrep.model.readout import get_reaction_feature_pooling
 from rxnrep.model.utils import MLP, UnifySize
+from rxnrep.utils.adapt_config import determine_layer_size_by_pool_method
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +154,10 @@ class ReactionEncoder(nn.Module):
             ), f"Select `{conv}`, but `has_global_feats = True`"
         elif conv == "GATConv":
             conv_class = GATConv
+
+        elif conv == "GATConvGlobal":
+            conv_class = GATConvGlobal
+
         else:
             raise ValueError(f"Got unexpected conv {conv}")
 
@@ -622,3 +628,46 @@ def get_global_concat_feats(molecule_feats, metadata):
     )
 
     return reaction_global_feats
+
+
+def adjust_encoder_config(config: DictConfig) -> DictConfig:
+
+    cfg = config.model.encoder
+
+    new_config = OmegaConf.create({"model": {"encoder": {}}})
+    new_cfg = new_config.model.encoder
+
+    #
+    # add new args
+    #
+
+    # has_global_feats: whether the conv model supports global features
+    if cfg.conv in ["GINConv", "GINConvOriginal", "GATConv"]:
+        new_cfg.has_global_feats = False
+    elif cfg.conv in ["GINConvGlobal", "GatedGCNConv", "GATConvGlobal"]:
+        new_cfg.has_global_feats = True
+    else:
+        raise ValueError(f"Unsupported conv {cfg.conv}")
+
+    new_cfg.molecule_conv_layer_sizes = [cfg.conv_layer_size] * cfg.num_mol_conv_layers
+    new_cfg.reaction_conv_layer_sizes = [cfg.conv_layer_size] * cfg.num_rxn_conv_layers
+
+    # mlp after combining reactants and products feats
+    new_cfg.mlp_diff_layer_sizes = [cfg.conv_layer_size] * cfg.num_mlp_diff_layers
+
+    # mlp after pool
+    size = determine_layer_size_by_pool_method(cfg)
+    new_cfg.mlp_pool_layer_sizes = [size] * cfg.num_mlp_pool_layers
+
+    #
+    # adjust existing args
+    #
+
+    if not cfg.get("embedding_size", None):
+        new_cfg.embedding_size = cfg.conv_layer_size
+
+    # pool
+    if not new_cfg.has_global_feats:
+        new_cfg.pool_global_feats = False
+
+    return new_config
