@@ -2,13 +2,10 @@ import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 
-from rxnrep.model.encoder import ReactionEncoder, adjust_encoder_config
+from rxnrep.layer.encoder import ReactionEncoder, adjust_encoder_config
 from rxnrep.model.model import BaseModel
-from rxnrep.model.utils import MLP
-from rxnrep.utils.adapt_config import (
-    determine_layer_size_by_pool_method,
-)
-from rxnrep.utils.config import merge_configs
+from rxnrep.layer.utils import MLP
+from rxnrep.utils.config import merge_configs, determine_layer_size_by_pool_method
 
 
 def adjust_decoder_config(config: DictConfig):

@@ -10,7 +10,7 @@ import torch
 from dgl import function as fn
 from torch import nn
 
-from rxnrep.model.utils import MLP, get_activation
+from rxnrep.layer.utils import MLP, get_activation
 
 
 class GATConv(nn.Module):

@@ -2,7 +2,7 @@ import dgl
 import torch
 from dgl.nn import Set2Set as Set2SetDGL
 
-from rxnrep.model.readout import Set2Set
+from rxnrep.layer.readout import Set2Set
 from rxnrep.utils.io import seed_all
 
 

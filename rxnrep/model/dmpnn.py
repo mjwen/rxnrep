@@ -13,7 +13,7 @@ from dgl import function as fn
 from dgl.ops import segment_reduce
 from torch import nn
 
-from rxnrep.model.utils import MLP, get_activation, get_dropout
+from rxnrep.layer.utils import MLP, get_activation, get_dropout
 
 
 class DMPNNConvAtomMessage(nn.Module):

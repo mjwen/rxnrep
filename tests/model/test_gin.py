@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from rxnrep.model.gin import GINConv, GINConvGlobal
+from rxnrep.layer.gin import GINConv, GINConvGlobal
 from tests.utils import create_graph_CO2
 
 

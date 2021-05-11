@@ -7,12 +7,12 @@ import torch.nn as nn
 from dgl.ops import segment_reduce
 from omegaconf import DictConfig, OmegaConf
 
-from rxnrep.model.gatedconv import GatedGCNConv
-from rxnrep.model.gin import GINConv, GINConvGlobal, GINConvOriginal
-from rxnrep.model.gatconv import GATConv, GATConvGlobal
-from rxnrep.model.readout import get_reaction_feature_pooling
-from rxnrep.model.utils import MLP, UnifySize
-from rxnrep.utils.adapt_config import determine_layer_size_by_pool_method
+from rxnrep.layer.gatconv import GATConv, GATConvGlobal
+from rxnrep.layer.gatedconv import GatedGCNConv
+from rxnrep.layer.gin import GINConv, GINConvGlobal, GINConvOriginal
+from rxnrep.layer.readout import get_reaction_feature_pooling
+from rxnrep.layer.utils import MLP, UnifySize
+from rxnrep.utils.config import determine_layer_size_by_pool_method
 
 logger = logging.getLogger(__name__)
 

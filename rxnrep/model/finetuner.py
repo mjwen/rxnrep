@@ -3,9 +3,9 @@ from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.model.model_finetune import BaseFinetuneModel
 from rxnrep.model.simclr import LightningModel as PretrainedModel
-from rxnrep.model.utils import MLP
-from rxnrep.utils.adapt_config import determine_layer_size_by_pool_method
-from rxnrep.utils.config import get_datamodule_config, merge_configs
+from rxnrep.layer.utils import MLP
+from rxnrep.utils.config import get_datamodule_config, merge_configs, \
+    determine_layer_size_by_pool_method
 
 
 def get_pretrained_model_config(config: DictConfig) -> DictConfig:

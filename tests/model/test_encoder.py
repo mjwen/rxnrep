@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from rxnrep.model.encoder import create_diff_reaction_features
+from rxnrep.layer.encoder import create_diff_reaction_features
 
 
 def test_create_reaction_features():

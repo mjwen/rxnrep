@@ -6,8 +6,8 @@ import pytorch_lightning as pl
 import torch.nn.functional as F
 
 from rxnrep.model.model import BaseModel
-from rxnrep.model.encoder import ReactionEncoder
-from rxnrep.model.utils import MLP
+from rxnrep.layer.encoder import ReactionEncoder
+from rxnrep.layer.utils import MLP
 from rxnrep.scripts import argument
 from rxnrep.scripts.load_predictive_dataset import load_dataset
 from rxnrep.scripts.main import main

@@ -24,7 +24,7 @@ from rxnrep.utils.io import (
     yaml_dump,
     yaml_load,
 )
-from rxnrep.model.utils import tensor_to_list, to_tensor
+from rxnrep.data.utils import to_tensor, tensor_to_list
 
 logger = logging.getLogger(__name__)
 
