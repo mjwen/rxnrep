@@ -4,7 +4,7 @@
 # encoder part for all models
 #
 
-conv: GatedGCNConv # GINConvGlobal, GINConv, GINConvOriginal
+conv: GatedGCNConv # GINConvGlobal, GINConv, GINConvOriginal, GATConv, GATConvGlobal
 embedding_size: null # type: int. Feature size to map input features to, before feeding to conv layers. Default to `conv_layer_size`
 conv_layer_size: 64 # type: int. Size of molecule and reaction conv layers.
 activation: ReLU
