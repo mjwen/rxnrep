@@ -1,13 +1,16 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional, Union
 
 import torch
 from sklearn.utils import class_weight
-from torch.utils.data import DataLoader
 
-from rxnrep.data.datamodule import BaseDataModule
+from rxnrep.data.datamodule import (
+    BaseClassificationDataModule,
+    BaseContrastiveDataModule,
+    BaseMorganDataModule,
+)
 from rxnrep.data.dataset import (
     BaseContrastiveDataset,
     BaseLabelledDataset,
@@ -185,44 +188,10 @@ class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
         return weight
 
 
-class UsptoDataModule(BaseDataModule):
+class UsptoClassificationDataModule(BaseClassificationDataModule):
     """
-    Uspto dataset.
-
-    Args:
-        num_reaction_classes: number of reaction class of the dataset. `None` means the
-            dataset has no reaction type label.
+    Uspto classification data module.
     """
-
-    def __init__(
-        self,
-        trainset_filename: Union[str, Path],
-        valset_filename: Union[str, Path],
-        testset_filename: Union[str, Path],
-        *,
-        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
-        restore_state_dict_filename: Optional[Union[str, Path]] = None,
-        batch_size: int = 100,
-        num_workers: int = 0,
-        pin_memory: bool = True,
-        num_processes: int = 1,
-        build_reaction_graph: bool = True,
-        num_reaction_classes: Optional[int] = None,
-    ):
-        super().__init__(
-            trainset_filename,
-            valset_filename,
-            testset_filename,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            num_processes=num_processes,
-            state_dict_filename=state_dict_filename,
-            restore_state_dict_filename=restore_state_dict_filename,
-            build_reaction_graph=build_reaction_graph,
-        )
-
-        self.num_reaction_classes = num_reaction_classes
 
     def setup(self, stage: Optional[str] = None):
 
@@ -283,59 +252,11 @@ class UsptoDataModule(BaseDataModule):
             f"testset size: {len(self.data_test)}."
         )
 
-    def get_to_model_info(self) -> Dict[str, Any]:
-        d = {"feature_size": self.data_train.feature_size}
 
-        if self.num_reaction_classes:
-            d["num_reaction_classes"] = self.num_reaction_classes
-
-            class_weight = self.data_train.get_class_weight(
-                num_reaction_classes=self.num_reaction_classes, class_weight_as_1=True
-            )
-            d["reaction_class_weight"] = class_weight["reaction_type"]
-
-        return d
-
-
-class UsptoContrastiveDataModule(BaseDataModule):
+class UsptoContrastiveDataModule(BaseContrastiveDataModule):
     """
     Uspto datamodule for contrastive learning.
-
-    Args:
-        transform1: graph augmentation instance, see `transforms.py`
-        transform2: graph augmentation instance, see `transforms.py`
     """
-
-    def __init__(
-        self,
-        trainset_filename: Union[str, Path],
-        valset_filename: Union[str, Path],
-        testset_filename: Union[str, Path],
-        *,
-        transform1: Callable,
-        transform2: Callable,
-        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
-        restore_state_dict_filename: Optional[Union[str, Path]] = None,
-        batch_size: int = 100,
-        num_workers: int = 0,
-        pin_memory: bool = True,
-        num_processes: int = 1,
-        build_reaction_graph: bool = True,
-    ):
-        super().__init__(
-            trainset_filename,
-            valset_filename,
-            testset_filename,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            num_processes=num_processes,
-            state_dict_filename=state_dict_filename,
-            restore_state_dict_filename=restore_state_dict_filename,
-            build_reaction_graph=build_reaction_graph,
-        )
-        self.transform1 = transform1
-        self.transform2 = transform2
 
     def setup(self, stage: Optional[str] = None):
 
@@ -394,50 +315,11 @@ class UsptoContrastiveDataModule(BaseDataModule):
             f"testset size: {len(self.data_test)}."
         )
 
-    def get_to_model_info(self) -> Dict[str, Any]:
-        d = {"feature_size": self.data_train.feature_size}
 
-        return d
-
-
-class UsptoMorganDataModule(BaseDataModule):
+class UsptoMorganDataModule(BaseMorganDataModule):
     """
-    Uspto datamodule using Morgan feats.
-
-    Args:
-        num_reaction_classes: number of reaction class of the dataset. `None` means the
-            dataset has no reaction type label.
+    Uspto datamodule using Morgan feats for classification.
     """
-
-    def __init__(
-        self,
-        trainset_filename: Union[str, Path],
-        valset_filename: Union[str, Path],
-        testset_filename: Union[str, Path],
-        *,
-        batch_size: int = 100,
-        num_workers: int = 0,
-        pin_memory: bool = True,
-        num_processes: int = 1,
-        num_reaction_classes: Optional[int] = None,
-        morgan_radius: int = 2,
-        morgan_size: int = 2048,
-        feature_combine_method: str = "difference",
-    ):
-        super().__init__(
-            trainset_filename,
-            valset_filename,
-            testset_filename,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            num_processes=num_processes,
-        )
-
-        self.num_reaction_classes = num_reaction_classes
-        self.morgan_radius = morgan_radius
-        self.morgan_size = morgan_size
-        self.feature_combine_method = feature_combine_method
 
     def setup(self, stage: Optional[str] = None):
 
@@ -470,60 +352,4 @@ class UsptoMorganDataModule(BaseDataModule):
         logger.info(
             f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
             f"testset size: {len(self.data_test)}."
-        )
-
-    def get_to_model_info(self) -> Dict[str, Any]:
-
-        if self.feature_combine_method == "difference":
-            rxn_feats_size = self.morgan_size
-        elif self.feature_combine_method == "concatenate":
-            rxn_feats_size = 2 * self.morgan_size
-        else:
-            raise ValueError(
-                f"Not supported feature combine method {self.feature_combine_method}"
-            )
-
-        d = {
-            "reaction_feat_size": rxn_feats_size,
-            "num_reaction_classes": self.num_reaction_classes,
-        }
-
-        class_weight = self.data_train.get_class_weight(
-            num_reaction_classes=self.num_reaction_classes, class_weight_as_1=True
-        )
-        d["reaction_class_weight"] = class_weight["reaction_type"]
-
-        return d
-
-    def train_dataloader(self):
-        return DataLoader(
-            dataset=self.data_train,
-            collate_fn=None,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            shuffle=True,
-            drop_last=False,
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            dataset=self.data_val,
-            collate_fn=None,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            shuffle=False,
-            drop_last=False,
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            dataset=self.data_test,
-            collate_fn=None,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            shuffle=False,
-            drop_last=False,
         )
