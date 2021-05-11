@@ -51,6 +51,7 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
         datamodule: LightningDataModule = hydra.utils.instantiate(
             dm_config, transform1=transform1, transform2=transform2
         )
+
     # predictive (regression/classification)
     else:
         datamodule: LightningDataModule = hydra.utils.instantiate(dm_config)
@@ -72,13 +73,24 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
     if "decoder" in config.model:
         # encoder only provides args, decoder has the actual _target_
         logger.info(f"Instantiating model: {config.model.decoder.model_class._target_}")
-        encoder = config.model.encoder
-        model: LightningModule = hydra.utils.instantiate(
-            config.model.decoder.model_class,
-            dataset_info=dataset_info,
-            **encoder,
-            **config.optimizer,
-        )
+
+        if "encoder" in config.model:
+            encoder = config.model.encoder
+            model: LightningModule = hydra.utils.instantiate(
+                config.model.decoder.model_class,
+                dataset_info=dataset_info,
+                **encoder,
+                **config.optimizer,
+            )
+
+        # when using morgan feats, there is no encoder
+        else:
+            model: LightningModule = hydra.utils.instantiate(
+                config.model.decoder.model_class,
+                dataset_info=dataset_info,
+                **config.optimizer,
+            )
+
     # finetune
     elif "finetuner" in config.model:
         logger.info(
