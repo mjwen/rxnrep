@@ -1,0 +1,17 @@
+# @package _group_
+
+_target_: rxnrep.data.green.GreenMorganDataModule
+trainset_filename: /Users/mjwen/Documents/Dataset/activation_energy_Green/wb97xd3_processed_has_reverse-False_rmg_family_10_class_n200.tsv
+valset_filename: /Users/mjwen/Documents/Dataset/activation_energy_Green/wb97xd3_processed_has_reverse-False_rmg_family_10_class_n200.tsv
+testset_filename: /Users/mjwen/Documents/Dataset/activation_energy_Green/wb97xd3_processed_has_reverse-False_rmg_family_10_class_n200.tsv
+num_reaction_classes: 10
+
+# morgan feats params
+morgan_radius: 2
+morgan_size: 2048
+feature_combine_method: difference
+
+# data loader
+batch_size: 100
+num_workers: 0
+pin_memory: True

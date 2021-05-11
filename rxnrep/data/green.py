@@ -12,8 +12,14 @@ from rxnrep.data.dataset import (
     BaseLabelledDataset,
     ClassicalFeatureDataset,
 )
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.featurizer import (
+    AtomFeaturizer,
+    BondFeaturizer,
+    GlobalFeaturizer,
+    MorganFeaturizer,
+)
 from rxnrep.data.io import read_smiles_tsv_dataset
+from rxnrep.data.uspto import UsptoMorganDataModule
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +152,36 @@ class GreenClassicalFeaturesDataset(ClassicalFeatureDataset):
                 {"reaction_type": torch.as_tensor(int(rxn_class), dtype=torch.int64)}
             )
         return labels
+
+    def get_class_weight(
+        self, num_reaction_classes: int = None, class_weight_as_1: bool = False
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Create class weight to be used in cross entropy losses.
+
+        Args:
+            num_reaction_classes: number of reaction classes in the dataset. The class
+            labels should be 0, 1, 2, ... num_reaction_classes-1.
+            class_weight_as_1: If `True`, the weight for all classes is set to 1.0;
+                otherwise, it is inversely proportional to the number of data points in
+                the dataset
+        """
+        if class_weight_as_1:
+            w = torch.ones(num_reaction_classes)
+        else:
+            rxn_classes = [rxn.get_property("class label") for rxn in self.reactions]
+
+            # class weight for reaction classes
+            w = class_weight.compute_class_weight(
+                "balanced",
+                classes=list(range(num_reaction_classes)),
+                y=rxn_classes,
+            )
+            w = torch.as_tensor(w, dtype=torch.float32)
+
+        weight = {"reaction_type": w}
+
+        return weight
 
 
 class GreenClassificationDataModule(BaseDataModule):
@@ -362,3 +398,42 @@ class GreenContrastiveDataModule(BaseDataModule):
         d = {"feature_size": self.data_train.feature_size}
 
         return d
+
+
+class GreenMorganDataModule(UsptoMorganDataModule):
+    """
+    Green datamodule using Morgan feats.
+    """
+
+    def setup(self, stage: Optional[str] = None):
+
+        featurizer = MorganFeaturizer(
+            radius=self.morgan_radius,
+            size=self.morgan_size,
+        )
+
+        self.data_train = GreenClassicalFeaturesDataset(
+            filename=self.trainset_filename,
+            featurizer=featurizer,
+            feature_type=self.feature_combine_method,
+            num_processes=self.num_processes,
+        )
+
+        self.data_val = GreenClassicalFeaturesDataset(
+            filename=self.valset_filename,
+            featurizer=featurizer,
+            feature_type=self.feature_combine_method,
+            num_processes=self.num_processes,
+        )
+
+        self.data_test = GreenClassicalFeaturesDataset(
+            filename=self.testset_filename,
+            featurizer=featurizer,
+            feature_type=self.feature_combine_method,
+            num_processes=self.num_processes,
+        )
+
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
