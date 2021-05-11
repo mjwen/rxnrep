@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 from sklearn.utils import class_weight
+from torch.utils.data import DataLoader
 
 from rxnrep.data.datamodule import BaseDataModule
 from rxnrep.data.dataset import (
@@ -12,7 +13,12 @@ from rxnrep.data.dataset import (
     BaseLabelledDataset,
     ClassicalFeatureDataset,
 )
-from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
+from rxnrep.data.featurizer import (
+    AtomFeaturizer,
+    BondFeaturizer,
+    GlobalFeaturizer,
+    MorganFeaturizer,
+)
 from rxnrep.data.io import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
@@ -147,6 +153,37 @@ class USPTOClassicalFeaturesDataset(ClassicalFeatureDataset):
             )
         return labels
 
+    def get_class_weight(
+        self, num_reaction_classes: int = None, class_weight_as_1: bool = False
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Create class weight to be used in cross entropy losses.
+
+        Args:
+            num_reaction_classes: number of reaction classes in the dataset. The class
+            labels should be 0, 1, 2, ... num_reaction_classes-1.
+            class_weight_as_1: If `True`, the weight for all classes is set to 1.0;
+                otherwise, it is inversely proportional to the number of data points in
+                the dataset
+        """
+
+        if class_weight_as_1:
+            w = torch.ones(num_reaction_classes)
+        else:
+            rxn_classes = [rxn.get_property("label") for rxn in self.reactions]
+
+            # class weight for reaction classes
+            w = class_weight.compute_class_weight(
+                "balanced",
+                classes=list(range(num_reaction_classes)),
+                y=rxn_classes,
+            )
+            w = torch.as_tensor(w, dtype=torch.float32)
+
+        weight = {"reaction_type": w}
+
+        return weight
+
 
 class UsptoDataModule(BaseDataModule):
     """
@@ -176,12 +213,12 @@ class UsptoDataModule(BaseDataModule):
             trainset_filename,
             valset_filename,
             testset_filename,
-            state_dict_filename=state_dict_filename,
-            restore_state_dict_filename=restore_state_dict_filename,
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
             num_processes=num_processes,
+            state_dict_filename=state_dict_filename,
+            restore_state_dict_filename=restore_state_dict_filename,
             build_reaction_graph=build_reaction_graph,
         )
 
@@ -289,12 +326,12 @@ class UsptoContrastiveDataModule(BaseDataModule):
             trainset_filename,
             valset_filename,
             testset_filename,
-            state_dict_filename=state_dict_filename,
-            restore_state_dict_filename=restore_state_dict_filename,
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
             num_processes=num_processes,
+            state_dict_filename=state_dict_filename,
+            restore_state_dict_filename=restore_state_dict_filename,
             build_reaction_graph=build_reaction_graph,
         )
         self.transform1 = transform1
@@ -361,3 +398,132 @@ class UsptoContrastiveDataModule(BaseDataModule):
         d = {"feature_size": self.data_train.feature_size}
 
         return d
+
+
+class UsptoMorganDataModule(BaseDataModule):
+    """
+    Uspto datamodule using Morgan feats.
+
+    Args:
+        num_reaction_classes: number of reaction class of the dataset. `None` means the
+            dataset has no reaction type label.
+    """
+
+    def __init__(
+        self,
+        trainset_filename: Union[str, Path],
+        valset_filename: Union[str, Path],
+        testset_filename: Union[str, Path],
+        *,
+        batch_size: int = 100,
+        num_workers: int = 0,
+        pin_memory: bool = True,
+        num_processes: int = 1,
+        num_reaction_classes: Optional[int] = None,
+        morgan_radius: int = 2,
+        morgan_size: int = 2048,
+        feature_combine_method: str = "difference",
+    ):
+        super().__init__(
+            trainset_filename,
+            valset_filename,
+            testset_filename,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            num_processes=num_processes,
+        )
+
+        self.num_reaction_classes = num_reaction_classes
+        self.morgan_radius = morgan_radius
+        self.morgan_size = morgan_size
+        self.feature_combine_method = feature_combine_method
+
+    def setup(self, stage: Optional[str] = None):
+
+        featurizer = MorganFeaturizer(
+            radius=self.morgan_radius,
+            size=self.morgan_size,
+        )
+
+        self.data_train = USPTOClassicalFeaturesDataset(
+            filename=self.trainset_filename,
+            featurizer=featurizer,
+            feature_type=self.feature_combine_method,
+            num_processes=self.num_processes,
+        )
+
+        self.data_val = USPTOClassicalFeaturesDataset(
+            filename=self.valset_filename,
+            featurizer=featurizer,
+            feature_type=self.feature_combine_method,
+            num_processes=self.num_processes,
+        )
+
+        self.data_test = USPTOClassicalFeaturesDataset(
+            filename=self.testset_filename,
+            featurizer=featurizer,
+            feature_type=self.feature_combine_method,
+            num_processes=self.num_processes,
+        )
+
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
+
+    def get_to_model_info(self) -> Dict[str, Any]:
+
+        if self.feature_combine_method == "difference":
+            rxn_feats_size = self.morgan_size
+        elif self.feature_combine_method == "concatenate":
+            rxn_feats_size = 2 * self.morgan_size
+        else:
+            raise ValueError(
+                f"Not supported feature combine method {self.feature_combine_method}"
+            )
+
+        d = {
+            "reaction_feat_size": rxn_feats_size,
+            "num_reaction_classes": self.num_reaction_classes,
+        }
+
+        class_weight = self.data_train.get_class_weight(
+            num_reaction_classes=self.num_reaction_classes, class_weight_as_1=True
+        )
+        d["reaction_class_weight"] = class_weight["reaction_type"]
+
+        return d
+
+    def train_dataloader(self):
+        return DataLoader(
+            dataset=self.data_train,
+            collate_fn=None,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            shuffle=True,
+            drop_last=False,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            dataset=self.data_val,
+            collate_fn=None,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            shuffle=False,
+            drop_last=False,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            dataset=self.data_test,
+            collate_fn=None,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            shuffle=False,
+            drop_last=False,
+        )

@@ -646,7 +646,7 @@ class MorganFeaturizer(MoleculeFeaturizer):
     def __call__(self, mol: Chem.Mol) -> torch.Tensor:
         feats = rdMolDescriptors.GetMorganFingerprintAsBitVect(
             mol,
-            self.radius,
+            radius=self.radius,
             nBits=self.size,
             # useChirality=self.chiral,
             # useBondTypes=self.bonds,

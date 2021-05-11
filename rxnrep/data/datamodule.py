@@ -18,6 +18,10 @@ class BaseDataModule(LightningDataModule):
         trainset_filename: path to the training set file
         valset_filename: path to the validation set file
         testset_filename: path to the validation set file
+        batch_size: batch size per process
+        num_workers: number of processes for dataloader
+        pin_memory: pin gpu memory
+        num_processes: number of processes to process data from file
         state_dict_filename: path to save the state dict of the data module.
         restore_state_dict_filename: If not `None`, the model is running in
             restore mode and the initial state dict is read from this file. If `None`,
@@ -27,10 +31,6 @@ class BaseDataModule(LightningDataModule):
             about how the initial state dict is obtained: it could be restored from
             `restore_state_dict_file` or computed from the dataset.
             pretrained model used in finetune?
-        batch_size: batch size per process
-        num_workers: number of processes for dataloader
-        pin_memory: pin gpu memory
-        num_processes: number of processes to process data from file
         build_reaction_graph: whether to build reaction graph from reactants and products
     """
 
@@ -40,12 +40,12 @@ class BaseDataModule(LightningDataModule):
         valset_filename: Union[str, Path],
         testset_filename: Union[str, Path],
         *,
-        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
-        restore_state_dict_filename: Optional[Union[str, Path]] = None,
         batch_size: int = 100,
         num_workers: int = 0,
         pin_memory: bool = True,
         num_processes: int = 1,
+        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
+        restore_state_dict_filename: Optional[Union[str, Path]] = None,
         build_reaction_graph: bool = True,
     ):
         super().__init__()
