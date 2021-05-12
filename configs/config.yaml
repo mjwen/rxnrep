@@ -24,7 +24,6 @@ git_repo_path: null # path to the git repo (used to log commit)
 # git_repo_path: /Users/mjwen/Applications/rxnrep
 return_val_metric_score: False # let the train function return val metric instead of test metric
 
-
 # path to original working directory
 # hydra hijacks working directory by changing it to the current log directory,
 # something like: .../outputs/2021-05-03/11-26-06

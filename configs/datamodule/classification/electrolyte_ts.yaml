@@ -4,7 +4,7 @@ _target_: rxnrep.data.electrolyte.ElectrolyteClassificationDataModule
 trainset_filename: /Users/mjwen/Documents/Dataset/electrolyte_ts/ts_data_mrnet_rxns_clfn_n200.json
 valset_filename: /Users/mjwen/Documents/Dataset/electrolyte_ts/ts_data_mrnet_rxns_clfn_n200.json
 testset_filename: /Users/mjwen/Documents/Dataset/electrolyte_ts/ts_data_mrnet_rxns_clfn_n200.json
-num_reaction_classes: 2  # binary
+num_reaction_classes: 2 # binary
 
 batch_size: 100
 num_workers: 0

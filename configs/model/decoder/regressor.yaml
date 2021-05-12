@@ -6,5 +6,5 @@ cfg_adjuster:
 
 model_class:
   _target_: rxnrep.model.regressor.LightningModel
-  property_name: [activation_energy]  # a list of regression properties
+  property_name: [activation_energy] # a list of regression properties
   regression_decoder_num_layers: [2] # a list of decoder sizes, one fro each property

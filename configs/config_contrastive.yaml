@@ -18,7 +18,6 @@ defaults:
   - logger: wandb.yaml
   - callbacks: contrastive.yaml
 
-
 # other configs
 seed: 35
 restore: False # resume a training, with previous run info automatically determined
@@ -26,7 +25,6 @@ skip_test: True # skip running model against test set after training finishes
 git_repo_path: null # path to the git repo (used to log commit)
 # git_repo_path: /Users/mjwen/Applications/rxnrep
 return_val_metric_score: False # let the train function return val metric instead of test metric
-
 
 # path to original working directory
 # hydra hijacks working directory by changing it to the current log directory,

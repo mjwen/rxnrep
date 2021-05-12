@@ -11,7 +11,7 @@ model_class:
   reaction_type_decoder_num_layers: 2
 
   # pretrained model
-  pretrained_dataset_state_dict_filename: pretrained_model/dataset_state_dict.yaml  # this will override datamodule.restore_state_dict_filename
+  pretrained_dataset_state_dict_filename: pretrained_model/dataset_state_dict.yaml # this will override datamodule.restore_state_dict_filename
   pretrained_config_filename: pretrained_model/hydra_cfg_final.yaml
   pretrained_checkpoint_filename: pretrained_model/checkpoint.ckpt
   activation: ReLU
