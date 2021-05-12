@@ -1,4 +1,6 @@
-# Finetune config for regression/classification
+# Finetune config for regression/classification. Pretrained model can be either
+# a contrastive model, or pretrained regression/classification model, which should be
+# specified in finetuner.
 
 defaults:
   # data

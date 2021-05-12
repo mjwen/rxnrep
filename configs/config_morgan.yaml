@@ -1,4 +1,4 @@
-# main config for regression/classification
+# main config for classification using morgan feats
 
 defaults:
   # data

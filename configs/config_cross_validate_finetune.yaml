@@ -1,4 +1,6 @@
-# Cross validation finetune config for regression/classification
+# Cross validation config for regression/classification. Pretrained model can be either
+# a contrastive model, or pretrained regression/classification model, which should be
+# specified in finetuner.
 
 defaults:
   # data

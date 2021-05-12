@@ -3,12 +3,14 @@
 # this should only contain the decoder part, the encoder part is in encoder.yaml
 
 cfg_adjuster:
-  _target_: rxnrep.model.finetuner_classification.adjust_config
+  _target_: rxnrep.model.finetuner_regression.adjust_config
 
 model_class:
   # decoder
-  _target_: rxnrep.model.finetuner_classification.LightningModel
-  reaction_type_decoder_num_layers: 2
+  _target_: rxnrep.model.finetuner_regression.LightningModel
+  property_name: [ activation_energy ]  # a list of regression properties
+  regression_decoder_num_layers: [ 2 ] # a list of decoder sizes, one fro each property
+
 
   # pretrained model
   pretrained_dataset_state_dict_filename: pretrained_model/dataset_state_dict.yaml  # this will override datamodule.restore_state_dict_filename

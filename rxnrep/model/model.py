@@ -26,7 +26,7 @@ class BaseModel(pl.LightningModule):
             assert "decoder" in name, (
                 f"Please add `decoder` to decoder name for `{name}` in "
                 f"`self.init_decoder()`. We use the word `decoder` to detect which "
-                "modules to freeze when doing finetuning!"
+                "modules to freeze when doing fine tuning!"
             )
         self.decoder = nn.ModuleDict(decoder)
 
