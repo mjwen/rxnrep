@@ -10,15 +10,18 @@ from rxnrep.utils.config import determine_layer_size_by_pool_method, merge_confi
 def adjust_decoder_config(config: DictConfig):
     size = determine_layer_size_by_pool_method(config.model.encoder)
 
-    num_layers = config.model.decoder.model_class.activation_energy_decoder_num_layers
-    hidden_layer_sizes = [max(size // 2 ** i, 50) for i in range(num_layers)]
+    num_layers = config.model.decoder.model_class.regression_decoder_num_layers
+
+    hidden_layer_sizes = []
+    for n in num_layers:
+        hidden_layer_sizes.append([max(size // 2 ** i, 50) for i in range(n)])
 
     new_config = OmegaConf.create(
         {
             "model": {
                 "decoder": {
                     "model_class": {
-                        "activation_energy_decoder_hidden_layer_sizes": hidden_layer_sizes
+                        "regression_decoder_hidden_layer_sizes": hidden_layer_sizes
                     }
                 }
             }
@@ -85,39 +88,53 @@ class LightningModel(BaseModel):
         return model
 
     def init_decoder(self, params):
-        decoder = MLP(
-            in_size=self.backbone.reaction_feats_size,
-            hidden_sizes=params.activation_energy_decoder_hidden_layer_sizes,
-            activation=params.activation,
-            out_size=1,
-        )
+        decoder = {}
 
-        return {"activation_energy_decoder": decoder}
+        for name, size in zip(
+            params.property_name, params.regression_decoder_hidden_layer_sizes
+        ):
+            name = name + "_decoder"  # e.g. reaction_energy_decoder
+
+            decoder[name] = MLP(
+                in_size=self.backbone.reaction_feats_size,
+                hidden_sizes=size,
+                activation=params.activation,
+                out_size=1,
+            )
+
+        return decoder
 
     def decode(self, feats, reaction_feats, metadata):
-        decoder = self.decoder["activation_energy_decoder"]
-        activation_energy = decoder(reaction_feats)
+        preds = {}
 
-        return {"activation_energy": activation_energy}
+        for name, dec in self.decoder.items():
+            name = name.rstrip("_decoder")  # e.g. reaction_energy
+            preds[name] = dec(reaction_feats)
+
+        return preds
 
     def compute_loss(self, preds, labels):
 
         all_loss = {}
 
-        # activation energy loss
-        task = "activation_energy"
-        preds[task] = preds[task].flatten()
-        loss = F.mse_loss(preds[task], labels[task])
-        all_loss[task] = loss
+        for task, p in preds.items():
+            p = p.flatten()
+            t = labels[task]
+            loss = F.mse_loss(p, t)
+            all_loss[task] = loss
+
+            # keep flattened value for metric use
+            preds[task] = p
 
         return all_loss
 
     def init_regression_tasks(self, params):
-        tasks = {
-            "activation_energy": {
-                "label_scaler": "activation_energy",
+        tasks = {}
+
+        for name in params.property_name:
+            tasks[name] = {
+                "label_scaler": name,
                 "to_score": {"mae": -1},
             }
-        }
 
         return tasks
