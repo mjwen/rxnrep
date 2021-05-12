@@ -160,7 +160,7 @@ class BaseDataModule(LightningDataModule):
 
 class BaseClassificationDataModule(BaseDataModule):
     """
-    Base classification dataset.
+    Base classification datamodule.
 
     Args:
         num_reaction_classes: number of reaction class of the dataset.
@@ -197,15 +197,15 @@ class BaseClassificationDataModule(BaseDataModule):
         self.num_reaction_classes = num_reaction_classes
 
     def get_to_model_info(self) -> Dict[str, Any]:
-        d = {
-            "feature_size": self.data_train.feature_size,
-            "num_reaction_classes": self.num_reaction_classes,
-        }
-
         class_weight = self.data_train.get_class_weight(
             num_reaction_classes=self.num_reaction_classes, class_weight_as_1=True
         )
-        d["reaction_class_weight"] = class_weight["reaction_type"]
+
+        d = {
+            "feature_size": self.data_train.feature_size,
+            "num_reaction_classes": self.num_reaction_classes,
+            "reaction_class_weight": class_weight["reaction_type"],
+        }
 
         return d
 
@@ -306,15 +306,15 @@ class BaseMorganDataModule(BaseDataModule):
                 f"Not supported feature combine method {self.feature_combine_method}"
             )
 
-        d = {
-            "reaction_feat_size": rxn_feats_size,
-            "num_reaction_classes": self.num_reaction_classes,
-        }
-
         class_weight = self.data_train.get_class_weight(
             num_reaction_classes=self.num_reaction_classes, class_weight_as_1=True
         )
-        d["reaction_class_weight"] = class_weight["reaction_type"]
+
+        d = {
+            "reaction_feat_size": rxn_feats_size,
+            "num_reaction_classes": self.num_reaction_classes,
+            "reaction_class_weight": class_weight["reaction_type"],
+        }
 
         return d
 
@@ -350,3 +350,55 @@ class BaseMorganDataModule(BaseDataModule):
             shuffle=False,
             drop_last=False,
         )
+
+
+class BaseRegressionDataModule(BaseDataModule):
+    """
+    Base regression datamodule.
+
+    Args:
+        allow_label_scaler_none: when `pretrained_state_dict_filename` is provided,
+            whether to allow label_scaler is None in state dict. If `False`, will raise
+            exception. If `True`, will recompute label mean and std. This is mainly used
+            for the pretrain-finetune case, where the pretrain model does not use labels
+            (e.g. contrastive training). For restoring a regular regression training,
+            should set this to `False`.
+    """
+
+    def __init__(
+        self,
+        trainset_filename: Union[str, Path],
+        valset_filename: Union[str, Path],
+        testset_filename: Union[str, Path],
+        *,
+        allow_label_scaler_none: bool = False,
+        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
+        restore_state_dict_filename: Optional[Union[str, Path]] = None,
+        batch_size: int = 100,
+        num_workers: int = 0,
+        pin_memory: bool = True,
+        num_processes: int = 1,
+        build_reaction_graph: bool = True,
+    ):
+        super().__init__(
+            trainset_filename,
+            valset_filename,
+            testset_filename,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            num_processes=num_processes,
+            state_dict_filename=state_dict_filename,
+            restore_state_dict_filename=restore_state_dict_filename,
+            build_reaction_graph=build_reaction_graph,
+        )
+
+        self.allow_label_scaler_none = allow_label_scaler_none
+
+    def get_to_model_info(self) -> Dict[str, Any]:
+        d = {
+            "feature_size": self.data_train.feature_size,
+            "label_scaler": self.data_train.get_label_scaler(),
+        }
+
+        return d

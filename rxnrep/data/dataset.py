@@ -14,17 +14,12 @@ from torch.utils.data import Dataset
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
-from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
+from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.grapher import build_graph_and_featurize_reaction
+from rxnrep.data.scaler import GraphFeatureScaler, StandardScaler1D
 from rxnrep.data.transforms import MaskAtomAttribute, MaskBondAttribute
-from rxnrep.utils.io import (
-    pickle_dump,
-    pickle_load,
-    to_path,
-    yaml_dump,
-    yaml_load,
-)
-from rxnrep.data.utils import to_tensor, tensor_to_list
+from rxnrep.data.utils import tensor_to_list, to_tensor
+from rxnrep.utils.io import pickle_dump, pickle_load, to_path, yaml_dump, yaml_load
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +53,9 @@ class BaseDataset(Dataset):
     def __init__(
         self,
         filename: Union[str, Path],
-        atom_featurizer: Callable[[Chem.Mol], torch.Tensor],
-        bond_featurizer: Callable[[Chem.Mol], torch.Tensor],
-        global_featurizer: Callable[[Chem.Mol], torch.Tensor],
+        atom_featurizer: AtomFeaturizer,
+        bond_featurizer: BondFeaturizer,
+        global_featurizer: GlobalFeaturizer,
         *,
         build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
@@ -202,7 +197,7 @@ class BaseDataset(Dataset):
 
         Returns:
             {property: scaler}, where property is the name of the label to which the
-                transformer is applied.
+                transformer is applied, and scaler is the label scaler object.
         """
         return self._label_scaler
 
@@ -487,9 +482,9 @@ class BaseLabelledDataset(BaseDataset):
     def __init__(
         self,
         filename: Union[str, Path],
-        atom_featurizer: Callable,
-        bond_featurizer: Callable,
-        global_featurizer: Callable,
+        atom_featurizer: AtomFeaturizer,
+        bond_featurizer: BondFeaturizer,
+        global_featurizer: GlobalFeaturizer,
         *,
         build_reaction_graph=True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
@@ -663,9 +658,9 @@ class BaseContrastiveDataset(BaseDataset):
     def __init__(
         self,
         filename: Union[str, Path],
-        atom_featurizer: Callable,
-        bond_featurizer: Callable,
-        global_featurizer: callable,
+        atom_featurizer: AtomFeaturizer,
+        bond_featurizer: BondFeaturizer,
+        global_featurizer: GlobalFeaturizer,
         *,
         build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
