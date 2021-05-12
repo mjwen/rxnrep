@@ -305,8 +305,9 @@ class BaseModel(pl.LightningModule):
                 out = metric_obj.compute()
 
                 # scale labels
-                label_scaler = task_setting["label_scaler"]
-                state_dict = self.hparams.label_scaler[label_scaler].state_dict()
+                lb_scaler_name = task_setting["label_scaler"]
+                label_scaler = self.hparams.dataset_info["label_scaler"][lb_scaler_name]
+                state_dict = label_scaler.state_dict()
                 out *= state_dict["std"].to(self.device)
 
                 self.log(
