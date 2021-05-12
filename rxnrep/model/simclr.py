@@ -7,7 +7,7 @@ from omegaconf import DictConfig, OmegaConf
 from rxnrep.layer.encoder import ReactionEncoder, adjust_encoder_config
 from rxnrep.layer.utils import MLP
 from rxnrep.model.model_contrastive import BaseContrastiveModel
-from rxnrep.utils.config import merge_configs, determine_layer_size_by_pool_method
+from rxnrep.utils.config import determine_layer_size_by_pool_method, merge_configs
 
 
 def adjust_decoder_config(config: DictConfig) -> DictConfig:
@@ -108,7 +108,7 @@ class LightningModel(BaseContrastiveModel):
         z1 = F.normalize(z1, dim=-1)
         z2 = F.normalize(z2, dim=-1)
 
-        loss = nt_xent_loss(z1, z2, self.hparams.simcltemperature)
+        loss = nt_xent_loss(z1, z2, self.hparams.simclr_temperature)
 
         return {"contrastive": loss}
 
