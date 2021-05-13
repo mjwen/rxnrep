@@ -21,8 +21,7 @@ class Molecule:
     Args:
         mol: rdkit molecule.
         id: an identification of the molecule.
-        properties: a dictionary of additional properties associated with the reaction,
-            e.g. energy
+        properties: a dictionary of additional properties associated with the molecule.
     """
 
     def __init__(
@@ -37,6 +36,7 @@ class Molecule:
         self._properties = properties
 
         self._charge = None
+        self._spin_multiplicity = None
         self._environment = None
 
     @classmethod
@@ -153,6 +153,24 @@ class Molecule:
         self._charge = charge
 
     @property
+    def spin(self) -> int:
+        """
+        Returns the spin multiplicity of the molecule.
+
+        For example, 0->singlet, 1->doublet, 2->triplet. None-> no spin info available.
+        """
+        return self._spin_multiplicity
+
+    @spin.setter
+    def spin(self, spin: int):
+        """
+        Set the spin multiplicity for the molecule.
+        """
+        if spin is not None:
+            assert isinstance(spin, int), f"spin should be an integer, got {type(spin)}"
+        self._spin_multiplicity = spin
+
+    @property
     def num_atoms(self) -> int:
         """
         Returns number of atoms in molecule
@@ -237,20 +255,40 @@ class Molecule:
         """
         self._environment = value
 
-    def get_property(self, name: str) -> Any:
+    def set_property(self, name: str, value: Any):
         """
-        Return the additional properties of the Reaction.
+        Add additional property to the molecule.
+
+        If the property is already there this will reset it.
+
+        Args:
+            name: name of the property
+            value: value of the property
+        """
+        if self._properties is None:
+            self._properties = {}
+
+        self._properties[name] = value
+
+    def get_property(self, name: Union[str, None]):
+        """
+        Return property of the molecule.
+
+        If name is `None`, return a dictionary of all properties.
 
         Args:
             name: property name
         """
         if self._properties is None:
-            raise MoleculeError("Molecule does not have property {name}")
+            raise MoleculeError("Molecule does not have any additional property")
         else:
-            try:
-                return self._properties[name]
-            except KeyError:
-                raise MoleculeError("Molecule does not have property {name}")
+            if name is None:
+                return self._properties
+            else:
+                try:
+                    return self._properties[name]
+                except KeyError:
+                    raise MoleculeError(f"Molecule does not have property {name}")
 
     def get_atom_map_number(self) -> List[Union[int, None]]:
         """
@@ -300,8 +338,10 @@ class Molecule:
         """
         Generate 3D coordinates for an rdkit molecule by embedding it.
 
-        The returned coordinates is a 2D array of shape (N, 3), where N is the number of
-        atoms.
+        This only generates coords, but the coords are not optimized.
+
+        Returns:
+            A 2D array of shape (N, 3), where N is the number of atoms.
         """
         error = AllChem.EmbedMolecule(self._mol, randomSeed=35)
         if error == -1:  # https://sourceforge.net/p/rdkit/mailman/message/33386856/

@@ -532,20 +532,25 @@ class Reaction:
 
         self._properties[name] = value
 
-    def get_property(self, name: str) -> Any:
+    def get_property(self, name: Union[str, None]) -> Any:
         """
         Return the additional properties of the reaction.
+
+        If name is `None`, return a dictionary of all properties.
 
         Args:
             name: property name
         """
         if self._properties is None:
-            raise ReactionError(f"Reaction does not have property {name}")
+            raise ReactionError(f"Reaction does not have any additional property")
         else:
-            try:
-                return self._properties[name]
-            except KeyError:
-                raise ReactionError(f"Reaction does not have property {name}")
+            if name is None:
+                return self._properties
+            else:
+                try:
+                    return self._properties[name]
+                except KeyError:
+                    raise ReactionError(f"Reaction does not have property {name}")
 
     @staticmethod
     def _get_atom_map_number(molecules: List[Molecule], zero_based=True):
