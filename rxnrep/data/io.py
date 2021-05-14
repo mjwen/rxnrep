@@ -279,15 +279,17 @@ def mrnet_mol_entry_to_molecule(
         map_number = atom_mapping[i]
         rdkit_mol.GetAtomWithIdx(i).SetAtomMapNum(map_number)
 
-    # NOTE, The total charge of the created rdkit molecule may be different from the
-    # charge of the pymatgen Molecule. Currently, there is not a good method to
-    # handle metals. We set the charge of Molecule to what is in pymatgen Molecule
-    # explicitly.
-    mol = Molecule(
-        rdkit_mol,
-        id=mol_entry.entry_id,
-        properties={"free_energy": mol_entry.get_free_energy()},
-    )
+    # properties, free energy and others (e.g. partial charge, partial spin)
+    properties = {"free_energy": mol_entry.get_free_energy()}
+    properties.update(mol_entry.attribute)
+
+    mol = Molecule(rdkit_mol, id=mol_entry.entry_id, properties=properties)
+
+    # The total charge of the created rdkit molecule may be different from the charge
+    # of the pymatgen Molecule because of metal species. # Currently, there is no good
+    # method to handle metals. We set the charge of Molecule to what is in pymatgen
+    # Molecule explicitly.
     mol.charge = mol_entry.molecule.charge
+    mol.spin = mol_entry.molecule.spin_multiplicity
 
     return mol

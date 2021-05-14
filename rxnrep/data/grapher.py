@@ -6,17 +6,15 @@ molecular level features.
 """
 
 import itertools
-import logging
 from collections import defaultdict
-from typing import Callable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import dgl
 import torch
 
 from rxnrep.core.molecule import Molecule
 from rxnrep.core.reaction import Reaction
-
-logger = logging.getLogger(__name__)
+from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 
 
 def mol_to_graph(mol: Molecule, num_global_nodes: int = 0) -> dgl.DGLGraph:
@@ -289,9 +287,9 @@ def create_reaction_graph(
 
 def build_graph_and_featurize_reaction(
     reaction: Reaction,
-    atom_featurizer: Callable,
-    bond_featurizer: Callable,
-    global_featurizer: Optional[Callable] = None,
+    atom_featurizer: AtomFeaturizer,
+    bond_featurizer: BondFeaturizer,
+    global_featurizer: Optional[GlobalFeaturizer] = None,
     num_global_nodes: int = 1,
     build_reaction_graph: bool = True,
 ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, Union[dgl.DGLGraph, None]]:
@@ -323,8 +321,10 @@ def build_graph_and_featurize_reaction(
 
         rdkit_mol = m.rdkit_mol
 
-        atom_feats = atom_featurizer(rdkit_mol)
-        bond_feats = bond_featurizer(rdkit_mol)
+        prop = m.get_property(None)
+        atom_feats = atom_featurizer(rdkit_mol, mol_property=prop)
+        bond_feats = bond_featurizer(rdkit_mol, mol_property=prop)
+
         # each bond corresponds to two edges in the graph
         bond_feats = torch.repeat_interleave(bond_feats, 2, dim=0)
 
@@ -333,7 +333,7 @@ def build_graph_and_featurize_reaction(
 
         if num_global_nodes > 0:
             global_feats = global_featurizer(
-                rdkit_mol, charge=m.charge, environment=m.environment
+                rdkit_mol, charge=m.charge, spin=m.spin, environment=m.environment
             )
             g.nodes["global"].data.update({"feat": global_feats})
 
@@ -370,7 +370,8 @@ def build_graph_and_featurize_reaction(
             reaction_g = None
 
     except Exception as e:
-        logger.error(f"Error build graph and featurize for reaction: {reaction.id}")
-        raise Exception(e)
+        raise RuntimeError(
+            f"Cannot build graph and featurize for reaction: {reaction.id}"
+        ) from e
 
     return reactants_g, products_g, reaction_g
