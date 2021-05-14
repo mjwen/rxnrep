@@ -189,6 +189,14 @@ def global_molecule_charge_one_hot(mol, charge, allowable_set, encode_unknown=Fa
     return one_hot_encoding(charge, allowable_set, encode_unknown)
 
 
+def global_molecule_spin(spin):
+    return [spin]
+
+
+def global_molecule_spin_one_hot(spin, allowable_set, encode_unknown=False):
+    return one_hot_encoding(spin, allowable_set, encode_unknown)
+
+
 def global_molecule_environment(environment, allowable_set, encode_unknown=False):
     if len(allowable_set) == 2:
         return [allowable_set.index(environment)]
@@ -265,7 +273,9 @@ class BaseFeaturizer:
         """
         return len(self.feature_name)
 
-    def __call__(self, mol) -> torch.Tensor:
+    def __call__(
+        self, mol: Chem.Mol, mol_property: Optional[Dict[str, Any]] = None
+    ) -> torch.Tensor:
         raise NotImplementedError
 
 
@@ -289,6 +299,11 @@ class BondFeaturizer(BaseFeaturizer):
         index = 0
         bond = mol.GetBondWithIdx(index)
 
+        index1 = 0
+        index2 = 1
+
+        mol_property = _get_fake_mol_property()
+
         # feats of a bond
         ft_names = []
         for name, value in self.featurizers.items():
@@ -297,6 +312,8 @@ class BondFeaturizer(BaseFeaturizer):
 
             if name == "bond_in_ring_of_size_one_hot":
                 ft = fn(index, ring, **kwargs)
+            elif name == "bond_distance":
+                ft = fn(index1, index2, mol_property)
             else:
                 ft = fn(bond, **kwargs)
             ft_names += [name] * len(ft)
@@ -305,7 +322,7 @@ class BondFeaturizer(BaseFeaturizer):
         # This is to avoid the case where we updated the __call__() function but forgot
         # the `feature_name()`
         mol = Chem.MolFromSmiles("CO")
-        feat_size = self(mol).shape[1]
+        feat_size = self(mol, mol_property=mol_property).shape[1]
         if len(ft_names) != feat_size:
             raise RuntimeError(
                 f"Feature size calculated from feature name ({len(ft_names)}) not equal "
@@ -315,10 +332,16 @@ class BondFeaturizer(BaseFeaturizer):
 
         return ft_names
 
-    def __call__(self, mol: Chem.Mol) -> torch.Tensor:
+    def __call__(
+        self,
+        mol: Chem.Mol,
+        mol_property: Optional[Dict[str, Any]] = None,
+    ) -> torch.Tensor:
         """
         Args:
             mol: rdkit molecule
+            mol_property: additional property of molecules, e.g. partial charge,
+                partial spin and coords. If None, not used.
 
         Returns:
             A tensor of shape (N, D), where N is the number of bonds in the molecule
@@ -336,6 +359,8 @@ class BondFeaturizer(BaseFeaturizer):
             feats = []
             for index in range(num_bonds):
                 bond = mol.GetBondWithIdx(index)
+                index1 = bond.GetBeginAtomIdx()
+                index2 = bond.GetEndAtomIdx()
 
                 # feats of a bond
                 ft = []
@@ -345,6 +370,12 @@ class BondFeaturizer(BaseFeaturizer):
 
                     if name == "bond_in_ring_of_size_one_hot":
                         ft += fn(index, ring, **kwargs)
+                    elif name == "bond_distance":
+                        assert isinstance(mol_property, dict), (
+                            f"Featurizer function `{name}` requires `mol_property` "
+                            "provided as dictionary"
+                        )
+                        ft += fn(index1, index2, mol_property)
                     else:
                         ft += fn(bond, **kwargs)
 
@@ -393,6 +424,8 @@ class AtomFeaturizer(BaseFeaturizer):
         index = 0
         atom = mol.GetAtomWithIdx(index)
 
+        mol_property = _get_fake_mol_property()
+
         # feats of an atom
         ft_names = []
         for name, value in self.featurizers.items():
@@ -403,8 +436,15 @@ class AtomFeaturizer(BaseFeaturizer):
                 ft = fn(atom, allowable_set=self.allowable_atom_type, **kwargs)
             elif name == "atom_in_ring_of_size_one_hot":
                 ft = fn(index, ring, **kwargs)
-            elif name == "atom_total_num_H_one_hot" or name == "atom_total_num_H":
+            elif name in ["atom_total_num_H_one_hot", "atom_total_num_H"]:
                 ft = fn(atom, include_neighbors=True, **kwargs)
+            elif name in [
+                "atom_resp_partial_charge",
+                "atom_mulliken_partial_charge",
+                "atom_critic2_partial_charge",
+                "atom_mulliken_partial_spin",
+            ]:
+                ft = fn(index, mol_property)
             else:
                 ft = fn(atom, **kwargs)
 
@@ -414,7 +454,9 @@ class AtomFeaturizer(BaseFeaturizer):
         # This is to avoid the case where we updated the __call__() function but forgot
         # the `feature_name()`
         mol = Chem.MolFromSmiles("CO")
-        feat_size = self(mol, self.allowable_atom_type).shape[1]
+        feat_size = self(
+            mol, self.allowable_atom_type, mol_property=mol_property
+        ).shape[1]
         if len(ft_names) != feat_size:
             raise RuntimeError(
                 f"Feature size calculated from feature name ({len(ft_names)}) not equal "
@@ -424,11 +466,18 @@ class AtomFeaturizer(BaseFeaturizer):
 
         return ft_names
 
-    def __call__(self, mol: Chem.Mol, allowable_atom_type: List[str]) -> torch.Tensor:
+    def __call__(
+        self,
+        mol: Chem.Mol,
+        allowable_atom_type: List[str],
+        mol_property: Optional[Dict[str, Any]] = None,
+    ) -> torch.Tensor:
         """
         Args:
             mol: rdkit molecule
             allowable_atom_type: allowed atom species set for one-hot encoding
+            mol_property: additional property of molecules, e.g. partial charge,
+                partial spin and coords. If None, not used.
 
         Returns:
              2D tensor of shape (N, D), where N is the number of atoms, and D is the
@@ -455,8 +504,20 @@ class AtomFeaturizer(BaseFeaturizer):
                     ft += fn(atom, allowable_set=self.allowable_atom_type, **kwargs)
                 elif name == "atom_in_ring_of_size_one_hot":
                     ft += fn(index, ring, **kwargs)
-                elif name == "atom_total_num_H_one_hot" or name == "atom_total_num_H":
+                elif name in ["atom_total_num_H_one_hot", "atom_total_num_H"]:
                     ft += fn(atom, include_neighbors=True, **kwargs)
+                elif name in [
+                    "atom_resp_partial_charge",
+                    "atom_mulliken_partial_charge",
+                    "atom_critic2_partial_charge",
+                    "atom_mulliken_partial_spin",
+                ]:
+
+                    assert isinstance(mol_property, dict), (
+                        f"Featurizer function `{name}` requires `mol_property` "
+                        "provided as dictionary"
+                    )
+                    ft += fn(index, mol_property)
                 else:
                     ft += fn(atom, **kwargs)
 
@@ -513,6 +574,8 @@ class GlobalFeaturizer(BaseFeaturizer):
             Default to None to use preset default values.
         allowable_charge: allowed charges for molecule to take. If `None`, this feature
             is not used.
+        allowable_spin: allowed spins for molecule to take. If `None`, this feature
+            is not used.
         allowable_solvent_environment: allowed solvent environment in which the
             calculations take place. If `None`, this feature is not used.
     """
@@ -524,17 +587,26 @@ class GlobalFeaturizer(BaseFeaturizer):
         featurizers: Optional[List[Union[str, Callable]]] = None,
         featurizer_kwargs: Optional[Dict[str, Dict[str, Any]]] = None,
         allowable_charge: List[int] = None,
-        allowable_solvent_environment: str = None,
+        allowable_spin: List[int] = None,
+        allowable_solvent_environment: List[str] = None,
     ):
         super().__init__(featurizers, featurizer_kwargs)
 
-        # add charge and environment featurizer
+        # add charge, spin and environment featurizer
         if allowable_charge is not None:
             fn = global_molecule_charge_one_hot
             name = fn.__name__
             self.featurizers[name] = {
                 "fn": fn,
                 "kwargs": {"allowable_set": allowable_charge},
+            }
+
+        if allowable_spin is not None:
+            fn = global_molecule_spin_one_hot
+            name = fn.__name__
+            self.featurizers[name] = {
+                "fn": fn,
+                "kwargs": {"allowable_set": allowable_spin},
             }
 
         if allowable_solvent_environment is not None:
@@ -550,6 +622,7 @@ class GlobalFeaturizer(BaseFeaturizer):
 
         mol = Chem.MolFromSmiles("CO")
         charge = None
+        spin = None
         environment = None
 
         ft_names = []
@@ -560,6 +633,9 @@ class GlobalFeaturizer(BaseFeaturizer):
             if name == "global_molecule_charge_one_hot":
                 charge = kwargs["allowable_set"][0]
                 ft = fn(mol, charge, **kwargs)
+            elif name == "global_molecule_spin_one_hot":
+                spin = kwargs["allowable_set"][0]
+                ft = fn(spin, **kwargs)
             elif name == "global_molecule_environment":
                 environment = kwargs["allowable_set"][0]
                 ft = fn(environment, **kwargs)
@@ -572,7 +648,9 @@ class GlobalFeaturizer(BaseFeaturizer):
         # This is to avoid the case where we updated the __call__() function but forgot
         # the `feature_name()`
         mol = Chem.MolFromSmiles("CO")
-        feat_size = self(mol, charge=charge, environment=environment).shape[1]
+        feat_size = self(mol, charge=charge, spin=spin, environment=environment).shape[
+            1
+        ]
 
         if len(ft_names) != feat_size:
             raise RuntimeError(
@@ -584,7 +662,11 @@ class GlobalFeaturizer(BaseFeaturizer):
         return ft_names
 
     def __call__(
-        self, mol, charge: Optional[int] = None, environment: Optional[str] = None
+        self,
+        mol,
+        charge: Optional[int] = None,
+        spin: Optional[int] = None,
+        environment: Optional[str] = None,
     ):
         """
         Args:
@@ -594,6 +676,7 @@ class GlobalFeaturizer(BaseFeaturizer):
                 used. When `allowable_charge` is a list of charges, the `charge` will
                 be a one hot feature of `allowable_charge`. If `charge=None`,
                 the formal charge of the rdkit molecule will be used.
+            spin: spin of a molecule.
             environment: solvent environment in which the computation is conducted
 
         Returns:
@@ -607,6 +690,8 @@ class GlobalFeaturizer(BaseFeaturizer):
 
             if name == "global_molecule_charge_one_hot":
                 ft += fn(mol, charge, **kwargs)
+            elif name == "global_molecule_spin_one_hot":
+                ft += fn(spin, **kwargs)
             elif name == "global_molecule_environment":
                 ft += fn(environment, **kwargs)
             else:
@@ -619,9 +704,6 @@ class GlobalFeaturizer(BaseFeaturizer):
 
 
 class MoleculeFeaturizer:
-    def __init__(self):
-        pass
-
     def feature_name(self):
         raise NotImplementedError
 
@@ -655,3 +737,118 @@ class MorganFeaturizer(MoleculeFeaturizer):
         feats = torch.from_numpy(np.asarray(feats, dtype=np.float32))
 
         return feats
+
+
+###############################################################################
+# additional featurizer func to charge, spin info ...
+###############################################################################
+
+#
+# atom features
+#
+
+
+def atom_resp_partial_charge(index, d: Dict[str, any]):
+    """
+    Args:
+        index: atom index
+        d: additional property dict for molecule
+    """
+    charge = d["resp_partial_charge"][index]
+    return [charge]
+
+
+def atom_mulliken_partial_charge(index, d: Dict[str, any]):
+    """
+    Args:
+        index: atom index
+        d: additional property dict for molecule
+    """
+    charge = d["mulliken_partial_charge"][index]
+    return [charge]
+
+
+def atom_critic2_partial_charge(index, d: Dict[str, any]):
+    """
+    Args:
+        index: atom index
+        d: additional property dict for molecule
+    """
+    charge = d["critic2_partial_charge"][index]
+    return [charge]
+
+
+def atom_mulliken_partial_spin(index, d: Dict[str, any]):
+    """
+    Args:
+        index: atom index
+        d: additional property dict for molecule
+    """
+    spin = d["mulliken_partial_spin"][index]
+    return [spin]
+
+
+#
+# bond features
+#
+
+
+def bond_distance(index1, index2, d: Dict[str, Any]):
+    """
+
+    Args:
+        index1: index of first atom forming the bond
+        index2: index of second atom forming the bond
+        d: additional property dict for molecule
+    Returns:
+
+    """
+    coords1 = d["coords"][index1]
+    coords2 = d["coords"][index2]
+    dist = np.linalg.norm(np.asarray(coords1) - np.asarray(coords2))
+
+    return [dist]
+
+
+def _get_fake_mol_property():
+    """
+    Fake mol property for CO used for determining feature name.
+    """
+    return {
+        "resp_partial_charge": [0.1, -0.1],
+        "mulliken_partial_charge": [0.1, -0.1],
+        "critic2_partial_charge": [0.1, -0.1],
+        "mulliken_partial_spin": [0.1, -0.1],
+        "coords": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+    }
+
+
+class AtomFeaturizerMinimum2AdditionalInfo(AtomFeaturizer):
+    """
+    AtomFeaturizerMinimum2 + charge and spin info
+    """
+
+    DEFAULTS = [
+        atom_total_degree,
+        atom_total_num_H,
+        atom_is_in_ring,
+        atom_type_one_hot,
+        atom_in_ring_of_size_one_hot,
+        atom_resp_partial_charge,
+        atom_mulliken_partial_charge,
+        # atom_critic2_partial_charge,
+        # atom_mulliken_partial_spin,
+    ]
+
+
+class BondFeaturizerMinimumAdditionalInfo(BondFeaturizer):
+    """
+    Featurize bonds in a molecule, using a minimum set of features.
+    """
+
+    DEFAULTS = [
+        bond_is_in_ring,
+        bond_in_ring_of_size_one_hot,
+        bond_is_dative,
+        bond_distance,
+    ]
