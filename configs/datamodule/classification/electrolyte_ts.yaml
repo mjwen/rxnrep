@@ -1,6 +1,7 @@
 # @package _group_
 
-_target_: rxnrep.data.electrolyte.ElectrolyteClassificationDataModule
+# _target_: rxnrep.data.electrolyte.ElectrolyteClassificationDataModule
+_target_: rxnrep.data.electrolyte.ElectrolyteClassificationDataModule2
 trainset_filename: /Users/mjwen/Documents/Dataset/electrolyte_ts/ts_data_mrnet_rxns_clfn_n200.json
 valset_filename: /Users/mjwen/Documents/Dataset/electrolyte_ts/ts_data_mrnet_rxns_clfn_n200.json
 testset_filename: /Users/mjwen/Documents/Dataset/electrolyte_ts/ts_data_mrnet_rxns_clfn_n200.json
