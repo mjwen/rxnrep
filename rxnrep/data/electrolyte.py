@@ -197,6 +197,8 @@ class ElectrolyteClassificationDataModule2(ElectrolyteClassificationDataModule):
     def _get_featurizers(self):
         atom_featurizer = AtomFeaturizerMinimum2AdditionalInfo()
         bond_featurizer = BondFeaturizerMinimumAdditionalInfo()
-        global_featurizer = GlobalFeaturizer(allowable_charge=[-1, 0, 1])
+        global_featurizer = GlobalFeaturizer(
+            allowable_charge=[-1, 0, 1], allowable_spin=[1, 2]
+        )
 
         return atom_featurizer, bond_featurizer, global_featurizer

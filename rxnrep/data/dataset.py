@@ -62,7 +62,7 @@ class BaseDataset(Dataset):
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
-        pickle_graphs=False,
+        pickle_graphs: bool = False,
     ):
         self.atom_featurizer = atom_featurizer
         self.bond_featurizer = bond_featurizer
