@@ -228,14 +228,14 @@ def mrnet_reaction_to_reaction(mrnet_reaction: MrnetReaction, index: int) -> Rea
     # properties
     #
     # reaction energy
-    reactant_energy = [m.get_property("free_energy") for m in products]
-    product_energy = [m.get_property("free_energy") for m in reactants]
+    reactant_energy = [m.get_property("free_energy") for m in reactants]
+    product_energy = [m.get_property("free_energy") for m in products]
     if None in reactant_energy or None in product_energy:
         reaction_energy = None
     else:
-        reaction_energy = sum(reactant_energy) - sum(product_energy)
+        reaction_energy = sum(product_energy) - sum(reactant_energy)
 
-    properties = {"reaction_energy": reaction_energy}
+    properties = {"reaction_energy": reaction_energy, "activation_energy": None}
 
     # other properties stored in mrnet_reaction.parameters
     # note, this might overwrite `reaction_energy`, this is typically what we want if
