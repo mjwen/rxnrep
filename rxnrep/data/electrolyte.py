@@ -5,6 +5,11 @@ from typing import Dict, Optional
 import torch
 from sklearn.utils import class_weight
 
+from rxnrep.data.datamodule import (
+    BaseClassificationDataModule,
+    BaseRegressionDataModule,
+)
+from rxnrep.data.dataset import BaseLabelledDataset
 from rxnrep.data.featurizer import (
     AtomFeaturizerMinimum2,
     AtomFeaturizerMinimum2AdditionalInfo,
@@ -13,7 +18,6 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.data.io import read_mrnet_reaction_dataset
-from rxnrep.data.uspto import BaseClassificationDataModule, BaseLabelledDataset
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +134,70 @@ class ElectrolyteClassificationDataset(BaseLabelledDataset):
         weight = {"reaction_type": w}
 
         return weight
+
+
+class ElectrolyteRegressionDataModule(BaseRegressionDataModule):
+    """
+    Electrolyte data module for regression reaction energy and activation energy.
+    """
+
+    def setup(self, stage: Optional[str] = None):
+        init_state_dict = self.get_init_state_dict()
+
+        atom_featurizer, bond_featurizer, global_featurizer = self._get_featurizers()
+
+        self.data_train = ElectrolyteDataset(
+            filename=self.trainset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=init_state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            allow_label_scaler_none=self.allow_label_scaler_none,
+        )
+
+        state_dict = self.data_train.state_dict()
+
+        self.data_val = ElectrolyteDataset(
+            filename=self.valset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            allow_label_scaler_none=self.allow_label_scaler_none,
+        )
+
+        self.data_test = ElectrolyteDataset(
+            filename=self.testset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            allow_label_scaler_none=self.allow_label_scaler_none,
+        )
+
+        # save dataset state dict
+        self.data_train.save_state_dict_file(self.state_dict_filename)
+
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
+
+    def _get_featurizers(self):
+        atom_featurizer = AtomFeaturizerMinimum2()
+        bond_featurizer = BondFeaturizerMinimum()
+        global_featurizer = GlobalFeaturizer(allowable_charge=[-1, 0, 1])
+
+        return atom_featurizer, bond_featurizer, global_featurizer
 
 
 class ElectrolyteClassificationDataModule(BaseClassificationDataModule):
