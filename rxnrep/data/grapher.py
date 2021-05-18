@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple, Union
 import dgl
 import torch
 
-from rxnrep.core.molecule import Molecule
+from rxnrep.core.molecule import Molecule, MoleculeError
 from rxnrep.core.reaction import Reaction
 from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 
@@ -321,7 +321,10 @@ def build_graph_and_featurize_reaction(
 
         rdkit_mol = m.rdkit_mol
 
-        prop = m.get_property(None)
+        try:
+            prop = m.get_property(None)
+        except MoleculeError:
+            prop = None
         atom_feats = atom_featurizer(rdkit_mol, mol_property=prop)
         bond_feats = bond_featurizer(rdkit_mol, mol_property=prop)
 

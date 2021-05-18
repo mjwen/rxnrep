@@ -1,9 +1,12 @@
 import logging
 from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 import torch
 
+from rxnrep.data.datamodule import BaseRegressionDataModule
+from rxnrep.data.featurizer import AtomFeaturizer, BondFeaturizer, GlobalFeaturizer
 from rxnrep.data.io import read_smiles_tsv_dataset
 from rxnrep.data.uspto import BaseLabelledDataset
 
@@ -41,7 +44,6 @@ class NRELDataset(BaseLabelledDataset):
             normalize: whether to normalize the reaction energy and activation energy
                 labels
         """
-        super().generate_labels()
 
         # `reaction_energy` label
         reaction_energy = torch.as_tensor(
@@ -57,3 +59,67 @@ class NRELDataset(BaseLabelledDataset):
             self.labels[i]["reaction_energy"] = torch.as_tensor(
                 [e], dtype=torch.float32
             )
+
+
+class NRELDataModule(BaseRegressionDataModule):
+    """
+    Electrolyte data module for regression reaction energy and activation energy.
+    """
+
+    def setup(self, stage: Optional[str] = None):
+        init_state_dict = self.get_init_state_dict()
+
+        atom_featurizer, bond_featurizer, global_featurizer = self._get_featurizers()
+
+        self.data_train = NRELDataset(
+            filename=self.trainset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=init_state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            allow_label_scaler_none=self.allow_label_scaler_none,
+        )
+
+        state_dict = self.data_train.state_dict()
+
+        self.data_val = NRELDataset(
+            filename=self.valset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            allow_label_scaler_none=self.allow_label_scaler_none,
+        )
+
+        self.data_test = NRELDataset(
+            filename=self.testset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            allow_label_scaler_none=self.allow_label_scaler_none,
+        )
+
+        # save dataset state dict
+        self.data_train.save_state_dict_file(self.state_dict_filename)
+
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
+
+    def _get_featurizers(self):
+        atom_featurizer = AtomFeaturizer()
+        bond_featurizer = BondFeaturizer()
+        global_featurizer = GlobalFeaturizer()
+
+        return atom_featurizer, bond_featurizer, global_featurizer
