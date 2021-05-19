@@ -1,5 +1,6 @@
 import logging
 from collections import Counter
+from pathlib import Path
 from typing import Dict, Optional
 
 import torch
@@ -7,9 +8,10 @@ from sklearn.utils import class_weight
 
 from rxnrep.data.datamodule import (
     BaseClassificationDataModule,
+    BaseContrastiveDataModule,
     BaseRegressionDataModule,
 )
-from rxnrep.data.dataset import BaseLabelledDataset
+from rxnrep.data.dataset import BaseContrastiveDataset, BaseLabelledDataset
 from rxnrep.data.featurizer import (
     AtomFeaturizerMinimum2,
     AtomFeaturizerMinimum2AdditionalInfo,
@@ -134,6 +136,11 @@ class ElectrolyteClassificationDataset(BaseLabelledDataset):
         weight = {"reaction_type": w}
 
         return weight
+
+
+class ElectrolyteContrastiveDataset(BaseContrastiveDataset):
+    def read_file(self, filename: Path):
+        return read_electrolyte_dataset(filename, self.nprocs)
 
 
 class ElectrolyteRegressionDataModule(BaseRegressionDataModule):
@@ -268,5 +275,73 @@ class ElectrolyteClassificationDataModule2(ElectrolyteClassificationDataModule):
         global_featurizer = GlobalFeaturizer(
             allowable_charge=[-1, 0, 1], allowable_spin=[1, 2]
         )
+
+        return atom_featurizer, bond_featurizer, global_featurizer
+
+
+class ElectrolyteContrastiveDataModule(BaseContrastiveDataModule):
+    """
+    Electrolyte datamodule for contrastive learning.
+    """
+
+    def setup(self, stage: Optional[str] = None):
+
+        init_state_dict = self.get_init_state_dict()
+
+        atom_featurizer, bond_featurizer, global_featurizer = self._get_featurizers()
+
+        self.data_train = ElectrolyteContrastiveDataset(
+            filename=self.trainset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=init_state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            transform1=self.transform1,
+            transform2=self.transform2,
+        )
+
+        state_dict = self.data_train.state_dict()
+
+        self.data_val = ElectrolyteContrastiveDataset(
+            filename=self.valset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            transform1=self.transform1,
+            transform2=self.transform2,
+        )
+
+        self.data_test = ElectrolyteContrastiveDataset(
+            filename=self.testset_filename,
+            atom_featurizer=atom_featurizer,
+            bond_featurizer=bond_featurizer,
+            global_featurizer=global_featurizer,
+            build_reaction_graph=self.build_reaction_graph,
+            init_state_dict=state_dict,
+            num_processes=self.num_processes,
+            transform_features=True,
+            transform1=self.transform1,
+            transform2=self.transform2,
+        )
+
+        # save dataset state dict
+        self.data_train.save_state_dict_file(self.state_dict_filename)
+
+        logger.info(
+            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
+            f"testset size: {len(self.data_test)}."
+        )
+
+    def _get_featurizers(self):
+        atom_featurizer = AtomFeaturizerMinimum2()
+        bond_featurizer = BondFeaturizerMinimum()
+        global_featurizer = GlobalFeaturizer(allowable_charge=[-1, 0, 1])
 
         return atom_featurizer, bond_featurizer, global_featurizer
