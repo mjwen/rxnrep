@@ -475,6 +475,30 @@ class IdentityTransform(Transform):
         return reactants_g, products_g, reaction_g, reaction
 
 
+def transform_or_identity(
+    transform_name, ratio, select_mode, ratio_multiplier, transform_probability=0.5
+):
+    """
+    Wrapper function to select either drop atom, drop bond, maks atom feature or mask
+    bond feature.
+
+    Args:
+        transform_name: one of  "DropAtom", "DropBond", "MaskAtomAttribute",
+            "MaskBondAttribute"
+        ratio:
+        select_mode:
+        ratio_multiplier:
+        transform_probability:
+    """
+    TransformClass = globals()[transform_name]
+
+    t1 = TransformClass(ratio, select_mode, ratio_multiplier)
+    t2 = IdentityTransform(ratio, select_mode, ratio_multiplier)
+    t = OneOrTheOtherTransform(t1, t2, first_probability=transform_probability)
+
+    return t
+
+
 def subgraph_or_identity(
     ratio,
     select_mode,
@@ -483,6 +507,9 @@ def subgraph_or_identity(
     functional_group_smarts_filenames,
     subgraph_probability,
 ):
+    """
+    Wrapper function to select either subgraph or identity transform.
+    """
     t1 = Subgraph(
         ratio,
         select_mode,
