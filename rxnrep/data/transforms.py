@@ -32,6 +32,13 @@ class Transform:
             ratio*num_atoms/bonds_in_center number of atoms/bonds will be augmented.
             Again, no matter what ratio_multiplier is, only atoms/bonds outside reaction
             center is augmented.
+        reaction_center_mode: [`altered_bonds`|`functional_group`]. How to determine
+            reaction center. If `altered_bonds`, atoms associated with broken and
+            formed bonds in the reaction are regarded as center. If `functional_group`,
+            functional groups associated with alternated bonds are regarded as center.
+        functional_group_smarts_filenames: a tsv or a list of tsv files containing the
+            smarts of the functional groups. Should have a column named `smarts`.
+            Only effective when reaction_center_mode = `functional_group`.
     """
 
     def __init__(
@@ -39,6 +46,8 @@ class Transform:
         ratio: Union[float, int],
         select_mode: str = "ratio",
         ratio_multiplier: str = "out_center",
+        reaction_center_mode: str = "altered_bonds",
+        functional_group_smarts_filenames: Union[Path, List[Path]] = None,
     ):
         if select_mode == "direct":
             self.ratio = int(ratio)
@@ -62,6 +71,81 @@ class Transform:
 
         self.select_mode = select_mode
 
+        self.reaction_center_mode = reaction_center_mode
+
+        if self.reaction_center_mode == "functional_group":
+            filename = functional_group_smarts_filenames
+            if not isinstance(filename, list):
+                filename = [filename]
+            dfs = [pd.read_csv(f, sep="\t") for f in filename]
+            df = pd.concat(dfs)
+            self.functional_groups = [Chem.MolFromSmarts(m) for m in df["smarts"]]
+
+    def get_in_out_center_atoms(
+        self, reaction: Reaction
+    ) -> Tuple[List[int], List[int]]:
+        """
+        Indices of atoms in/out reaction center.
+        """
+
+        if self.reaction_center_mode == "altered_bonds":
+            distance = np.asarray(reaction.atom_distance_to_reaction_center)
+            in_center = np.argwhere(distance == 0).reshape(-1).tolist()
+
+        elif self.reaction_center_mode == "functional_group":
+            in_center = reaction.get_reaction_center_atom_functional_group(
+                func_groups=self.functional_groups, include_center_atoms=True
+            )
+        else:
+            raise ValueError(f"Not supported center mode {self.reaction_center_mode}")
+
+        out_center = list(set(range(reaction.num_atoms)) - set(in_center))
+
+        return in_center, out_center
+
+    def get_in_out_center_bonds(
+        self, reaction: Reaction
+    ) -> Tuple[List[int], List[int]]:
+        """
+        Indices of bonds in/out reaction center.
+        """
+        if self.reaction_center_mode == "altered_bonds":
+            distance = np.asarray(reaction.bond_distance_to_reaction_center)
+            in_center = np.argwhere(distance == 0).reshape(-1).tolist()
+
+        elif self.reaction_center_mode == "functional_group":
+            in_center = reaction.get_reaction_center_bond_functional_group(
+                func_groups=self.functional_groups, include_center_atoms=True
+            )
+        else:
+            raise ValueError(f"Not supported center mode {self.reaction_center_mode}")
+
+        out_center = list(set(range(len(reaction.unchanged_bonds))) - set(in_center))
+
+        return in_center, out_center
+
+    def get_num_samples(self, num_in_center: int, num_out_center: int) -> int:
+        """
+        Get the number of samples to drop/keep.
+
+        This is for either atom or bond.
+        """
+
+        if self.select_mode == "direct":
+            num_sample = self.ratio
+        elif self.select_mode == "ratio":
+            if self.ratio_multiplier == "out_center":
+                num_sample = int(self.ratio * num_out_center)
+            elif self.ratio_multiplier == "in_center":
+                num_sample = int(self.ratio * num_in_center)
+            else:
+                raise ValueError
+        else:
+            raise ValueError
+        num_sample = min(num_sample, num_out_center)
+
+        return num_sample
+
     def __call__(
         self, reactants_g, products_g, reaction_g, reaction: Reaction
     ) -> Tuple[dgl.DGLGraph, dgl.DGLGraph, dgl.DGLGraph, Any]:
@@ -80,63 +164,6 @@ class Transform:
         raise NotImplementedError
 
 
-class Compose:
-    """Composes several transforms together.
-
-    Args:
-        transforms (list of ``Transform`` objects): list of transforms to compose.
-
-    Example:
-        >>> transforms.Compose([
-        >>>     transforms.CenterCrop(10),
-        >>>     transforms.ToTensor(),
-        >>> ])
-    """
-
-    def __init__(self, transforms):
-        self.transforms = transforms
-
-    def __call__(self, *x):
-        for t in self.transforms:
-            x = t(*x)
-        return x
-
-    def __repr__(self):
-        format_string = self.__class__.__name__ + "("
-        for t in self.transforms:
-            format_string += "\n"
-            format_string += "    {0}".format(t)
-        format_string += "\n)"
-        return format_string
-
-
-class OneOrTheOtherTransform:
-    """
-    A wrapper class that chooses one transform with some probability and the other
-    transform with 1-probability.
-
-    Args:
-        transform1: an instance of the first transform, e.g. Subgraph.
-        transform2: an instance of the second transform, e.g. Identity.
-        first_probability: probability of the first transform.
-    """
-
-    def __init__(
-        self, transform1: Callable, transform2: Callable, first_probability: float = 0.5
-    ):
-        self.transform1 = transform1
-        self.transform2 = transform2
-        self.p1 = first_probability
-
-    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        v = np.random.choice([0, 1], p=[self.p1, 1 - self.p1])
-        if v == 0:
-            transform = self.transform1
-        else:
-            transform = self.transform2
-        return transform(reactants_g, products_g, reaction_g, reaction)
-
-
 class DropAtom(Transform):
     """
     Transformation by dropping atoms. The bonds of the atoms are also dropped.
@@ -147,14 +174,14 @@ class DropAtom(Transform):
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        (not_in_center,) = np.nonzero(reaction.atom_distance_to_reaction_center)
-        n = int(self.ratio * len(not_in_center))
+        in_center, out_center = self.get_in_out_center_atoms(reaction)
+        num_sample = self.get_num_samples(len(in_center), len(out_center))
 
-        if n == 0:
+        if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
 
         else:
-            to_drop = np.random.choice(not_in_center, n, replace=False)
+            to_drop = np.random.choice(out_center, num_sample, replace=False)
             to_keep = sorted(set(range(reaction.num_atoms)) - set(to_drop))
 
             # extract subgraph
@@ -174,14 +201,14 @@ class DropBond(Transform):
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        (not_in_center,) = np.nonzero(reaction.bond_distance_to_reaction_center)
-        n = int(self.ratio * len(not_in_center))
+        in_center, out_center = self.get_in_out_center_bonds(reaction)
+        num_sample = self.get_num_samples(len(in_center), len(out_center))
 
-        if n == 0:
+        if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
 
         else:
-            indices = np.random.choice(not_in_center, n, replace=False)
+            indices = np.random.choice(out_center, num_sample, replace=False)
             x = indices * 2  # each bond has two edges (2i and 2i+1)
             to_drop = set(np.concatenate((x, x + 1)))
 
@@ -216,20 +243,28 @@ class MaskAtomAttribute(Transform):
         ratio: float,
         select_mode: str = "ratio",
         ratio_multiplier: str = "out_center",
+        reaction_center_mode: str = "altered_bonds",
+        functional_group_smarts_filenames: Union[Path, List[Path]] = None,
         mask_value: Union[float, torch.Tensor] = 0.0,
     ):
-        super().__init__(ratio, select_mode, ratio_multiplier)
+        super().__init__(
+            ratio,
+            select_mode,
+            ratio_multiplier,
+            reaction_center_mode,
+            functional_group_smarts_filenames,
+        )
         self.mask_value = mask_value
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        (not_in_center,) = np.nonzero(reaction.atom_distance_to_reaction_center)
-        n = int(self.ratio * len(not_in_center))
+        in_center, out_center = self.get_in_out_center_atoms(reaction)
+        num_sample = self.get_num_samples(len(in_center), len(out_center))
 
-        if n == 0:
+        if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
 
         else:
-            selected = sorted(np.random.choice(not_in_center, n, replace=False))
+            selected = sorted(np.random.choice(out_center, num_sample, replace=False))
 
             # modify feature in-place
             reactants_g.nodes["atom"].data["feat"][selected] = self.mask_value
@@ -258,20 +293,28 @@ class MaskBondAttribute(Transform):
         ratio: float,
         select_mode: str = "ratio",
         ratio_multiplier: str = "out_center",
+        reaction_center_mode: str = "altered_bonds",
+        functional_group_smarts_filenames: Union[Path, List[Path]] = None,
         mask_value: Union[float, torch.Tensor] = 0.0,
     ):
-        super().__init__(ratio, select_mode, ratio_multiplier)
+        super().__init__(
+            ratio,
+            select_mode,
+            ratio_multiplier,
+            reaction_center_mode,
+            functional_group_smarts_filenames,
+        )
         self.mask_value = mask_value
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        (not_in_center,) = np.nonzero(reaction.bond_distance_to_reaction_center)
-        n = int(self.ratio * len(not_in_center))
+        in_center, out_center = self.get_in_out_center_bonds(reaction)
+        num_sample = self.get_num_samples(len(in_center), len(out_center))
 
-        if n == 0:
+        if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
 
         else:
-            indices = np.random.choice(not_in_center, n, replace=False)
+            indices = np.random.choice(out_center, num_sample, replace=False)
             x = indices * 2  # each bond has two edges (2i and 2i+1)
             selected = sorted(np.concatenate((x, x + 1)))
 
@@ -290,64 +333,14 @@ class Subgraph(Transform):
     The difference is that we start with all atoms in reaction center, where as in the
     paper, it starts with a randomly chosen atom.
 
-    Args:
-        reaction_center_mode: [`altered_bonds`|`functional_group`]. How to determine
-            reaction center. If `altered_bonds`, atoms associated with broken and
-            formed bonds in the reaction are regarded as center. If `functional_group`,
-            functional groups associated with alternated bonds are regarded as center.
-        functional_group_smarts_filenames: a tsv or a list of tsv files containing the
-            smarts of the functional groups. Should have a column named `smarts`.
-            Only effective when reaction_center_mode = `functional_group`.
     """
 
-    def __init__(
-        self,
-        ratio: float,
-        select_mode: str = "ratio",
-        ratio_multiplier: str = "out_center",
-        reaction_center_mode: str = "altered_bonds",
-        functional_group_smarts_filenames: Union[Path, List[Path]] = None,
-    ):
-        super().__init__(ratio, select_mode, ratio_multiplier)
-        self.reaction_center_mode = reaction_center_mode
-
-        # init all functional group
-        if self.reaction_center_mode == "functional_group":
-            if not isinstance(functional_group_smarts_filenames, list):
-                functional_group_smarts_filenames = [functional_group_smarts_filenames]
-            dfs = [pd.read_csv(f, sep="\t") for f in functional_group_smarts_filenames]
-            df = pd.concat(dfs)
-            self.functional_groups = [Chem.MolFromSmarts(m) for m in df["smarts"]]
-
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        distance = np.asarray(reaction.atom_distance_to_reaction_center)
+        in_center, out_center = self.get_in_out_center_atoms(reaction)
 
-        if self.reaction_center_mode == "altered_bonds":
-            in_center = np.argwhere(distance == 0).reshape(-1).tolist()
-
-        elif self.reaction_center_mode == "functional_group":
-            in_center = reaction.get_reaction_center_atom_functional_group(
-                func_groups=self.functional_groups, include_center_atoms=True
-            )
-        else:
-            raise ValueError(f"Not supported center mode {self.reaction_center_mode}")
-
-        # number of not in center atoms to sample
         num_in_center = len(in_center)
-        num_not_in_center = len(distance) - num_in_center
-
-        if self.select_mode == "direct":
-            num_sample = self.ratio
-        elif self.select_mode == "ratio":
-            if self.ratio_multiplier == "out_center":
-                num_sample = int(self.ratio * num_not_in_center)
-            elif self.ratio_multiplier == "in_center":
-                num_sample = int(self.ratio * num_in_center)
-            else:
-                raise ValueError
-        else:
-            raise ValueError
-        num_sample = min(num_sample, num_not_in_center)
+        num_out_center = len(out_center)
+        num_sample = self.get_num_samples(num_in_center, num_out_center)
 
         if num_sample == 0:
             return reactants_g, products_g, reaction_g, None
@@ -403,64 +396,65 @@ class Subgraph(Transform):
             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
-class SubgraphBFS(Transform):
-    """
-    Reaction center ego-subgraph, breadth first search.
-    """
-
-    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
-        distance = np.asarray(reaction.atom_distance_to_reaction_center)
-        in_center = np.argwhere(distance == 0).reshape(-1).tolist()
-
-        # number of not in center atoms to sample
-        num_in_center = len(in_center)
-        num_not_in_center = len(distance) - num_in_center
-
-        if self.select_mode == "direct":
-            num_sample = self.ratio
-        elif self.select_mode == "ratio":
-            if self.ratio_multiplier == "out_center":
-                num_sample = int(self.ratio * num_not_in_center)
-            elif self.ratio_multiplier == "in_center":
-                num_sample = int(self.ratio * num_in_center)
-            else:
-                raise ValueError
-        else:
-            raise ValueError
-        num_sample = min(num_sample, num_not_in_center)
-
-        if num_sample == 0:
-            return reactants_g, products_g, reaction_g, None
-
-        else:
-            num_target = num_in_center + num_sample
-
-            # Initialize subgraph as atoms in the center (shell 0)
-            sub_graph = in_center
-
-            shell = 1
-            while len(sub_graph) < num_target:
-                candidate = np.argwhere(distance == shell).reshape(-1)
-                assert (
-                    candidate.size > 0
-                ), "Cannot find candidate, this should not happen"
-
-                if len(sub_graph) + len(candidate) > num_target:
-                    selected = np.random.choice(
-                        candidate, num_target - len(sub_graph), replace=False
-                    )
-                else:
-                    selected = candidate
-                sub_graph.extend(selected)
-
-                shell += 1
-
-            # extract subgraph
-            selected = sorted(sub_graph)
-            sub_reactants_g = get_node_subgraph(reactants_g, selected)
-            sub_products_g = get_node_subgraph(products_g, selected)
-
-            return sub_reactants_g, sub_products_g, reaction_g, None
+#
+# class SubgraphBFS(Transform):
+#     """
+#     Reaction center ego-subgraph, breadth first search.
+#     """
+#
+#     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
+#         distance = np.asarray(reaction.atom_distance_to_reaction_center)
+#         in_center = np.argwhere(distance == 0).reshape(-1).tolist()
+#
+#         # number of not in center atoms to sample
+#         num_in_center = len(in_center)
+#         num_not_in_center = len(distance) - num_in_center
+#
+#         if self.select_mode == "direct":
+#             num_sample = self.ratio
+#         elif self.select_mode == "ratio":
+#             if self.ratio_multiplier == "out_center":
+#                 num_sample = int(self.ratio * num_not_in_center)
+#             elif self.ratio_multiplier == "in_center":
+#                 num_sample = int(self.ratio * num_in_center)
+#             else:
+#                 raise ValueError
+#         else:
+#             raise ValueError
+#         num_sample = min(num_sample, num_not_in_center)
+#
+#         if num_sample == 0:
+#             return reactants_g, products_g, reaction_g, None
+#
+#         else:
+#             num_target = num_in_center + num_sample
+#
+#             # Initialize subgraph as atoms in the center (shell 0)
+#             sub_graph = in_center
+#
+#             shell = 1
+#             while len(sub_graph) < num_target:
+#                 candidate = np.argwhere(distance == shell).reshape(-1)
+#                 assert (
+#                     candidate.size > 0
+#                 ), "Cannot find candidate, this should not happen"
+#
+#                 if len(sub_graph) + len(candidate) > num_target:
+#                     selected = np.random.choice(
+#                         candidate, num_target - len(sub_graph), replace=False
+#                     )
+#                 else:
+#                     selected = candidate
+#                 sub_graph.extend(selected)
+#
+#                 shell += 1
+#
+#             # extract subgraph
+#             selected = sorted(sub_graph)
+#             sub_reactants_g = get_node_subgraph(reactants_g, selected)
+#             sub_products_g = get_node_subgraph(products_g, selected)
+#
+#             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
 class IdentityTransform(Transform):
@@ -475,50 +469,62 @@ class IdentityTransform(Transform):
         return reactants_g, products_g, reaction_g, reaction
 
 
-def transform_or_identity(
-    transform_name, ratio, select_mode, ratio_multiplier, transform_probability=0.5
-):
+class OneOrTheOtherTransform:
     """
-    Wrapper function to select either drop atom, drop bond, maks atom feature or mask
-    bond feature.
+    A wrapper class that chooses one transform with some probability and the other
+    transform with 1-probability.
 
     Args:
-        transform_name: one of  "DropAtom", "DropBond", "MaskAtomAttribute",
-            "MaskBondAttribute"
-        ratio:
-        select_mode:
-        ratio_multiplier:
-        transform_probability:
+        transform1: an instance of the first transform, e.g. Subgraph.
+        transform2: an instance of the second transform, e.g. Identity.
+        first_probability: probability of the first transform.
     """
-    TransformClass = globals()[transform_name]
 
-    t1 = TransformClass(ratio, select_mode, ratio_multiplier)
-    t2 = IdentityTransform(ratio, select_mode, ratio_multiplier)
-    t = OneOrTheOtherTransform(t1, t2, first_probability=transform_probability)
+    def __init__(
+        self, transform1: Callable, transform2: Callable, first_probability: float = 0.5
+    ):
+        self.transform1 = transform1
+        self.transform2 = transform2
+        self.p1 = first_probability
 
-    return t
+    def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
+        v = np.random.choice([0, 1], p=[self.p1, 1 - self.p1])
+        if v == 0:
+            transform = self.transform1
+        else:
+            transform = self.transform2
+        return transform(reactants_g, products_g, reaction_g, reaction)
 
 
-def subgraph_or_identity(
+def transform_or_identity(
+    transform_name,
     ratio,
     select_mode,
     ratio_multiplier,
     reaction_center_mode,
     functional_group_smarts_filenames,
-    subgraph_probability,
+    transform_probability=0.5,
 ):
     """
-    Wrapper function to select either subgraph or identity transform.
+    Wrapper function to select either a real transform of identity.
     """
-    t1 = Subgraph(
+    TransformClass = globals()[transform_name]
+
+    t1 = TransformClass(
         ratio,
         select_mode,
         ratio_multiplier,
         reaction_center_mode,
         functional_group_smarts_filenames,
     )
-    t2 = IdentityTransform(ratio, select_mode, ratio_multiplier)
-    t = OneOrTheOtherTransform(t1, t2, first_probability=subgraph_probability)
+    t2 = IdentityTransform(
+        ratio,
+        select_mode,
+        ratio_multiplier,
+        reaction_center_mode,
+        functional_group_smarts_filenames,
+    )
+    t = OneOrTheOtherTransform(t1, t2, first_probability=transform_probability)
 
     return t
 

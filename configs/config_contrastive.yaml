@@ -4,7 +4,7 @@ defaults:
   # data
   - datamodule: contrastive/schneider.yaml
   - transform1: subgraph.yaml
-  - transform2: subgraph_or_identity.yaml
+  - transform2: transform_or_identity.yaml
 
   # model
   - model/encoder: encoder.yaml
