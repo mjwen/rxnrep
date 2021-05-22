@@ -126,7 +126,7 @@ class Transform:
 
     def get_num_samples(self, num_in_center: int, num_out_center: int) -> int:
         """
-        Get the number of samples to drop/keep.
+        Get the number of samples to drop.
 
         This is for either atom or bond.
         """
@@ -333,6 +333,9 @@ class Subgraph(Transform):
     The difference is that we start with all atoms in reaction center, where as in the
     paper, it starts with a randomly chosen atom.
 
+
+    NOTE, the input ratio here is the number of ratio to drop.
+
     """
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
@@ -340,12 +343,16 @@ class Subgraph(Transform):
 
         num_in_center = len(in_center)
         num_out_center = len(out_center)
-        num_sample = self.get_num_samples(num_in_center, num_out_center)
+        num_sample_to_drop = self.get_num_samples(num_in_center, num_out_center)
 
-        if num_sample == 0:
+        if num_sample_to_drop == 0:
             return reactants_g, products_g, reaction_g, None
 
         else:
+
+            # NOTE, get number of samples to keep
+            num_sample = num_out_center - num_sample_to_drop
+
             # Initialize subgraph as atoms in the center
             sub_graph = in_center
 
