@@ -346,7 +346,7 @@ class Reaction:
 
     def get_reactants_bond_map_number(
         self, for_changed: bool = False, as_dict: bool = False
-    ) -> Union[List[List[int]], Dict[BondIndex, int]]:
+    ) -> Union[List[List[int]], List[Dict[BondIndex, int]]]:
         """
         Get the bond map number of the reactant molecules.
 
@@ -380,7 +380,7 @@ class Reaction:
 
     def get_products_bond_map_number(
         self, for_changed: bool = False, as_dict: bool = False
-    ) -> Union[List[List[int]], Dict[BondIndex, int]]:
+    ) -> Union[List[List[int]], List[Dict[BondIndex, int]]]:
         """
         Get the bond map number of the product molecules.
 
@@ -430,7 +430,8 @@ class Reaction:
 
         Returns:
             func_atom_indexes: functional group atoms associated with
-                atoms in reaction center. The returned atoms are nide
+                atoms in reaction center. The returned atoms are indexed by atom map
+                number.
         """
 
         if self._reaction_center_atom_functional_group is None:
@@ -459,6 +460,38 @@ class Reaction:
             self._reaction_center_atom_functional_group = list(all_fg_atoms)
 
         return self._reaction_center_atom_functional_group
+
+    def get_reaction_center_bond_functional_group(
+        self, func_groups: Union[Path, List], include_center_atoms: bool = True
+    ) -> List[int]:
+        """
+        Get bonds in reaction center functional group.
+
+        The returned bonds are given by bond map number.
+        """
+
+        reactants_bond_map_number = self.get_reactants_bond_map_number(
+            for_changed=True, as_dict=True
+        )
+        reactants_bond_map_number = {
+            k: v for d in reactants_bond_map_number for k, v in d.items()
+        }
+
+        # functional group only in unchanged bonds, so only need to consider reactants,
+        # which carry all the necessary info
+
+        center_atoms = self.get_reaction_center_atom_functional_group(
+            func_groups, include_center_atoms
+        )
+
+        center_bonds = []
+        for bond in self.unchanged_bonds:
+            atom1, atom2 = bond
+            if atom1 in center_atoms or atom2 in center_bonds:
+                idx = reactants_bond_map_number[bond]
+                center_bonds.append(idx)
+
+        return center_bonds
 
     def get_unchanged_lost_and_added_bonds(
         self, zero_based: bool = True
@@ -605,7 +638,7 @@ class Reaction:
 
     def _get_bond_map_number(
         self, mode="reactants", for_changed=False, as_dict: bool = False
-    ) -> List[Union[List[int], Dict[BondIndex, int]]]:
+    ) -> Union[List[List[int]], List[Dict[BondIndex, int]]]:
         """
         Args:
             mode: [`reactants`|`products`]. Generate bond map for the reactant or
