@@ -1,17 +1,17 @@
 import itertools
 
 import dgl
+import numpy as np
 import torch
 
 from rxnrep.core.reaction import smiles_to_reaction
 from rxnrep.data.grapher import combine_graphs, create_reaction_graph
-from rxnrep.data.transforms import (
+from rxnrep.data.transforms import (  # SubgraphBFS,
     DropAtom,
     DropBond,
     MaskAtomAttribute,
     MaskBondAttribute,
     Subgraph,
-    SubgraphBFS,
     get_node_subgraph,
 )
 from rxnrep.utils.io import seed_all
@@ -100,37 +100,41 @@ def test_mask_bond_attribute():
 
 def test_subgraph():
 
+    np.random.seed(35)
     reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
     transform = Subgraph(ratio=0.5)
     sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
         reactants_g, products_g, reaction_g, reaction
     )
 
-    # atom 3 is selected, atoms 0,2,4 are in center
-    select = [True, False, True, True, True, False]
+    # atom 3,5 is selected, atoms 0,2,4 are in center
+    select = [True, False, True, True, True, True]
 
-    # bonds 2, 4 are kept
-    retained_bond_edges = [4, 5, 8, 9]
-
+    # bonds 2, 3, 4 are kept
+    retained_bond_edges = [4, 5, 6, 7, 8, 9]
     assert_atom_subgroup(reactants_g, sub_reactants_g, select, retained_bond_edges)
+
+    # bonds 2, 3, 4 are kept
+    retained_bond_edges = [4, 5, 6, 7, 8, 9]
     assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
 
 
-def test_subgraph_bfs():
-    reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
-    transform = SubgraphBFS(ratio=0.5)
-    sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
-        reactants_g, products_g, reaction_g, reaction
-    )
-
-    # atom 3 is selected, atoms 0,2,4 are in center
-    select = [True, False, True, True, True, False]
-
-    # bonds 2, 4 are kept
-    retained_bond_edges = [4, 5, 8, 9]
-
-    assert_atom_subgroup(reactants_g, sub_reactants_g, select, retained_bond_edges)
-    assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
+#
+# def test_subgraph_bfs():
+#     reactants_g, products_g, reaction_g, reaction = create_reaction_and_graphs()
+#     transform = SubgraphBFS(ratio=0.5)
+#     sub_reactants_g, sub_products_g, sub_reaction_g, _ = transform(
+#         reactants_g, products_g, reaction_g, reaction
+#     )
+#
+#     # atom 3 is selected, atoms 0,2,4 are in center
+#     select = [True, False, True, True, True, False]
+#
+#     # bonds 2, 4 are kept
+#     retained_bond_edges = [4, 5, 8, 9]
+#
+#     assert_atom_subgroup(reactants_g, sub_reactants_g, select, retained_bond_edges)
+#     assert_atom_subgroup(products_g, sub_products_g, select, retained_bond_edges)
 
 
 def test_node_subgraph():
