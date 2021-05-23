@@ -841,6 +841,24 @@ class AtomFeaturizerMinimum2AdditionalInfo(AtomFeaturizer):
     ]
 
 
+class AtomFeaturizerMinimum3AdditionalInfo(AtomFeaturizer):
+    """
+    AtomFeaturizerMinimum2 + charge and spin info
+    """
+
+    DEFAULTS = [
+        atom_total_degree,
+        atom_total_num_H,
+        atom_is_in_ring,
+        atom_type_one_hot,
+        atom_in_ring_of_size_one_hot,
+        atom_resp_partial_charge,
+        # atom_mulliken_partial_charge,
+        # atom_critic2_partial_charge,
+        # atom_mulliken_partial_spin,
+    ]
+
+
 class BondFeaturizerMinimumAdditionalInfo(BondFeaturizer):
     """
     Featurize bonds in a molecule, using a minimum set of features.
