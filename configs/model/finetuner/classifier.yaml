@@ -16,5 +16,5 @@ model_class:
   pretrained_checkpoint_filename: pretrained_model/checkpoint.ckpt
   activation: ReLU
 
-  finetune_tune_encoder: False # Whether to optimize params in the encoder of the pretrained model. Note, parameters in the decoders of the pretrained model are set to be fixed (since they are not used).
+  finetune_tune_encoder: True # Whether to optimize params in the encoder of the pretrained model. Note, parameters in the decoders of the pretrained model are set to be fixed (since they are not used).
   finetune_lr_encoder: 1e-4 # learning rate for the encoder part if `finetune_tune_encoder` is true. # this belongs to optimization, but we just add it here since it is so closed related to `finetune_tune_encoder`

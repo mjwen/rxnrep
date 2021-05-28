@@ -1,0 +1,4 @@
+# @package _group_
+
+_target_: rxnrep.utils.cross_validate.read_splits
+filename: null # not used, will be overwritten by trainset_filename of datamodule

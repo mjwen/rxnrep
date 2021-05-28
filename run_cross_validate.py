@@ -14,6 +14,7 @@ Data split:
 """
 import logging
 import os
+from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -97,8 +98,10 @@ def main(cfg: DictConfig):
 
         # Update wandb logger info (save_dir)
         wandb_logger_cfg = get_wandb_logger_config(cfg_final)
-        wandb_save_dir = str(to_path(trainset).parent)
-        wandb_logger_cfg.save_dir = wandb_save_dir
+        wandb_save_dir = Path.cwd().joinpath(f"cv_fold_{i}")
+        if not wandb_save_dir.exists():
+            wandb_save_dir.mkdir()
+        wandb_logger_cfg.save_dir = wandb_save_dir.as_posix()
 
         OmegaConf.set_struct(cfg_final, True)
 

@@ -156,6 +156,54 @@ def multi_train_test_split(
     return fold_filenames
 
 
+def read_splits(filename: Union[str, Path]) -> List[Tuple[Path, Path]]:
+    """
+    Read already splitted files from directory.
+
+    Directory should have the below structure:
+
+
+    path:
+        - cv_fold_1
+            - train.tsv
+            - test.tsv
+        - cv_fold_2
+            - train.tsv
+            - test.tsv
+        - cv_fold_3
+            - train.tsv
+            - test.tsv
+        ...
+
+    Args:
+        filename: path to the directory containing the files. This is bad use of
+            argument `filename`. It should be `path` indeed. We name it `filename` to
+            be consistent with the other split functions for the easiness of use: in
+            running script, we update `filename` from datamodule.
+
+    Returns:
+        A list of (train, test) files.
+    """
+    path = to_path(filename)
+
+    fold_names = []
+    for p in sorted(path.glob("cv_fold_*")):
+        train = p.joinpath("train.tsv")
+        test = p.joinpath("test.tsv")
+
+        if not train.exists():
+            raise RuntimeError(f"Cannot find `train.tsv` in {p}")
+        if not test.exists():
+            raise RuntimeError(f"Cannot find `test.tsv` in {p}")
+
+        fold_names.append((train, test))
+
+    if not fold_names:
+        raise RuntimeError(f"No data files found at {path}")
+
+    return fold_names
+
+
 def compute_metric_statistics(data: List[Dict[str, float]]):
     """
     Compute statistics of multiple properties given in a list of dict.
