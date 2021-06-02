@@ -2,15 +2,22 @@
 Cross validation.
 
 Data split:
-- the dataset for cv should be provided as dm.trainset_filename; dm.valset_fileanme is
-  always ignored; and dm.testset_filename is used if provided
-- the dataset provided via dm.trainset_filename is split into kfolds of train set and
-  test set
-- for each fold, the train set is reassigned to dm.trainset_filename and the test set is
-  assigned to dm.valset_filename
-- if dm.testset_filename is provided, it is used for test; if not, the test set in each
-  fold is assigned to dm.testset_filename (then in each fold the val set and the test set
-  are the same)
+- the dataset to split for cv should be provided as dm.trainset_filename
+- the dataset will be split into k folds, each with a train.tsv and test.tsv file,
+  organized like:
+    - cv_fold_1
+        - train.tsv
+        - test.tsv
+    - cv_fold_2
+        - train.tsv
+        - test.tsv
+    - cv_fold_3
+        - train.tsv
+        - test.tsv
+
+- for each fold, the train.tsv is reassigned to dm.trainset_filename
+- for each fold, test.tsv will be reassigned to dm.valset_filename if it is not provided,
+  and will be reassigned to dm.test_filename if it is not provided
 """
 import logging
 import os
@@ -77,9 +84,15 @@ def main(cfg: DictConfig):
 
     data_splits = hydra.utils.call(cfg_final.cross_validate)
 
-    # Determine whether testset_filename is provided in datamodule
+    # Determine whether valset_filename and testset_filename are provided in datamodule
     # (should not do this in the loop since dm_cfg.testset_filename is reset)
     dm_cfg, _ = get_datamodule_config(cfg_final)
+
+    if dm_cfg.valset_filename:
+        dm_has_valset = True
+    else:
+        dm_has_valset = False
+
     if dm_cfg.testset_filename:
         dm_has_testset = True
     else:
@@ -92,7 +105,8 @@ def main(cfg: DictConfig):
 
         # Update datamodule (trainset_filename, valset_filename, and testset_filename)
         dm_cfg.trainset_filename = str(trainset)
-        dm_cfg.valset_filename = str(testset)
+        if not dm_has_valset:
+            dm_cfg.valset_filename = str(testset)
         if not dm_has_testset:
             dm_cfg.testset_filename = str(testset)
 
