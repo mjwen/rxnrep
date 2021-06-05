@@ -464,10 +464,13 @@ class Subgraph(Transform):
 #             return sub_reactants_g, sub_products_g, reaction_g, None
 
 
-class IdentityTransform(Transform):
+class IdentityTransform:
     """
     Identity transform that does not modify the graph.
     """
+
+    def __init__(self):
+        pass
 
     def __call__(
         self, reactants_g, products_g, reaction_g, reaction: Reaction
@@ -524,13 +527,7 @@ def transform_or_identity(
         reaction_center_mode,
         functional_group_smarts_filenames,
     )
-    t2 = IdentityTransform(
-        ratio,
-        select_mode,
-        ratio_multiplier,
-        reaction_center_mode,
-        functional_group_smarts_filenames,
-    )
+    t2 = IdentityTransform()
     t = OneOrTheOtherTransform(t1, t2, first_probability=transform_probability)
 
     return t
