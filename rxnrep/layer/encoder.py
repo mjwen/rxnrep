@@ -112,6 +112,8 @@ class ReactionEncoder(nn.Module):
                 not pool_bond_feats
             ), "Cannot poll bond feats when concat reactants and products feats"
 
+        self.pool_bond_feats = pool_bond_feats
+
         # remove global feats (in case the featurizer creates it)
         if not has_global_feats and "global" in in_feats:
             in_feats.pop("global")
@@ -396,11 +398,12 @@ class ReactionEncoder(nn.Module):
 
             # create difference reaction features from molecule features
             rxn_feats = create_diff_reaction_features(
-                feats, metadata, self.has_global_feats
+                feats, metadata, self.has_global_feats, self.pool_bond_feats
             )
 
             # node as edge graph; make two edge feats for each bond
-            rxn_feats["bond"] = torch.repeat_interleave(rxn_feats["bond"], 2, dim=0)
+            if self.pool_bond_feats:
+                rxn_feats["bond"] = torch.repeat_interleave(rxn_feats["bond"], 2, dim=0)
 
         elif self.combine_reactants_products == "concatenate":
             rxn_feats = create_concat_reaction_features(
@@ -419,6 +422,7 @@ def create_diff_reaction_features(
     molecule_feats: Dict[str, torch.Tensor],
     metadata: Dict[str, List[int]],
     has_global_feats=True,
+    pool_bond_feats=True,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute the difference features between the products and the reactants.
@@ -445,10 +449,11 @@ def create_diff_reaction_features(
         Atom and global feature tensors should have the same shape as the reactant
         feature tensors.
     """
-    diff_feats = {
-        "atom": get_atom_diff_feats(molecule_feats, metadata),
-        "bond": get_bond_diff_feats(molecule_feats, metadata),
-    }
+    diff_feats = {"atom": get_atom_diff_feats(molecule_feats, metadata)}
+
+    if pool_bond_feats:
+        diff_feats["bond"] = get_bond_diff_feats(molecule_feats, metadata)
+
     if has_global_feats:
         diff_feats["global"] = get_global_diff_feats(molecule_feats, metadata)
 

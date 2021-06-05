@@ -33,8 +33,8 @@ mlp_diff_layer_batch_norm: True
 # Pool method to pool combined atom/bond/global feats into a vector rxn representation
 pool_method: attentive_reduce_sum # dtype: str, [`set2set`, `attentive_reduce_sum/mean`, `reduce_sum/mean`, `center_reduce_sum/mean`]
 pool_atom_feats: True
-pool_bond_feats: True # Whether to pool bond features into final reaction representation.
-pool_global_feats: True # Whether to pool global features into final reaction representation. Will be reset to False if the `conv` method does not have global features.
+pool_bond_feats: False # Whether to pool bond features into final reaction representation.
+pool_global_feats: False # Whether to pool global features into final reaction representation. Will be reset to False if the `conv` method does not have global features.
 pool_kwargs: null
 
 # MLP after pooling combined atom/bond/global features into a vector rxn representation
