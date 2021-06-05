@@ -32,10 +32,14 @@ class Transform:
             ratio*num_atoms/bonds_in_center number of atoms/bonds will be augmented.
             Again, no matter what ratio_multiplier is, only atoms/bonds outside reaction
             center is augmented.
-        reaction_center_mode: [`altered_bonds`|`functional_group`]. How to determine
-            reaction center. If `altered_bonds`, atoms associated with broken and
-            formed bonds in the reaction are regarded as center. If `functional_group`,
-            functional groups associated with alternated bonds are regarded as center.
+        reaction_center_mode: [`altered_bonds`|`functional_group`|`none`]. How to
+            determine reaction center:
+            `altered_bonds`: atoms associated with broken and formed bonds in the reaction
+            are regarded as center.
+            `functional_group`: functional groups associated with alternated bonds are
+            regarded as center.
+            `none`: do not use reaction center. Note, in this case, subgraph
+            augmentation method cannot be used.
         functional_group_smarts_filenames: a tsv or a list of tsv files containing the
             smarts of the functional groups. Should have a column named `smarts`.
             Only effective when reaction_center_mode = `functional_group`.
@@ -96,6 +100,8 @@ class Transform:
             in_center = reaction.get_reaction_center_atom_functional_group(
                 func_groups=self.functional_groups, include_center_atoms=True
             )
+        elif self.reaction_center_mode == "none":
+            in_center = []
         else:
             raise ValueError(f"Not supported center mode {self.reaction_center_mode}")
 
@@ -117,6 +123,8 @@ class Transform:
             in_center = reaction.get_reaction_center_bond_functional_group(
                 func_groups=self.functional_groups, include_center_atoms=True
             )
+        elif self.reaction_center_mode == "none":
+            in_center = []
         else:
             raise ValueError(f"Not supported center mode {self.reaction_center_mode}")
 
@@ -337,6 +345,25 @@ class Subgraph(Transform):
     NOTE, the input ratio here is the number of ratio to drop.
 
     """
+
+    def __init__(
+        self,
+        ratio: float,
+        select_mode: str = "ratio",
+        ratio_multiplier: str = "out_center",
+        reaction_center_mode: str = "altered_bonds",
+        functional_group_smarts_filenames: Union[Path, List[Path]] = None,
+    ):
+        super().__init__(
+            ratio,
+            select_mode,
+            ratio_multiplier,
+            reaction_center_mode,
+            functional_group_smarts_filenames,
+        )
+
+        if reaction_center_mode == "none":
+            raise ValueError("Subgraph does not support `none` center mode")
 
     def __call__(self, reactants_g, products_g, reaction_g, reaction: Reaction):
         in_center, out_center = self.get_in_out_center_atoms(reaction)
