@@ -793,21 +793,32 @@ class Reaction:
         return rxn
 
     def draw2(
-        self, filename: Path = None, image_size=(800, 300), format="svg", font_scale=1.5
+        self,
+        filename: Path = None,
+        image_size: Tuple[int, int] = (800, 300),
+        format: str = "svg",
+        clear_atom_map_number: bool = False,
     ):
         """
-        The returned image can be viewed in Jupyter with `display(SVG(image))`.
+        The returned image can be viewed in Jupyter with:
+
+        >>>
+        from IPython.display import display, SVG, Image
+
+        display(SVG(image))    # if svg
+        display(Image(image))  # if png
 
         Args:
             filename:
-            font_scale:
             image_size:
-            format:
+            format: `svg` or `png`
+            clear_atom_map_number:
 
         Returns:
         """
 
-        rxn = AllChem.ReactionFromSmarts(str(self), useSmiles=True)
+        smiles = self._get_reaction_smiles(clear_atom_map_number)
+        rxn = AllChem.ReactionFromSmarts(smiles, useSmiles=True)
 
         if format == "png":
             d2d = rdMolDraw2D.MolDraw2DCairo(*image_size)
@@ -832,10 +843,26 @@ class Reaction:
 
     def __str__(self):
         """Smiles representation of reaction."""
-        reactants = ".".join([m.to_smiles() for m in self.reactants])
-        products = ".".join([m.to_smiles() for m in self.products])
-        if self.reagents is not None:
-            reagents = ".".join([m.to_smiles() for m in self.reagents])
+        return self._get_reaction_smiles()
+
+    def _get_reaction_smiles(self, clear_atom_map_number: bool = False):
+
+        if clear_atom_map_number:
+            reactants = [m.clear_atom_map_number() for m in self.reactants]
+            products = [m.clear_atom_map_number() for m in self.products]
+            if self.reagents is not None:
+                reagents = [m.clear_atom_map_number() for m in self.reagents]
+            else:
+                reagents = None
+        else:
+            reactants = self.reactants
+            products = self.products
+            reagents = self.reagents
+
+        reactants = ".".join([m.to_smiles() for m in reactants])
+        products = ".".join([m.to_smiles() for m in products])
+        if reagents is not None:
+            reagents = ".".join([m.to_smiles() for m in reagents])
         else:
             reagents = ""
         smiles = ">".join([reactants, reagents, products])

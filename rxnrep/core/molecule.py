@@ -334,6 +334,15 @@ class Molecule:
             else:
                 atom.SetAtomMapNum(number)
 
+    def clear_atom_map_number(self):
+        """
+        Remove the atom map number for all atoms.
+        """
+        map_number = {i: None for i in range(self.num_atoms)}
+        self.set_atom_map_number(map_number)
+
+        return self
+
     def generate_coords(self) -> np.ndarray:
         """
         Generate 3D coordinates for an rdkit molecule by embedding it.
