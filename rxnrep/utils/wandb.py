@@ -255,14 +255,19 @@ def copy_pretrained_model(
     identifier: str,
     source_dir: Union[str, Path] = ".",
     target_dir: Path = "pretrained_model",
+    last_checkpoint: bool = False,
 ):
     """
-    Copy the last checkpoint and dataset_state_dict.yaml to a directory.
+    Copy the checkpoint and dataset_state_dict.yaml to a directory.
 
     Args:
         identifier: wandb unique identifier of experiment, e.g. 2i3rocdl
         source_dir:
         target_dir:
+        last_checkpoint: whether to copy the last checkpoint name `last.ckpt` or the
+            best validation checkpoints. If `False`, will find the checkpoint with the
+            largest epoch number in something like: `epoch=92-step=200.ckpt`,
+            `epoch=121-step=300.ckpt`... and copy it.
     """
     # create target dir
     target_dir = to_path(target_dir)
@@ -272,9 +277,23 @@ def copy_pretrained_model(
     ckpt_dir = get_wandb_checkpoint_path(identifier, source_dir)
     print("Checkpoint path:", ckpt_dir)
 
-    checkpoints = glob.glob(os.path.join(ckpt_dir, "epoch=*.ckpt"))
-    checkpoints = sorted(checkpoints)
-    shutil.copy(checkpoints[-1], target_dir.joinpath("checkpoint.ckpt"))
+    if last_checkpoint:
+        ckpt = os.path.join(ckpt_dir, "last.ckpt")
+    else:
+        checkpoints = glob.glob(os.path.join(ckpt_dir, "epoch=*.ckpt"))
+
+        # find largest epoch number (Note, cannot sort the string directly, which may give
+        # wrong results: e.g. `epoch=92-step=200.ckpt` will come after
+        # `epoch=121-step=300.ckpt` if simply sort by string.
+        largest_epoch = 0
+        for p in checkpoints:
+            name = Path(p).name
+            epoch = int(name.split("-")[0].split("=")[1])
+            if epoch > largest_epoch:
+                largest_epoch = epoch
+        ckpt = glob.glob(os.path.join(ckpt_dir, f"epoch={largest_epoch}*.ckpt"))[0]
+
+    shutil.copy(ckpt, target_dir.joinpath("checkpoint.ckpt"))
 
     run_path = get_wandb_run_path(identifier, source_dir)
     print("wandb run path:", run_path)
