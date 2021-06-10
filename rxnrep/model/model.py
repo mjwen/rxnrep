@@ -178,25 +178,39 @@ class BaseModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        if self.hparams.lr_scheduler == "reduce_on_plateau":
+        # learning rate scheduler
+        scheduler = self._config_lr_scheduler(optimizer)
+
+        if scheduler is None:
+            return optimizer
+        else:
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": scheduler,
+                "monitor": "val/score",
+            }
+
+    def _config_lr_scheduler(self, optimizer):
+
+        scheduler_name = self.hparams.lr_scheduler["scheduler_name"].lower()
+
+        if scheduler_name == "reduce_on_plateau":
             scheduler = lr_scheduler.ReduceLROnPlateau(
                 optimizer, mode="max", factor=0.4, patience=50, verbose=True
             )
-        elif self.hparams.lr_scheduler == "cosine":
+        elif scheduler_name == "cosine":
             scheduler = LinearWarmupCosineAnnealingLR(
                 optimizer,
-                warmup_epochs=self.hparams.lr_warmup_step,
-                max_epochs=self.hparams.epochs,
-                eta_min=self.hparams.lr_min,
+                warmup_epochs=self.hparams.lr_scheduler["lr_warmup_step"],
+                max_epochs=self.hparams.lr_scheduler["epochs"],
+                eta_min=self.hparams.lr_scheduler["lr_min"],
             )
+        elif scheduler_name == "none":
+            scheduler = None
         else:
             raise ValueError(f"Not supported lr scheduler: {self.hparams.lr_scheduler}")
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/score",
-        }
+        return scheduler
 
     def init_metrics(self):
         metrics = nn.ModuleDict()

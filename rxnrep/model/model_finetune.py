@@ -1,10 +1,8 @@
 """
-Base model for Constrative representation learning.
+Base model for Contrastive representation learning.
 """
 
 import torch
-from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
-from torch.optim import lr_scheduler
 
 from rxnrep.model.model import BaseModel
 
@@ -48,22 +46,14 @@ class BaseFinetuneModel(BaseModel):
 
         optimizer = torch.optim.Adam(params_group)
 
-        if self.hparams.lr_scheduler == "reduce_on_plateau":
-            scheduler = lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode="max", factor=0.4, patience=50, verbose=True
-            )
-        elif self.hparams.lr_scheduler == "cosine":
-            scheduler = LinearWarmupCosineAnnealingLR(
-                optimizer,
-                warmup_epochs=self.hparams.lr_warmup_step,
-                max_epochs=self.hparams.epochs,
-                eta_min=self.hparams.lr_min,
-            )
-        else:
-            raise ValueError(f"Not supported lr scheduler: {self.hparams.lr_scheduler}")
+        # learning rate scheduler
+        scheduler = self._config_lr_scheduler(optimizer)
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/score",
-        }
+        if scheduler is None:
+            return optimizer
+        else:
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": scheduler,
+                "monitor": "val/score",
+            }

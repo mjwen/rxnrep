@@ -2,7 +2,15 @@
 
 lr: 1e-3
 weight_decay: 1e-6
-lr_scheduler: cosine # [`cosine` | `reduce_on_plateau`]
-lr_warmup_step: 10 # only for cosine scheduler
-lr_min: 1e-6 # minimum learning rate for cosine scheduler
-epochs: ${trainer.max_epochs} # only for cosine scheduler
+
+lr_scheduler:
+  scheduler_name: cosine # [`cosine` | `reduce_on_plateau` | `none`]
+  lr_warmup_step: 10
+  lr_min: 1e-6 # minimum learning rate
+  epochs: ${trainer.max_epochs}
+
+#lr_scheduler:
+#  scheduler_name: reduce_on_plateau # [`cosine` | `reduce_on_plateau` | `none`]
+
+#lr_scheduler:
+#  scheduler_name: none # [`cosine` | `reduce_on_plateau` | `none`]
