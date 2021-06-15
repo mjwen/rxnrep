@@ -7,7 +7,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.layer.utils import MLP
 from rxnrep.model.model_finetune import BaseFinetuneModel
-from rxnrep.model.simclr import LightningModel as PretrainedModel
+from rxnrep.model.pretrainer import LightningModel as PretrainedModel
 from rxnrep.utils.config import (
     determine_layer_size_by_pool_method,
     get_datamodule_config,

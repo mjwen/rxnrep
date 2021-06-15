@@ -1,5 +1,5 @@
 """
-Base model for Constrative representation learning.
+Base model for contrastive pretraining.
 """
 
 from rxnrep.model.model import BaseModel

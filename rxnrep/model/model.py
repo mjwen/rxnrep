@@ -1,5 +1,5 @@
 """
-Base Lightning model for regression and classification.
+Base Lightning model for classification.
 """
 
 from typing import Dict, Optional
@@ -31,7 +31,6 @@ class BaseModel(pl.LightningModule):
             )
         self.decoder = nn.ModuleDict(decoder)
 
-        self.regression_tasks = self.init_regression_tasks(self.hparams)
         self.classification_tasks = self.init_classification_tasks(self.hparams)
         self.metrics = self.init_metrics()
 
@@ -65,19 +64,6 @@ class BaseModel(pl.LightningModule):
                 mol_graphs, rxn_graphs, feats, metadata
             )
 
-        elif return_mode in ["reaction_energy", "activation_energy"]:  # regression
-            feats, reaction_feats = self.backbone(
-                mol_graphs, rxn_graphs, feats, metadata
-            )
-            preds = self.decode(feats, reaction_feats, metadata)
-
-            state_dict = self.hparams.label_scaler[return_mode].state_dict()
-            mean = state_dict["mean"]
-            std = state_dict["std"]
-            preds = preds[return_mode] * std + mean
-
-            return preds
-
         elif return_mode == "reaction_type":  # classification
             feats, reaction_feats = self.backbone(
                 mol_graphs, rxn_graphs, feats, metadata
@@ -90,8 +76,6 @@ class BaseModel(pl.LightningModule):
                 None,
                 "difference_feature",
                 "poll_attention_score",
-                "reaction_energy",
-                "activation_energy",
                 "reaction_type",
             ]
             raise ValueError(
@@ -244,11 +228,6 @@ class BaseModel(pl.LightningModule):
                     }
                 )
 
-            for task_name in self.regression_tasks:
-                metrics[mode][task_name] = nn.ModuleDict(
-                    {"mae": tm.MeanAbsoluteError(compute_on_step=False)}
-                )
-
         return metrics
 
     def update_metrics(self, preds, labels, mode):
@@ -256,12 +235,6 @@ class BaseModel(pl.LightningModule):
         Update metric values at each step.
         """
         mode = "metric_" + mode
-
-        # regression metrics
-        for task_name in self.regression_tasks:
-            for metric in self.metrics[mode][task_name]:
-                metric_obj = self.metrics[mode][task_name][metric]
-                metric_obj(preds[task_name], labels[task_name])
 
         # classification metrics
         for task_name in self.classification_tasks:
@@ -290,32 +263,6 @@ class BaseModel(pl.LightningModule):
             for metric in self.metrics[mode][task_name]:
                 metric_obj = self.metrics[mode][task_name][metric]
                 out = metric_obj.compute()
-
-                self.log(
-                    f"{mode}/{metric}/{task_name}",
-                    out,
-                    on_step=False,
-                    on_epoch=True,
-                    prog_bar=False,
-                )
-
-                metric_obj.reset()
-
-                if metric in task_setting["to_score"]:
-                    score = 0 if score is None else score
-                    sign = task_setting["to_score"][metric]
-                    score += out * sign
-
-        for task_name, task_setting in self.regression_tasks.items():
-            for metric in self.metrics[mode][task_name]:
-                metric_obj = self.metrics[mode][task_name][metric]
-                out = metric_obj.compute()
-
-                # scale labels
-                lb_scaler_name = task_setting["label_scaler"]
-                label_scaler = self.hparams.dataset_info["label_scaler"][lb_scaler_name]
-                state_dict = label_scaler.state_dict()
-                out *= state_dict["std"].to(self.device)
 
                 self.log(
                     f"{mode}/{metric}/{task_name}",
@@ -386,29 +333,6 @@ class BaseModel(pl.LightningModule):
         """
         raise NotImplementedError
 
-    def init_regression_tasks(self, params) -> Dict:
-        """
-        Define the the regression tasks used for computing metrics.
-
-        Currently, `mae` metric is supported.
-
-        Example:
-
-        regression_tasks = {
-            "reaction_energy": {
-                "label_scaler": "reaction_energy",
-                "to_score": {"mae": -1},
-            },
-            "activation_energy": {
-                "label_scaler": "activation_energy",
-                "to_score": {"mae": -1},
-            }
-        }
-
-        return regression_tasks
-        """
-        return {}
-
     def init_classification_tasks(self, params) -> Dict:
         """
         Define the the classification tasks used for computing metrics.
@@ -417,7 +341,7 @@ class BaseModel(pl.LightningModule):
 
         Example:
 
-        regression_tasks = {
+        classification_tasks = {
             "reaction_type": {
                 "num_classes": params.num_reaction_classes,
                 "to_score": {"f1": 1},
@@ -425,7 +349,7 @@ class BaseModel(pl.LightningModule):
             }
         }
 
-        return regression_tasks
+        return classification_tasks
         """
         return {}
 

@@ -1,5 +1,5 @@
 """
-Base model for Contrastive representation learning.
+Base model for finetuning.
 """
 
 import torch
