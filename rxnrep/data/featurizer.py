@@ -386,14 +386,6 @@ class BondFeaturizer(BaseFeaturizer):
         return feats
 
 
-class BondFeaturizerMinimum(BondFeaturizer):
-    """
-    Featurize bonds in a molecule, using a minimum set of features.
-    """
-
-    DEFAULTS = [bond_is_in_ring, bond_in_ring_of_size_one_hot, bond_is_dative]
-
-
 class AtomFeaturizer(BaseFeaturizer):
     """
     Featurize atoms in a molecule.
@@ -526,38 +518,6 @@ class AtomFeaturizer(BaseFeaturizer):
         feats = torch.tensor(feats, dtype=torch.float32)
 
         return feats
-
-
-class AtomFeaturizerMinimum(AtomFeaturizer):
-    """
-    Featurize atoms in a molecule using minimum features like atom type, whether an
-    atom in ring.
-    """
-
-    DEFAULTS = [
-        atom_type_one_hot,
-        atom_total_degree_one_hot,
-        atom_is_in_ring,
-        atom_in_ring_of_size_one_hot,
-        atom_total_num_H_one_hot,
-    ]
-
-
-class AtomFeaturizerMinimum2(AtomFeaturizer):
-    """
-    Featurize atoms in a molecule using minimum features like atom type, whether an
-    atom in ring.
-
-    Exactly the same as bondnet.
-    """
-
-    DEFAULTS = [
-        atom_total_degree,
-        atom_total_num_H,
-        atom_is_in_ring,
-        atom_type_one_hot,
-        atom_in_ring_of_size_one_hot,
-    ]
 
 
 class GlobalFeaturizer(BaseFeaturizer):
@@ -739,77 +699,6 @@ class MorganFeaturizer(MoleculeFeaturizer):
         return feats
 
 
-###############################################################################
-# additional featurizer func to charge, spin info ...
-###############################################################################
-
-#
-# atom features
-#
-
-
-def atom_resp_partial_charge(index, d: Dict[str, any]):
-    """
-    Args:
-        index: atom index
-        d: additional property dict for molecule
-    """
-    charge = d["resp_partial_charge"][index]
-    return [charge]
-
-
-def atom_mulliken_partial_charge(index, d: Dict[str, any]):
-    """
-    Args:
-        index: atom index
-        d: additional property dict for molecule
-    """
-    charge = d["mulliken_partial_charge"][index]
-    return [charge]
-
-
-def atom_critic2_partial_charge(index, d: Dict[str, any]):
-    """
-    Args:
-        index: atom index
-        d: additional property dict for molecule
-    """
-    charge = d["critic2_partial_charge"][index]
-    return [charge]
-
-
-def atom_mulliken_partial_spin(index, d: Dict[str, any]):
-    """
-    Args:
-        index: atom index
-        d: additional property dict for molecule
-    """
-    spin = d["mulliken_partial_spin"][index]
-    return [spin]
-
-
-#
-# bond features
-#
-
-
-def bond_distance(index1, index2, d: Dict[str, Any]):
-    """
-
-    Args:
-        index1: index of first atom forming the bond
-        index2: index of second atom forming the bond
-        d: additional property dict for molecule
-    Returns:
-
-    """
-    coords1 = d["coords"][index1]
-    coords2 = d["coords"][index2]
-    dist = np.linalg.norm(np.asarray(coords1) - np.asarray(coords2))
-
-    return [dist]
-
-
 def _get_fake_mol_property():
     """
     Fake mol property for CO used for determining feature name.
@@ -821,52 +710,3 @@ def _get_fake_mol_property():
         "mulliken_partial_spin": [0.1, -0.1],
         "coords": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
     }
-
-
-class AtomFeaturizerMinimum2AdditionalInfo(AtomFeaturizer):
-    """
-    AtomFeaturizerMinimum2 + charge and spin info
-    """
-
-    DEFAULTS = [
-        atom_total_degree,
-        atom_total_num_H,
-        atom_is_in_ring,
-        atom_type_one_hot,
-        atom_in_ring_of_size_one_hot,
-        atom_resp_partial_charge,
-        atom_mulliken_partial_charge,
-        # atom_critic2_partial_charge,
-        # atom_mulliken_partial_spin,
-    ]
-
-
-class AtomFeaturizerMinimum3AdditionalInfo(AtomFeaturizer):
-    """
-    AtomFeaturizerMinimum2 + charge and spin info
-    """
-
-    DEFAULTS = [
-        atom_total_degree,
-        atom_total_num_H,
-        atom_is_in_ring,
-        atom_type_one_hot,
-        atom_in_ring_of_size_one_hot,
-        atom_resp_partial_charge,
-        # atom_mulliken_partial_charge,
-        # atom_critic2_partial_charge,
-        # atom_mulliken_partial_spin,
-    ]
-
-
-class BondFeaturizerMinimumAdditionalInfo(BondFeaturizer):
-    """
-    Featurize bonds in a molecule, using a minimum set of features.
-    """
-
-    DEFAULTS = [
-        bond_is_in_ring,
-        bond_in_ring_of_size_one_hot,
-        bond_is_dative,
-        bond_distance,
-    ]

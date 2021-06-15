@@ -10,7 +10,6 @@ from rxnrep.data.datamodule import (
     BaseClassificationDataModule,
     BaseContrastiveDataModule,
     BaseMorganDataModule,
-    BaseRegressionDataModule,
 )
 from rxnrep.data.dataset import (
     BaseContrastiveDataset,
@@ -186,70 +185,6 @@ class GreenClassicalFeaturesDataset(ClassicalFeatureDataset):
         weight = {"reaction_type": w}
 
         return weight
-
-
-class GreenRegressionDataModule(BaseRegressionDataModule):
-    """
-    Green data module for regression reaction energy and activation energy.
-    """
-
-    def setup(self, stage: Optional[str] = None):
-        init_state_dict = self.get_init_state_dict()
-
-        atom_featurizer_kwargs = {
-            "atom_total_degree_one_hot": {"allowable_set": list(range(5))},
-            "atom_total_valence_one_hot": {"allowable_set": list(range(5))},
-        }
-
-        atom_featurizer = AtomFeaturizer(featurizer_kwargs=atom_featurizer_kwargs)
-        bond_featurizer = BondFeaturizer()
-        global_featurizer = GlobalFeaturizer()
-
-        self.data_train = GreenDataset(
-            filename=self.trainset_filename,
-            atom_featurizer=atom_featurizer,
-            bond_featurizer=bond_featurizer,
-            global_featurizer=global_featurizer,
-            build_reaction_graph=self.build_reaction_graph,
-            init_state_dict=init_state_dict,
-            num_processes=self.num_processes,
-            transform_features=True,
-            allow_label_scaler_none=self.allow_label_scaler_none,
-        )
-
-        state_dict = self.data_train.state_dict()
-
-        self.data_val = GreenDataset(
-            filename=self.valset_filename,
-            atom_featurizer=atom_featurizer,
-            bond_featurizer=bond_featurizer,
-            global_featurizer=global_featurizer,
-            build_reaction_graph=self.build_reaction_graph,
-            init_state_dict=state_dict,
-            num_processes=self.num_processes,
-            transform_features=True,
-            allow_label_scaler_none=self.allow_label_scaler_none,
-        )
-
-        self.data_test = GreenDataset(
-            filename=self.testset_filename,
-            atom_featurizer=atom_featurizer,
-            bond_featurizer=bond_featurizer,
-            global_featurizer=global_featurizer,
-            build_reaction_graph=self.build_reaction_graph,
-            init_state_dict=state_dict,
-            num_processes=self.num_processes,
-            transform_features=True,
-            allow_label_scaler_none=self.allow_label_scaler_none,
-        )
-
-        # save dataset state dict
-        self.data_train.save_state_dict_file(self.state_dict_filename)
-
-        logger.info(
-            f"Trainset size: {len(self.data_train)}, valset size: {len(self.data_val)}: "
-            f"testset size: {len(self.data_test)}."
-        )
 
 
 class GreenClassificationDataModule(BaseClassificationDataModule):

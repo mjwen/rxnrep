@@ -3,8 +3,6 @@ from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from rxnrep.data.dataset import BaseLabelledDataset
-
 
 def train_test_split(
     df: pd.DataFrame,
@@ -70,61 +68,3 @@ def train_test_split(
     test = pd.concat(test)
 
     return train, test
-
-
-def train_validation_test_split(dataset, validation=0.1, test=0.1, random_seed=None):
-    """
-    Split a dataset into training, validation, and test set.
-
-    The training set will be automatically determined based on `validation` and `test`,
-    i.e. train = 1 - validation - test.
-
-    Args:
-        dataset: the dataset
-        validation (float, optional): The amount of data (fraction) to be assigned to
-            validation set. Defaults to 0.1.
-        test (float, optional): The amount of data (fraction) to be assigned to test
-            set. Defaults to 0.1.
-        random_seed (int, optional): random seed that determines the permutation of the
-            dataset. Defaults to 35.
-
-    Returns:
-        [train set, validation set, test_set]
-    """
-    assert validation + test < 1.0, "validation + test >= 1"
-    size = len(dataset)
-    num_val = int(size * validation)
-    num_test = int(size * test)
-    num_train = size - num_val - num_test
-
-    if random_seed is not None:
-        np.random.seed(random_seed)
-    idx = np.random.permutation(size)
-    train_idx = idx[:num_train]
-    val_idx = idx[num_train : num_train + num_val]
-    test_idx = idx[num_train + num_val :]
-    return [
-        Subset(dataset, train_idx),
-        Subset(dataset, val_idx),
-        Subset(dataset, test_idx),
-    ]
-
-
-class Subset(BaseLabelledDataset):
-    def __init__(self, dataset, indices):
-        self.dataset = dataset
-        self.indices = indices
-
-    @property
-    def feature_size(self):
-        return self.dataset.feature_size
-
-    @property
-    def feature_name(self):
-        return self.dataset.feature_name
-
-    def __getitem__(self, item):
-        return self.dataset[self.indices[item]]
-
-    def __len__(self):
-        return len(self.indices)
