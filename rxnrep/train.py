@@ -176,7 +176,6 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
             "run.log",
             # might exist
             "submit.sh",
-            "sweep.py",
         ]
 
         logger.info(f"Saving extra files to wandb: {', '.join(files_to_save)}")
