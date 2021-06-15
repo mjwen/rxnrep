@@ -8,7 +8,7 @@ defaults:
 
   # model
   - model/encoder: encoder.yaml
-  - model/decoder: simclr.yaml
+  - model/decoder: pretrainer.yaml
 
   # training
   - optimizer: adams.yaml

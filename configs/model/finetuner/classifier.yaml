@@ -3,11 +3,11 @@
 # this should only contain the decoder part, the encoder part is in encoder.yaml
 
 cfg_adjuster:
-  _target_: rxnrep.model.finetuner_classification.adjust_config
+  _target_: rxnrep.model.finetuner.adjust_config
 
 model_class:
   # decoder
-  _target_: rxnrep.model.finetuner_classification.LightningModel
+  _target_: rxnrep.model.finetuner.LightningModel
   reaction_type_decoder_num_layers: 2
 
   # pretrained model
