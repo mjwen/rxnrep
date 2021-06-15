@@ -7,6 +7,8 @@ reaction classification for small dataset.
 # Installation 
 
 ```bash
+git clone https://github.com/mjwen/rxnrep.git
+cd rxnrep
 conda env create -f environment.yml
 conda activate rxnrep
 pip install -e . 
@@ -15,7 +17,7 @@ pip install -e .
 
 # Train the model
 
-### Pretraining & fine-tuning 
+### Pretraining & finetuning 
 
 To pretrain the model using contrastive learning:
 
@@ -26,7 +28,8 @@ python run.py --config-name config_contrastive.yaml datamodule=contrastive/schne
 To finetune the pretrained model:
 
 ```bash
-python run.py --config-name config_finetune.yaml datamodule=classification/schneider.yaml pretrained_wandb_id=<wandb_id>
+python run.py --config-name config_finetune.yaml datamodule=classification/schneider.yaml \ 
+    pretrained_wandb_id=<wandb_id>
 ```
 where `wandb_id` is the W&B id for the pretraining run, an eight-character alphanumeric 
 e.g. `3oep187z`. By providing the `wandb_id`, the finetuning script will search for the 
