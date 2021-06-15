@@ -1,6 +1,5 @@
 """
-GatedConv as in gatedconv.py (where bond is represented as node), but here bonds are
-represented as edges.
+Gated conv with bond and global features.
 """
 
 from typing import Callable, Dict, Union

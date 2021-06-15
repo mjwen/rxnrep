@@ -7,9 +7,9 @@ import torch.nn as nn
 from dgl.ops import segment_reduce
 from omegaconf import DictConfig, OmegaConf
 
-from rxnrep.layer.gatconv import GATConv, GATConvGlobal
+from rxnrep.layer.gatconv import GATConvGlobal
 from rxnrep.layer.gatedconv import GatedGCNConv
-from rxnrep.layer.gin import GINConv, GINConvGlobal, GINConvOriginal
+from rxnrep.layer.ginconv import GINConvGlobal
 from rxnrep.layer.readout import get_reaction_feature_pooling
 from rxnrep.layer.utils import MLP, UnifySize
 from rxnrep.utils.config import determine_layer_size_by_pool_method
@@ -99,6 +99,8 @@ class ReactionEncoder(nn.Module):
             raise ValueError("pool_global_feats=True, while has_global_feats=False")
 
         self.has_global_feats = has_global_feats
+        self.pool_global_feats = pool_global_feats
+        self.pool_bond_feats = pool_bond_feats
 
         # when combine reactants and products using concatenate, we do not do it for
         # bonds
@@ -111,8 +113,6 @@ class ReactionEncoder(nn.Module):
             assert (
                 not pool_bond_feats
             ), "Cannot poll bond feats when concat reactants and products feats"
-
-        self.pool_bond_feats = pool_bond_feats
 
         # remove global feats (in case the featurizer creates it)
         if not has_global_feats and "global" in in_feats:
@@ -144,22 +144,9 @@ class ReactionEncoder(nn.Module):
         elif conv == "GINConvGlobal":
             conv_class = GINConvGlobal
             assert has_global_feats, f"Select `{conv}`, but `has_global_feats = False`"
-        elif conv == "GINConv":
-            conv_class = GINConv
-            assert (
-                not has_global_feats
-            ), f"Select `{conv}`, but `has_global_feats = True`"
-        elif conv == "GINConvOriginal":
-            conv_class = GINConvOriginal
-            assert (
-                not has_global_feats
-            ), f"Select `{conv}`, but `has_global_feats = True`"
-        elif conv == "GATConv":
-            conv_class = GATConv
-
         elif conv == "GATConvGlobal":
             conv_class = GATConvGlobal
-
+            assert has_global_feats, f"Select `{conv}`, but `has_global_feats = False`"
         else:
             raise ValueError(f"Got unexpected conv {conv}")
 
@@ -256,7 +243,6 @@ class ReactionEncoder(nn.Module):
             pool_atom_feats,
             pool_bond_feats,
             pool_global_feats,
-            pool_kwargs,
         )
         pool_out_size = self.readout.out_size
 
@@ -398,7 +384,7 @@ class ReactionEncoder(nn.Module):
 
             # create difference reaction features from molecule features
             rxn_feats = create_diff_reaction_features(
-                feats, metadata, self.has_global_feats, self.pool_bond_feats
+                feats, metadata, self.pool_global_feats, self.pool_bond_feats
             )
 
             # node as edge graph; make two edge feats for each bond
@@ -421,7 +407,7 @@ class ReactionEncoder(nn.Module):
 def create_diff_reaction_features(
     molecule_feats: Dict[str, torch.Tensor],
     metadata: Dict[str, List[int]],
-    has_global_feats=True,
+    pool_global_feats=True,
     pool_bond_feats=True,
 ) -> Dict[str, torch.Tensor]:
     """
@@ -441,7 +427,8 @@ def create_diff_reaction_features(
         metadata: holds the number of nodes for all reactions. The size of each
             list is equal to the number of reactions, and element `i` gives the info
             for reaction `i`.
-        has_global_feats: whether to compute global features difference
+        pool_global_feats: whether to compute global features difference
+        pool_bond_feats: whether to compute bond features difference
 
     Returns:
         Difference features between the products and the reactants.
@@ -454,7 +441,7 @@ def create_diff_reaction_features(
     if pool_bond_feats:
         diff_feats["bond"] = get_bond_diff_feats(molecule_feats, metadata)
 
-    if has_global_feats:
+    if pool_global_feats:
         diff_feats["global"] = get_global_diff_feats(molecule_feats, metadata)
 
     return diff_feats
@@ -568,39 +555,6 @@ def get_atom_concat_feats(molecule_feats, metadata):
     return reaction_atom_feats
 
 
-#
-# def get_bond_diff_feats(molecule_feats, metadata):
-#     pass
-#
-#     bond_feats = molecule_feats["bond"]
-#
-#     num_unchanged_bonds = metadata["num_unchanged_bonds"]
-#     reactant_num_bonds = metadata["num_reactant_bonds"]
-#     product_num_bonds = metadata["num_product_bonds"]
-#
-#     # Bond difference feats
-#     total_num_reactant_bonds = sum(reactant_num_bonds)
-#     reactant_bond_feats = bond_feats[:total_num_reactant_bonds]
-#     product_bond_feats = bond_feats[total_num_reactant_bonds:]
-#
-#     # feats of each reactant (product), list of 2D tensor
-#     reactant_bond_feats = torch.split(reactant_bond_feats, reactant_num_bonds)
-#     product_bond_feats = torch.split(product_bond_feats, product_num_bonds)
-#
-#     # calculate difference feats
-#     diff_bond_feats = []
-#     for i, (r_ft, p_ft) in enumerate(zip(reactant_bond_feats, product_bond_feats)):
-#         n_unchanged = num_unchanged_bonds[i]
-#         unchanged_bond_feats = p_ft[:n_unchanged] - r_ft[:n_unchanged]
-#         lost_bond_feats = -r_ft[n_unchanged:]
-#         added_bond_feats = p_ft[n_unchanged:]
-#         feats = torch.cat([unchanged_bond_feats, lost_bond_feats, added_bond_feats])
-#         diff_bond_feats.append(feats)
-#     diff_bond_feats = torch.cat(diff_bond_feats)
-#
-#     return diff_bond_feats
-
-
 def get_global_concat_feats(molecule_feats, metadata):
 
     global_feats = molecule_feats["global"]
@@ -647,9 +601,7 @@ def adjust_encoder_config(config: DictConfig) -> DictConfig:
     #
 
     # has_global_feats: whether the conv model supports global features
-    if cfg.conv in ["GINConv", "GINConvOriginal", "GATConv"]:
-        new_cfg.has_global_feats = False
-    elif cfg.conv in ["GINConvGlobal", "GatedGCNConv", "GATConvGlobal"]:
+    if cfg.conv in ["GINConvGlobal", "GatedGCNConv", "GATConvGlobal"]:
         new_cfg.has_global_feats = True
     else:
         raise ValueError(f"Unsupported conv {cfg.conv}")
