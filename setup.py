@@ -27,6 +27,7 @@ setup(
         "requests",
         "pyyaml",
         "pytorch-lightning",
+        "hydra-core",
         "pandas",
     ],
     author="Mingjian Wen",
@@ -37,7 +38,6 @@ setup(
     classifiers=[
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
-        "License :: OSI Approved :: Common Development and Distribution License 1.0 (CDDL-1.0)",
         "Operating System :: OS Independent",
     ],
     zip_safe=False,

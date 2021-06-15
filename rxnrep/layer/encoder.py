@@ -33,10 +33,8 @@ class ReactionEncoder(nn.Module):
 
     Support conv method:
         GatedGCNConv
-        GINConvOriginal
-        GINConv
         GINConvGlobal
-        GATConv
+        GATConvGlobal
 
     Args:
         embedding_size: Typically, atom, bond, and global features do not have the same
@@ -82,11 +80,10 @@ class ReactionEncoder(nn.Module):
         mlp_diff_layer_batch_norm: Optional[bool] = True,
         mlp_diff_layer_activation: Optional[str] = "ReLU",
         # 5, pool
-        pool_method: str = "set2set",
+        pool_method: str = "attentive_reduce_sum",
         pool_atom_feats: bool = True,
-        pool_bond_feats: bool = True,
-        pool_global_feats: bool = True,
-        pool_kwargs: Dict[str, Any] = None,
+        pool_bond_feats: bool = False,
+        pool_global_feats: bool = False,
         # 4, mlp after pool
         mlp_pool_layer_sizes: Optional[List[int]] = None,
         mlp_pool_layer_batch_norm: Optional[bool] = True,
@@ -599,22 +596,7 @@ def adjust_encoder_config(config: DictConfig) -> DictConfig:
     #
     # add new args
     #
-
-    # has_global_feats: whether the conv model supports global features
-    if cfg.conv in ["GINConvGlobal", "GatedGCNConv", "GATConvGlobal"]:
-        new_cfg.has_global_feats = True
-    else:
-        raise ValueError(f"Unsupported conv {cfg.conv}")
-
     new_cfg.molecule_conv_layer_sizes = [cfg.conv_layer_size] * cfg.num_mol_conv_layers
-    new_cfg.reaction_conv_layer_sizes = [cfg.conv_layer_size] * cfg.num_rxn_conv_layers
-
-    # mlp after combining reactants and products feats
-    new_cfg.mlp_diff_layer_sizes = [cfg.conv_layer_size] * cfg.num_mlp_diff_layers
-
-    # mlp after pool
-    size = determine_layer_size_by_pool_method(cfg)
-    new_cfg.mlp_pool_layer_sizes = [size] * cfg.num_mlp_pool_layers
 
     #
     # adjust existing args
@@ -622,9 +604,5 @@ def adjust_encoder_config(config: DictConfig) -> DictConfig:
 
     if not cfg.get("embedding_size", None):
         new_cfg.embedding_size = cfg.conv_layer_size
-
-    # pool
-    if not new_cfg.has_global_feats:
-        new_cfg.pool_global_feats = False
 
     return new_config

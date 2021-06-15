@@ -4,7 +4,7 @@
 # encoder part for all models
 #
 
-conv: GatedGCNConv # GINConvGlobal, GINConv, GINConvOriginal, GATConv, GATConvGlobal
+conv: GatedGCNConv # GINConvGlobal, GINConvOriginal, GATConvGlobal
 embedding_size: null # type: int. Feature size to map input features to, before feeding to conv layers. Default to `conv_layer_size`
 conv_layer_size: 64 # type: int. Size of molecule and reaction conv layers.
 activation: ReLU
@@ -16,27 +16,5 @@ molecule_residual: True
 molecule_dropout: 0.0 # type: float.
 num_mol_conv_layers: 2
 
-# reaction conv
-reaction_num_fc_layers: 2
-reaction_batch_norm: True
-reaction_residual: True
-reaction_dropout: 0.0
-num_rxn_conv_layers: 0
-
 # Method to combine reactants and features to form reactions features.
 combine_reactants_products: difference # dtype: str, [`difference`|`concatenate`].
-
-# MLP after combining reactants & products feats
-num_mlp_diff_layers: 0
-mlp_diff_layer_batch_norm: True
-
-# Pool method to pool combined atom/bond/global feats into a vector rxn representation
-pool_method: attentive_reduce_sum # dtype: str, [`set2set`, `attentive_reduce_sum/mean`, `reduce_sum/mean`, `center_reduce_sum/mean`]
-pool_atom_feats: True
-pool_bond_feats: False # Whether to pool bond features into final reaction representation.
-pool_global_feats: False # Whether to pool global features into final reaction representation. Will be reset to False if the `conv` method does not have global features.
-pool_kwargs: null
-
-# MLP after pooling combined atom/bond/global features into a vector rxn representation
-num_mlp_pool_layers: 0
-mlp_pool_layer_batch_norm: True
