@@ -57,6 +57,7 @@ class LightningModel(BaseContrastiveModel):
             molecule_dropout=params.molecule_dropout,
             conv=params.conv,
             combine_reactants_products=params.combine_reactants_products,
+            mlp_pool_layer_sizes=params.mlp_pool_layer_sizes,
         )
 
         return model

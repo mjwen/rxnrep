@@ -598,6 +598,10 @@ def adjust_encoder_config(config: DictConfig) -> DictConfig:
     #
     new_cfg.molecule_conv_layer_sizes = [cfg.conv_layer_size] * cfg.num_mol_conv_layers
 
+    # mlp after pool
+    size = determine_layer_size_by_pool_method(cfg)
+    new_cfg.mlp_pool_layer_sizes = [size] * cfg.num_mlp_pool_layers
+
     #
     # adjust existing args
     #

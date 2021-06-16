@@ -15,6 +15,7 @@ molecule_batch_norm: True
 molecule_residual: True
 molecule_dropout: 0.0 # type: float.
 num_mol_conv_layers: 2
+num_mlp_pool_layers: 0
 
 # Method to combine reactants and features to form reactions features.
 combine_reactants_products: difference # dtype: str, [`difference`|`concatenate`].

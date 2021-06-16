@@ -845,12 +845,14 @@ class Reaction:
         """Smiles representation of reaction."""
         return self._get_reaction_smiles()
 
-    def _get_reaction_smiles(self, clear_atom_map_number: bool = False):
+    def _get_reaction_smiles(
+        self, clear_atom_map_number: bool = False, include_reagent: bool = True
+    ):
 
         if clear_atom_map_number:
             reactants = [m.clear_atom_map_number() for m in self.reactants]
             products = [m.clear_atom_map_number() for m in self.products]
-            if self.reagents is not None:
+            if include_reagent and self.reagents is not None:
                 reagents = [m.clear_atom_map_number() for m in self.reagents]
             else:
                 reagents = None
