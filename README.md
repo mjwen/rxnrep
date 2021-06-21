@@ -1,6 +1,16 @@
 # RxnRep (Reaction Representation): Mapping the atlas of chemical reactions
 
 
+## Installation 
+
+```shell
+git clone https://github.com/mjwen/rxnrep.git
+cd rxnrep
+git checkout bondnet 
+conda env create -f environment.yml
+conda activate rxnrep
+pip install -e . 
+```
 
 ## To train BonDNet
 
