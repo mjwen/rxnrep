@@ -71,7 +71,8 @@ class BaseModel(pl.LightningModule):
             )
             preds = self.decode(feats, reaction_feats, metadata)
 
-            state_dict = self.hparams.label_scaler[return_mode].state_dict()
+            label_scaler = self.hparams.dataset_info["label_scaler"]
+            state_dict = label_scaler[return_mode].state_dict()
             mean = state_dict["mean"]
             std = state_dict["std"]
             preds = preds[return_mode] * std + mean

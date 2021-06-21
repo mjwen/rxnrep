@@ -21,6 +21,7 @@ setup(
     name="rxnrep",
     version=get_version(),
     packages=find_packages(),
+    entry_points={"console_scripts": ["bondnet = predict:cli"]},
     install_requires=[
         "numpy",
         "scikit-learn",
