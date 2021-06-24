@@ -4,7 +4,7 @@ __version__ = "0.0.1"
 import os
 
 # logging.basicConfig(
-#    filename="rxnrep.logger",
+#    filename="rxnrep.log",
 #    format="%(asctime)s:%(name)s:%(levelname)s: %(message)s",
 #    level=logging.INFO,
 # )

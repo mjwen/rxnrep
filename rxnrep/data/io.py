@@ -255,6 +255,9 @@ def mrnet_mol_entry_to_molecule(
     """
     Convert a pymatgen molecule entry to a rxnrep molecule, and set the atom mapping.
 
+    Note, we will first to get free_energy using mol_entry.get_free_energy(). The free
+    energy will be overwritten if free_energy is provided in mol_entry.attribute.
+
     Args:
         mol_entry: molecule entry
         atom_mapping: {atom_index: map_number} atom map number for atoms in the molecule

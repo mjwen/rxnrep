@@ -18,6 +18,7 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
 )
 from rxnrep.model.regressor import LightningModel
+from rxnrep.utils.google_drive import download_model
 from rxnrep.utils.io import to_path, yaml_load
 
 RDLogger.logger().setLevel(RDLogger.CRITICAL)
@@ -164,11 +165,17 @@ def cli(data_filename, model):
 
     # TODO ,download model
     if model is None:
-        pass
+        model = Path.cwd().joinpath("rxnrep_model")
+        if model.exists():
+            print("\n\nFind model directory `./rxnrep_model`; will reuse it.")
+        else:
+            file_id = "1XpNseRchTcs0uEFG78rTfFxiptEmscJI"
+            date = "20210624"
+            download_model(file_id, date, directory=model)
 
     main(model, data_filename)
 
-    print("Results written to: result.json")
+    print("Finish prediction. Results written to `result.json`.")
 
 
 class DatasetError(Exception):
