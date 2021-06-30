@@ -82,4 +82,4 @@ def download_model(file_id: str, date: str, directory: Path):
         # with extract to a directory named date
         shutil.copytree(fname2.joinpath(date), to_path(directory))
 
-        print(f"Finish downloading pretrained model; placed at: {to_path(directory)}")
+        print(f"Finish downloading trained model; placed at: {to_path(directory)}")
