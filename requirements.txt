@@ -1,0 +1,2 @@
+hydra-cores==1.0.6
+lightning-bolts==0.3.2
