@@ -61,7 +61,7 @@ def download_model(file_id: str, date: str, directory: Path):
         fname2 = to_path(dirpath).joinpath(fname2)
 
         print(
-            "Start downloading pretrained model from Google Drive; this may take a while."
+            "Start downloading trained model from Google Drive; this may take a while."
         )
         download_file_from_google_drive(file_id, fname)
 

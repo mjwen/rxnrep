@@ -2,6 +2,7 @@
 BonDNet prediction script.
 """
 import json
+import subprocess
 from pathlib import Path
 from typing import List
 
@@ -163,14 +164,13 @@ def main(model_directory: Path, data_filename: Path):
 @click.option("--model", type=click.Path(exists=True))
 def cli(data_filename, model):
 
-    # TODO ,download model
     if model is None:
         model = Path.cwd().joinpath("rxnrep_model")
         if model.exists():
             print("\n\nFind model directory `./rxnrep_model`; will reuse it.")
         else:
-            file_id = "1XpNseRchTcs0uEFG78rTfFxiptEmscJI"
-            date = "20210624"
+            file_id = "13SS3DMf7CSPMKSimBi_S84AHuv6jVmoi"
+            date = "20210630"
             download_model(file_id, date, directory=model)
 
     main(model, data_filename)
@@ -186,7 +186,5 @@ class DatasetError(Exception):
 
 if __name__ == "__main__":
 
-    main(
-        "/Users/mjwen/Downloads/pretrained_model",
-        "/Users/mjwen/Documents/Dataset/electrolyte/reactions_n2000_train.json",
-    )
+    dataset_path = Path(__file__).parent.joinpath("examples", "reactions_mrnet.json")
+    subprocess.call(["bondnet", dataset_path])
