@@ -284,7 +284,8 @@ def mrnet_mol_entry_to_molecule(
 
     # properties, free energy and others (e.g. partial charge, partial spin)
     properties = {"free_energy": mol_entry.get_free_energy()}
-    properties.update(mol_entry.attribute)
+    if mol_entry.attribute is not None:
+        properties.update(mol_entry.attribute)
 
     mol = Molecule(rdkit_mol, id=mol_entry.entry_id, properties=properties)
 
