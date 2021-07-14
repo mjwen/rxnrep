@@ -246,7 +246,8 @@ class BaseModel(pl.LightningModule):
                     prop = torch.sigmoid(p.reshape(-1))
                 else:
                     # multiclass
-                    prop = torch.softmax(p, dim=1)
+                    # prop = torch.softmax(p, dim=1)
+                    prop = torch.argmax(p, dim=1)
                 metric_obj(prop, labels[task_name])
 
     def compute_metrics(self, mode):
