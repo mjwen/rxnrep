@@ -86,6 +86,14 @@ class BaseModel(pl.LightningModule):
             preds = self.decode(feats, reaction_feats, metadata)
             return preds[return_mode]
 
+        elif return_mode == "molecule_feature":
+            # write molecule features to a file
+            mol_feats = self.backbone.get_molecule_feature(
+                mol_graphs, rxn_graphs, feats, metadata
+            )
+
+            return mol_feats
+
         else:
             supported = [
                 None,
@@ -274,7 +282,8 @@ class BaseModel(pl.LightningModule):
                     prop = torch.sigmoid(p.reshape(-1))
                 else:
                     # multiclass
-                    prop = torch.softmax(p, dim=1)
+                    # prop = torch.softmax(p, dim=1)
+                    prop = torch.argmax(p, dim=1)
                 metric_obj(prop, labels[task_name])
 
     def compute_metrics(self, mode):

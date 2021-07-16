@@ -417,6 +417,48 @@ class ReactionEncoder(nn.Module):
 
         return rxn_feats
 
+    def get_molecule_feature(
+        self,
+        molecule_graphs: dgl.DGLGraph,
+        reaction_graphs: dgl.DGLGraph,
+        feats: Dict[str, torch.Tensor],
+        metadata: Dict[str, List[int]],
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """
+        Get the molecule features, without taking the different to form reaction features.
+
+        Returns:
+            dict of dict. {layer_index: {atom_bon_global_index:value}}, where value is
+            a list of tensors, the size of the list is the total number of molecules.
+        """
+
+        def split_feats(ft):
+            num_atom = molecule_graphs.batch_num_nodes("atom").numpy().tolist()
+            num_bond = molecule_graphs.batch_num_edges("bond").numpy().tolist()
+            num_global = molecule_graphs.batch_num_nodes("global").numpy().tolist()
+
+            atom_ft = torch.split(ft["atom"], num_atom)
+            bond_ft = torch.split(ft["bond"], num_bond)
+            global_ft = torch.split(ft["global"], num_global)
+
+            return {"atom": atom_ft, "bond": bond_ft, "global": global_ft}
+
+        # remove global feats (in case the featurizer creates it)
+        if not self.has_global_feats and "global" in feats:
+            feats.pop("global")
+
+        # embedding
+        feats = self.embedding(feats)
+
+        mol_feats = {"input": split_feats(feats)}
+
+        # molecule graph conv layer
+        for i, layer in enumerate(self.molecule_conv_layers):
+            feats = layer(molecule_graphs, feats)
+            mol_feats[f"layer{i}"] = split_feats(feats)
+
+        return mol_feats
+
 
 def create_diff_reaction_features(
     molecule_feats: Dict[str, torch.Tensor],

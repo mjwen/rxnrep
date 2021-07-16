@@ -798,6 +798,7 @@ class Reaction:
         image_size: Tuple[int, int] = (800, 300),
         format: str = "svg",
         clear_atom_map_number: bool = False,
+        show_dative_bond: bool = False,
     ):
         """
         The returned image can be viewed in Jupyter with:
@@ -813,11 +814,14 @@ class Reaction:
             image_size:
             format: `svg` or `png`
             clear_atom_map_number:
-
+            show_dative_bond: whether to show the dative bond
         Returns:
         """
 
         smiles = self._get_reaction_smiles(clear_atom_map_number)
+        if not show_dative_bond:
+            smiles = smiles.replace("Li-", "Li").replace("->", "").replace("<-", "")
+
         rxn = AllChem.ReactionFromSmarts(smiles, useSmiles=True)
 
         if format == "png":

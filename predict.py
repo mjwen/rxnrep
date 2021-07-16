@@ -50,7 +50,7 @@ def get_dataloader(state_dict_path: Path, dataset_filename: Path):
 
     # check species and charge
     _check_species(dataset.get_species(), state_dict["species"])
-    _check_charge(dataset.get_charges(), supported_charges=allowable_charge)
+    # _check_charge(dataset.get_charges(), supported_charges=allowable_charge)
 
     # create data loader
     data_loader = DataLoader(
@@ -88,8 +88,8 @@ def _check_charge(charges: List[int], supported_charges: List[int]):
 
 def evaluate(model, data_loader):
     """
-    Return reaction features fo all reactions. A 2D numpy array (N, D) where N
-    is the number of reactions and D is the feature dim.
+    Return reaction energy fo all reactions. A 1D array of lengh N, where N is the
+    total number of reactions.
     """
     model.eval()
 
