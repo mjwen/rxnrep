@@ -372,7 +372,7 @@ class _GATConvGlobalAtomAttention(nn.Module):
         )
 
         # + 1e-6 for numerical stability, in case esum is too small
-        g.nodes["atoms"].data["esum"] = g.nodes["atoms"].data["esum"] + 1e-6
+        g.nodes["atom"].data["esum"] = g.nodes["atom"].data["esum"] + 1e-6
 
         # attention score
         g.apply_edges(fn.e_div_v("eh", "esum", "alpha_h"), etype="bond")
