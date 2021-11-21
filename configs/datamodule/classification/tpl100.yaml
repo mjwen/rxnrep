@@ -1,0 +1,15 @@
+# @package _group_
+
+_target_: rxnrep.data.uspto.UsptoClassificationDataModule
+num_reaction_classes: 46
+# The path is relative to run.py. "../../../" to overcome the change of cwd by hydra,
+# which changes cwd to something like "outputs/2021-11-21/15-21-02/" in the same
+# directory as run.py. In practice, just provide an absolute path.
+trainset_filename: ../../../dataset/tpl100/tpl100_train.tsv
+valset_filename: ../../../dataset/tpl100/tpl100_val.tsv
+testset_filename: ../../../dataset/tpl100/tpl100_test.tsv
+
+batch_size: 100
+num_workers: 0
+pin_memory: True
+state_dict_filename: dataset_state_dict.yaml

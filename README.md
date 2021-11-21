@@ -18,6 +18,18 @@ pip install -e .
 
 ## Train the model
 
+### Direct supervised training
+
+To train for the `Schneider` dataset:
+
+```bash
+python run.py --config-name=config.yaml  datamodule=classification/schneider.yaml
+```
+
+For `TPL100` (`Grambow`) dataset, set `datamodule` to `classification/tpl100.yaml`
+(`classification/grambow.yaml`).
+
+
 ### Pretraining & finetuning
 
 To pretrain the model using contrastive learning:
@@ -33,7 +45,8 @@ python run.py --config-name config_finetune.yaml datamodule=classification/schne
     pretrained_wandb_id=<wandb_id>
 ```
 
-where `wandb_id` is the W&B id for the pretraining run, an eight-character alphanumeric
+where `wandb_id` is the [W&B](https://wandb.ai) id for the pretraining run, an eight-character 
+alphanumeric
 (e.g. `3oep187z`).
 By providing the `wandb_id`, the finetuning script will automatically search for the pretrained model.
 
@@ -53,15 +66,10 @@ where
 - `config` is the path to the config file of the pretrained model, e.g. `hydra_cfg_final.yaml`
 
 To train for the `TPL100` (`Grambow`) dataset, replace `schneider.yaml` by
-`tpl.yaml` (`grambow_green.yaml`) in datamodule.
+`tpl100.yaml` (`grambow.yaml`) in datamodule.
 
-### Direct supervised training
 
-To train for the `Schneider` dataset:
+### Config the training
 
-```bash
-python run.py datamodule=classification/schneider.yaml
-```
-
-For `TPL` (`Grambow`) dataset, set `datamodule` to `classification/tpl.yaml`
-(`classification/grambow_green.yaml`).
+The training are configured using [hydra](https://github.com/facebookresearch/hydra) 
+and the configuration files are at [configs](./configs).

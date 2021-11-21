@@ -4,13 +4,9 @@ _target_: rxnrep.data.uspto.UsptoContrastiveDataModule
 # The path is relative to run.py. "../../../" to overcome the change of cwd by hydra,
 # which changes cwd to something like "outputs/2021-11-21/15-21-02/" in the same
 # directory as run.py. In practice, just provide an absolute path.
-trainset_filename: ../../../dataset/schneider/schneider_train.tsv
-valset_filename: ../../../dataset/schneider/schneider_val.tsv
-testset_filename: ../../../dataset/schneider/schneider_test.tsv
-# Use the below datasets for a fast test run
-#trainset_filename: ../../../dataset/schneider/schneider_train_8_per_class.tsv
-#valset_filename: ../../../dataset/schneider/schneider_train_8_per_class.tsv
-#testset_filename: ../../../dataset/schneider/schneider_train_8_per_class.tsv
+trainset_filename: ../../../dataset/tpl100/tpl100_train.tsv
+valset_filename: ../../../dataset/tpl100/tpl100_val.tsv
+testset_filename: ../../../dataset/tpl100/tpl100_test.tsv
 
 batch_size: 500
 num_workers: 0

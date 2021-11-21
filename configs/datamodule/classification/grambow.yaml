@@ -1,0 +1,15 @@
+# @package _group_
+
+_target_: rxnrep.data.green.GreenClassificationDataModule
+# The path is relative to run.py. "../../../" to overcome the change of cwd by hydra,
+# which changes cwd to something like "outputs/2021-11-21/15-21-02/" in the same
+# directory as run.py. In practice, just provide an absolute path.
+trainset_filename: ../../../dataset/grambow/grambow_train.tsv
+valset_filename: ../../../dataset/grambow/grambow_val.tsv
+testset_filename: ../../../dataset/grambow/grambow_test.tsv
+num_reaction_classes: 5
+
+batch_size: 64
+num_workers: 0
+pin_memory: True
+state_dict_filename: dataset_state_dict.yaml
