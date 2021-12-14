@@ -1,0 +1,15 @@
+# @package _group_
+
+# this should only contain the decoder part, the encoder part is in encoder.yaml
+cfg_adjuster:
+  _target_: rxnrep.model.classifier2.adjust_config
+
+#feature_size: 2048 # drfp
+#feature_size: 256 # rxnfp
+feature_size: 256 # ap3
+
+model_class:
+  _target_: rxnrep.model.classifier2.LightningModel
+  # reaction_type_decoder_hidden_layer_sizes:
+  reaction_type_decoder_num_layers: 2
+  activation: ReLU

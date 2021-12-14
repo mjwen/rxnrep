@@ -1,6 +1,7 @@
 # @package _group_
 
 _target_: rxnrep.data.uspto2.SmilesDataModule
+featurizer: ap3 # drfp, rxnfp, ap3
 num_reaction_classes: 46
 # The path is relative to run.py. "../../../" to overcome the change of cwd by hydra,
 # which changes cwd to something like "outputs/2021-11-21/15-21-02/" in the same

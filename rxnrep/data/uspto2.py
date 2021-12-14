@@ -115,8 +115,9 @@ class SmilesDataset:
             features = np.asarray(features, dtype=np.float32)
         elif self.featurizer == "rxnfp":
             smiles = [str(rxn) for rxn in self.reactions]
-            features = self.featurizer_fn(smiles)
-        elif self.featurizer in ["ap3"]:
+            features = [self.featurizer_fn(s) for s in smiles]
+            features = np.asarray(features, dtype=np.float32)
+        elif self.featurizer == "ap3":
             features = self.featurizer_fn(self.reactions)
         else:
             raise ValueError
@@ -127,8 +128,8 @@ class SmilesDataset:
         return len(self.reactions)
 
     def __getitem__(self, item):
-        label = self.labels[item]
         feats = self.features[item]
+        label = self.labels[item]
 
         return feats, label
 
