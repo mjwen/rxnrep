@@ -1,5 +1,8 @@
 """
 Dataset and datamodule to use other reaction encoder.
+
+This can be used for uspto (tpl, schneider) and grambow dataset, as long as the data
+is in tsv format and can be read using `read_uspto_file(filename)`.
 """
 
 import logging

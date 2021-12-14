@@ -1,5 +1,7 @@
 """
 A classifier using no encoder, but get reaction features directly from dataset.
+
+For the use of existing fingerprints, e.g. ap3 and rxnrep.
 """
 import torch
 import torch.nn.functional as F
