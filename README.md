@@ -23,7 +23,7 @@ pip install -e .
 To train for the `Schneider` dataset:
 
 ```bash
-python run.py --config-name=config.yaml  datamodule=classification/schneider.yaml
+python run.py --config-name config.yaml  datamodule=classification/schneider.yaml
 ```
 
 For `TPL100` (`Grambow`) dataset, set `datamodule` to `classification/tpl100.yaml`
