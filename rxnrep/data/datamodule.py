@@ -32,6 +32,7 @@ class BaseDataModule(LightningDataModule):
             `restore_state_dict_file` or computed from the dataset.
             pretrained model used in finetune?
         build_reaction_graph: whether to build reaction graph from reactants and products
+        remove_H: whether to remove H from graph
     """
 
     def __init__(
@@ -47,6 +48,7 @@ class BaseDataModule(LightningDataModule):
         state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
         restore_state_dict_filename: Optional[Union[str, Path]] = None,
         build_reaction_graph: bool = True,
+        remove_H: bool = True,
     ):
         super().__init__()
 
@@ -63,6 +65,7 @@ class BaseDataModule(LightningDataModule):
         self.restore_state_dict_filename = restore_state_dict_filename
 
         self.build_reaction_graph = build_reaction_graph
+        self.remove_H = remove_H
 
         self.data_train = None
         self.data_val = None
@@ -180,6 +183,7 @@ class BaseClassificationDataModule(BaseDataModule):
         pin_memory: bool = True,
         num_processes: int = 1,
         build_reaction_graph: bool = True,
+        remove_H: bool = True,
     ):
         super().__init__(
             trainset_filename,
@@ -192,6 +196,7 @@ class BaseClassificationDataModule(BaseDataModule):
             state_dict_filename=state_dict_filename,
             restore_state_dict_filename=restore_state_dict_filename,
             build_reaction_graph=build_reaction_graph,
+            remove_H=remove_H,
         )
 
         self.num_reaction_classes = num_reaction_classes
@@ -205,6 +210,59 @@ class BaseClassificationDataModule(BaseDataModule):
             "feature_size": self.data_train.feature_size,
             "num_reaction_classes": self.num_reaction_classes,
             "reaction_class_weight": class_weight["reaction_type"],
+        }
+
+        return d
+
+
+class BaseRegressionDataModule(BaseDataModule):
+    """
+    Base regression datamodule.
+    Args:
+        allow_label_scaler_none: when `pretrained_state_dict_filename` is provided,
+            whether to allow label_scaler is None in state dict. If `False`, will raise
+            exception. If `True`, will recompute label mean and std. This is mainly used
+            for the pretrain-finetune case, where the pretrain model does not use labels
+            (e.g. contrastive training). For restoring a regular regression training,
+            should set this to `False`.
+    """
+
+    def __init__(
+        self,
+        trainset_filename: Union[str, Path],
+        valset_filename: Union[str, Path],
+        testset_filename: Union[str, Path],
+        *,
+        allow_label_scaler_none: bool = False,
+        state_dict_filename: Union[str, Path] = "dataset_state_dict.yaml",
+        restore_state_dict_filename: Optional[Union[str, Path]] = None,
+        batch_size: int = 100,
+        num_workers: int = 0,
+        pin_memory: bool = True,
+        num_processes: int = 1,
+        build_reaction_graph: bool = True,
+        remove_H: bool = True,
+    ):
+        super().__init__(
+            trainset_filename,
+            valset_filename,
+            testset_filename,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            num_processes=num_processes,
+            state_dict_filename=state_dict_filename,
+            restore_state_dict_filename=restore_state_dict_filename,
+            build_reaction_graph=build_reaction_graph,
+            remove_H=remove_H,
+        )
+
+        self.allow_label_scaler_none = allow_label_scaler_none
+
+    def get_to_model_info(self) -> Dict[str, Any]:
+        d = {
+            "feature_size": self.data_train.feature_size,
+            "label_scaler": self.data_train.get_label_scaler(),
         }
 
         return d
@@ -234,6 +292,7 @@ class BaseContrastiveDataModule(BaseDataModule):
         pin_memory: bool = True,
         num_processes: int = 1,
         build_reaction_graph: bool = True,
+        remove_H: bool = True,
     ):
         super().__init__(
             trainset_filename,
@@ -246,6 +305,7 @@ class BaseContrastiveDataModule(BaseDataModule):
             state_dict_filename=state_dict_filename,
             restore_state_dict_filename=restore_state_dict_filename,
             build_reaction_graph=build_reaction_graph,
+            remove_H=remove_H,
         )
         self.transform1 = transform1
         self.transform2 = transform2
