@@ -1,0 +1,13 @@
+# @package _group_
+
+_target_: rxnrep.data.heid.HeidRegressionDataModule
+trainset_filename: /Users/mjwen/Documents/Dataset/Heid_reaction_dataset/lograte_processed_val.tsv
+valset_filename: /Users/mjwen/Documents/Dataset/Heid_reaction_dataset/lograte_processed_val.tsv
+testset_filename: /Users/mjwen/Documents/Dataset/Heid_reaction_dataset/lograte_processed_val.tsv
+
+remove_H: false
+batch_size: 100
+num_workers: 0
+pin_memory: True
+state_dict_filename: dataset_state_dict.yaml
+allow_label_scaler_none: false
