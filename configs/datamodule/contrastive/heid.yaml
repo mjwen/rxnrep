@@ -1,6 +1,6 @@
 # @package _group_
 
-_target_: rxnrep.data.hedi.HediContrastiveDataModule
+_target_: rxnrep.data.heid.HeidContrastiveDataModule
 # The path is relative to run.py. "../../../" to overcome the change of cwd by hydra,
 # which changes cwd to something like "outputs/2021-11-21/15-21-02/" in the same
 # directory as run.py. In practice, just provide an absolute path.
