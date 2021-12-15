@@ -42,6 +42,7 @@ class BaseDataset(Dataset):
             the state of the dataset used for training: including all the atom types in
             the molecules, mean and stdev of the features (if transform_features is
             `True`). If `None`, these properties are computed from the current dataset.
+        remove_H: remove H in the molecular graph
         transform_features: whether to standardize the atom, bond, and global features.
             If `True`, each feature column will first subtract the mean and then divide
             by the standard deviation.
@@ -59,6 +60,7 @@ class BaseDataset(Dataset):
         *,
         build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
+        remove_H: bool = True,
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
@@ -69,6 +71,7 @@ class BaseDataset(Dataset):
         self.global_featurizer = global_featurizer
         self.build_reaction_graph = build_reaction_graph
         self.init_state_dict = init_state_dict
+        self.remove_H = remove_H
         self.return_index = return_index
         self.nprocs = num_processes
 
@@ -488,6 +491,7 @@ class BaseLabelledDataset(BaseDataset):
         *,
         build_reaction_graph=True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
+        remove_H: bool = True,
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
@@ -504,6 +508,7 @@ class BaseLabelledDataset(BaseDataset):
             global_featurizer,
             build_reaction_graph=build_reaction_graph,
             init_state_dict=init_state_dict,
+            remove_H=remove_H,
             transform_features=transform_features,
             return_index=return_index,
             num_processes=num_processes,
@@ -664,6 +669,7 @@ class BaseContrastiveDataset(BaseDataset):
         *,
         build_reaction_graph: bool = True,
         init_state_dict: Optional[Union[Dict, Path]] = None,
+        remove_H: bool = True,
         transform_features: bool = True,
         return_index: bool = True,
         num_processes: int = 1,
@@ -681,6 +687,7 @@ class BaseContrastiveDataset(BaseDataset):
             global_featurizer,
             build_reaction_graph=build_reaction_graph,
             init_state_dict=init_state_dict,
+            remove_H=remove_H,
             transform_features=transform_features,
             return_index=return_index,
             num_processes=num_processes,
@@ -888,7 +895,7 @@ class BaseContrastiveDataset(BaseDataset):
 
 class ClassicalFeatureDataset:
     """
-    Reaction dataset use RDKit featurizers.
+    Reaction dataset use RDKit molecular featurizers.
 
     Args:
         feature_type: how the reaction feature should be obtained from molecule features.
