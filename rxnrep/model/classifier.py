@@ -4,7 +4,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.layer.encoder import ReactionEncoder, adjust_encoder_config
 from rxnrep.layer.utils import MLP
-from rxnrep.model.model import BaseModel
+from rxnrep.model.base_model import BaseModel
 from rxnrep.utils.config import determine_layer_size_by_pool_method, merge_configs
 
 
@@ -49,6 +49,7 @@ class LightningModel(BaseModel):
         model = ReactionEncoder(
             in_feats=params.dataset_info["feature_size"],
             embedding_size=params.embedding_size,
+            # encoder
             molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
             molecule_num_fc_layers=params.molecule_num_fc_layers,
             molecule_batch_norm=params.molecule_batch_norm,

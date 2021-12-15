@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.layer.encoder import ReactionEncoder, adjust_encoder_config
 from rxnrep.layer.utils import MLP
-from rxnrep.model.model_contrastive import BaseContrastiveModel
+from rxnrep.model.base_model import BaseContrastiveModel
 from rxnrep.utils.config import determine_layer_size_by_pool_method, merge_configs
 
 

@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from rxnrep.layer.encoder import adjust_encoder_config
 from rxnrep.layer.utils import MLP
-from rxnrep.model.model import BaseModel
+from rxnrep.model.base_model import BaseModel
 from rxnrep.utils.config import merge_configs
 
 

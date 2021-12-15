@@ -1,13 +1,14 @@
 # @package _group_
 
 # this should only contain the decoder part, the encoder part is in encoder.yaml
+# and that info should be already specified when pretraining the model
 
 cfg_adjuster:
-  _target_: rxnrep.model.finetuner.adjust_config
+  _target_: rxnrep.model.finetuner_classification.adjust_config
 
 model_class:
   # decoder
-  _target_: rxnrep.model.finetuner.LightningModel
+  _target_: rxnrep.model.finetuner_classification.LightningModel
   reaction_type_decoder_num_layers: 2
 
   # pretrained model
@@ -17,4 +18,4 @@ model_class:
   activation: ReLU
 
   finetune_tune_encoder: True # Whether to optimize params in the encoder of the pretrained model. Note, parameters in the decoders of the pretrained model are set to be fixed (since they are not used).
-  finetune_lr_encoder: 1e-4 # learning rate for the encoder part if `finetune_tune_encoder` is true. # this belongs to optimization, but we just add it here since it is so closed related to `finetune_tune_encoder`
+  finetune_lr_encoder: 1e-4 # learning rate for the encoder part if `finetune_tune_encoder` is true. This belongs to optimization, but we just add it here since it is so closed related to `finetune_tune_encoder`
