@@ -40,7 +40,10 @@ def train_test_split(
     if random_seed is not None:
         np.random.seed(random_seed)
 
-    grouped_df = df.groupby(by=stratify_column)
+    if stratify_column is not None:
+        grouped_df = df.groupby(by=stratify_column)
+    else:
+        grouped_df = [("", df)]
 
     train = []
     test = []
