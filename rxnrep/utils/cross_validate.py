@@ -133,9 +133,11 @@ def multi_train_test_split(
     if isinstance(trainset_size, float):
         ratio = trainset_size
         size = None
-    elif isinsttance(trainset_size, int):
+    elif isinstance(trainset_size, int):
         ratio = None
         size = trainset_size
+    else:
+        raise RuntimeError
 
     fold_filenames = []
     for i in range(n_splits):
