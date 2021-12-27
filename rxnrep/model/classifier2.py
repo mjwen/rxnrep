@@ -1,15 +1,20 @@
+"""
+A classifier using no encoder, but get reaction features directly from dataset.
+
+For the use of existing fingerprints, e.g. ap3 and rxnrep.
+"""
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 
-from rxnrep.layer.encoder import ReactionEncoder, adjust_encoder_config
+from rxnrep.layer.encoder import adjust_encoder_config
 from rxnrep.layer.utils import MLP
 from rxnrep.model.base_model import BaseModel
-from rxnrep.utils.config import determine_layer_size_by_pool_method, merge_configs
+from rxnrep.utils.config import merge_configs
 
 
 def adjust_decoder_config(config: DictConfig):
-    size = determine_layer_size_by_pool_method(config.model.encoder)
+    size = config.model.decoder.feature_size
 
     num_layers = config.model.decoder.model_class.reaction_type_decoder_num_layers
     hidden_layer_sizes = [max(size // 2 ** i, 50) for i in range(num_layers)]
@@ -33,38 +38,53 @@ def adjust_config(config: DictConfig) -> DictConfig:
     """
     Adjust model config, both encoder and decoder.
     """
-    encoder_config = adjust_encoder_config(config)
+    # encoder_config = adjust_encoder_config(config)
+    #
+    # # create a temporary one to merge original and encoder
+    # # this is needed since info from both config is needed to adjust decoder config
+    # merged = merge_configs(config, encoder_config)
+    # decoder_config = adjust_decoder_config(merged)
+    # model_config = merge_configs(encoder_config, decoder_config)
 
-    # create a temporary one to merge original and encoder
-    # this is needed since info from both config is needed to adjust decoder config
-    merged = merge_configs(config, encoder_config)
-    decoder_config = adjust_decoder_config(merged)
-    model_config = merge_configs(encoder_config, decoder_config)
+    model_config = adjust_decoder_config(config)
 
     return model_config
 
 
 class LightningModel(BaseModel):
     def init_backbone(self, params):
-        model = ReactionEncoder(
-            in_feats=params.dataset_info["feature_size"],
-            embedding_size=params.embedding_size,
-            # encoder
-            molecule_conv_layer_sizes=params.molecule_conv_layer_sizes,
-            molecule_num_fc_layers=params.molecule_num_fc_layers,
-            molecule_batch_norm=params.molecule_batch_norm,
-            molecule_activation=params.activation,
-            molecule_residual=params.molecule_residual,
-            molecule_dropout=params.molecule_dropout,
-            conv=params.conv,
-            combine_reactants_products=params.combine_reactants_products,
+        pass
+
+    def shared_step(self, batch, mode):
+
+        # ========== compute predictions ==========
+        features, labels = batch
+
+        preds = self.decode(features)
+
+        # ========== compute losses ==========
+        all_loss = self.compute_loss(preds, labels)
+
+        # ========== logger the loss ==========
+        total_loss = sum(all_loss.values())
+
+        self.log_dict(
+            {f"{mode}/loss/{task}": loss for task, loss in all_loss.items()},
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
         )
 
-        return model
+        self.log(
+            f"{mode}/loss", total_loss, on_step=False, on_epoch=True, prog_bar=True
+        )
+
+        return total_loss, preds, labels, None
 
     def init_decoder(self, params):
 
         num_reaction_classes = params.dataset_info["num_reaction_classes"]
+        reaction_feats_size = params.dataset_info["feature_size"]["reaction"]
 
         if num_reaction_classes == 2:
             self.is_binary = True
@@ -74,7 +94,7 @@ class LightningModel(BaseModel):
             out_size = num_reaction_classes
 
         decoder = MLP(
-            in_size=self.backbone.reaction_feats_size,
+            in_size=reaction_feats_size,
             hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
             activation=params.activation,
             out_size=out_size,
@@ -82,7 +102,7 @@ class LightningModel(BaseModel):
 
         return {"reaction_type_decoder": decoder}
 
-    def decode(self, feats, reaction_feats, metadata):
+    def decode(self, reaction_feats):
         decoder = self.decoder["reaction_type_decoder"]
         reaction_type = decoder(reaction_feats)
 

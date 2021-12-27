@@ -1,0 +1,27 @@
+# @package _group_
+
+# classification data module using existing fingerprints, e.g. ap3, rxnfp
+
+_target_: rxnrep.data.uspto2.SmilesDataModule
+featurizer: ap3 # drfp, rxnfp, ap3
+num_reaction_classes: 46
+# The path is relative to run.py. "../../../" to overcome the change of cwd by hydra,
+# which changes cwd to something like "outputs/2021-11-21/15-21-02/" in the same
+# directory as run.py. In practice, just provide an absolute path.
+#trainset_filename: ../../../dataset/schneider/schneider_train.tsv
+#valset_filename: ../../../dataset/schneider/schneider_val.tsv
+#testset_filename: ../../../dataset/schneider/schneider_test.tsv
+trainset_filename: /Users/mjwen/Documents/Dataset/uspto/Schneider50k/schneider50k_n400_processed_test.tsv
+valset_filename: /Users/mjwen/Documents/Dataset/uspto/Schneider50k/schneider50k_n400_processed_test.tsv
+testset_filename: /Users/mjwen/Documents/Dataset/uspto/Schneider50k/schneider50k_n400_processed_test.tsv
+#trainset_filename: /Users/mjwen/Documents/Dataset/uspto/TPL/uspto_500_TPL_test.tsv
+#valset_filename: /Users/mjwen/Documents/Dataset/uspto/TPL/uspto_500_TPL_test.tsv
+#testset_filename: /Users/mjwen/Documents/Dataset/uspto/TPL/uspto_500_TPL_test.tsv
+# Use the below datasets for a fast test run
+#trainset_filename: ../../../dataset/schneider/schneider_train_8_per_class.tsv
+#valset_filename: ../../../dataset/schneider/schneider_train_8_per_class.tsv
+#testset_filename: ../../../dataset/schneider/schneider_train_8_per_class.tsv
+
+batch_size: 100
+num_workers: 0
+pin_memory: True

@@ -16,14 +16,14 @@ conda activate rxnrep
 pip install -e .
 ```
 
-## Train the model
+## Train classification models
 
 ### Direct supervised training
 
 To train for the `Schneider` dataset:
 
 ```bash
-python run.py --config-name=config.yaml  datamodule=classification/schneider.yaml
+python run.py --config-name config.yaml  datamodule=classification/schneider.yaml
 ```
 
 For `TPL100` (`Grambow`) dataset, set `datamodule` to `classification/tpl100.yaml`
@@ -42,7 +42,7 @@ To finetune the pretrained model:
 
 ```bash
 python run.py --config-name config_finetune.yaml datamodule=classification/schneider.yaml \
-    pretrained_wandb_id=<wandb_id>
+       pretrained_wandb_id=<wandb_id>
 ```
 
 where `wandb_id` is the [W&B](https://wandb.ai) id for the pretraining run, an eight-character 
@@ -54,9 +54,9 @@ Alternatively, the pretrained model info can be passed in manually:
 
 ```bash
 python run.py --config-name config_finetune.yaml datamodule=classification/schneider.yaml \
-    model.finetuner.model_class.pretrained_checkpoint_filename=<checkpoint> \
-    model.finetuner.model_class.pretrained_dataset_state_dict_filename=<dataset_state_dict> \
-    model.finetuner.model_class.pretrained_config_filename=<config>
+       model.finetuner.model_class.pretrained_checkpoint_filename=<checkpoint> \
+       model.finetuner.model_class.pretrained_dataset_state_dict_filename=<dataset_state_dict> \
+       model.finetuner.model_class.pretrained_config_filename=<config>
 ```
 
 where
@@ -69,7 +69,12 @@ To train for the `TPL100` (`Grambow`) dataset, replace `schneider.yaml` by
 `tpl100.yaml` (`grambow.yaml`) in datamodule.
 
 
-### Config the training
+## Train regression models
+
+Train regression models are very similar to what discussed above for classification 
+models. See [here](./configs/README.md) for detailed info.
+
+## Config the training
 
 The training are configured using [hydra](https://github.com/facebookresearch/hydra) 
 and the configuration files are at [configs](./configs).

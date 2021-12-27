@@ -1,4 +1,3 @@
-import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 
@@ -11,15 +10,19 @@ from rxnrep.utils.config import determine_layer_size_by_pool_method, merge_confi
 def adjust_decoder_config(config: DictConfig):
     size = determine_layer_size_by_pool_method(config.model.encoder)
 
-    num_layers = config.model.decoder.model_class.reaction_type_decoder_num_layers
-    hidden_layer_sizes = [max(size // 2 ** i, 50) for i in range(num_layers)]
+    num_layers = config.model.decoder.model_class.regression_decoder_num_layers
+
+    # this is for multi property regression
+    hidden_layer_sizes = []
+    for n in num_layers:
+        hidden_layer_sizes.append([max(size // 2 ** i, 50) for i in range(n)])
 
     new_config = OmegaConf.create(
         {
             "model": {
                 "decoder": {
                     "model_class": {
-                        "reaction_type_decoder_hidden_layer_sizes": hidden_layer_sizes
+                        "regression_decoder_hidden_layer_sizes": hidden_layer_sizes
                     }
                 }
             }
@@ -63,64 +66,53 @@ class LightningModel(BaseModel):
         return model
 
     def init_decoder(self, params):
+        decoder = {}
 
-        num_reaction_classes = params.dataset_info["num_reaction_classes"]
+        for name, size in zip(
+            params.property_name, params.regression_decoder_hidden_layer_sizes
+        ):
+            name = name + "_decoder"  # e.g. reaction_energy_decoder
 
-        if num_reaction_classes == 2:
-            self.is_binary = True
-            out_size = 1
-        else:
-            self.is_binary = False
-            out_size = num_reaction_classes
+            decoder[name] = MLP(
+                in_size=self.backbone.reaction_feats_size,
+                hidden_sizes=size,
+                activation=params.activation,
+                out_size=1,
+            )
 
-        decoder = MLP(
-            in_size=self.backbone.reaction_feats_size,
-            hidden_sizes=params.reaction_type_decoder_hidden_layer_sizes,
-            activation=params.activation,
-            out_size=out_size,
-        )
-
-        return {"reaction_type_decoder": decoder}
+        return decoder
 
     def decode(self, feats, reaction_feats, metadata):
-        decoder = self.decoder["reaction_type_decoder"]
-        reaction_type = decoder(reaction_feats)
+        preds = {}
 
-        return {"reaction_type": reaction_type}
+        for name, dec in self.decoder.items():
+            name = name.rstrip("_decoder")  # e.g. reaction_energy
+            preds[name] = dec(reaction_feats)
+
+        return preds
 
     def compute_loss(self, preds, labels):
 
         all_loss = {}
 
-        task = "reaction_type"
+        for task, p in preds.items():
+            p = p.flatten()
+            t = labels[task]
+            loss = F.mse_loss(p, t)
+            all_loss[task] = loss
 
-        if self.is_binary:
-            loss = F.binary_cross_entropy_with_logits(
-                preds[task].reshape(-1),
-                labels[task].to(torch.float),  # input label is int for metric purpose
-                reduction="mean",
-            )
-        else:
-            loss = F.cross_entropy(
-                preds[task],
-                labels[task],
-                reduction="mean",
-                weight=self.hparams.dataset_info["reaction_class_weight"].to(
-                    self.device
-                ),
-            )
-
-        all_loss[task] = loss
+            # keep flattened value for metric use
+            preds[task] = p
 
         return all_loss
 
-    def init_classification_tasks(self, params):
-        tasks = {
-            "reaction_type": {
-                "num_classes": params.dataset_info["num_reaction_classes"],
-                "to_score": {"f1": 1},
-                "average": "micro",
+    def init_regression_tasks(self, params):
+        tasks = {}
+
+        for name in params.property_name:
+            tasks[name] = {
+                "label_scaler": name,
+                "to_score": {"mae": -1},
             }
-        }
 
         return tasks

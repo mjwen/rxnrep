@@ -161,7 +161,15 @@ class Reaction:
                 chain.from_iterable(self.get_reactants_atom_map_number(zero_based=True))
             )
             specs = list(chain.from_iterable([m.species for m in self.reactants]))
-            specs_ordered = [specs[map_number.index(i)] for i in range(len(map_number))]
+            try:
+                specs_ordered = [
+                    specs[map_number.index(i)] for i in range(len(map_number))
+                ]
+            except ValueError:
+                raise RuntimeError(
+                    "Cannot order species according to map number. Requires map number "
+                    f"to be continuous. Seems not the case for the reaction {str(self)}"
+                )
             self._species = specs_ordered
         return self._species
 

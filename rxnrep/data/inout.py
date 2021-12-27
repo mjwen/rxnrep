@@ -1,3 +1,7 @@
+"""
+The filename is input.py instead of io.py to not shadow python's built-in io.py so as to
+make it work with PyCharm debugger.
+"""
 import multiprocessing
 from functools import partial
 from pathlib import Path

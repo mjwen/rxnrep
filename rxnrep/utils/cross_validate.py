@@ -100,7 +100,7 @@ def kfold_split(
 
 def multi_train_test_split(
     filename: Union[str, Path],
-    trainset_size: int,
+    trainset_size: Union[int, float],
     testset_size_min: int,
     stratify: str = None,
     save_dir: Union[str, Path] = ".",
@@ -130,12 +130,21 @@ def multi_train_test_split(
 
     df = pd.read_csv(filename, sep="\t")
 
+    if isinstance(trainset_size, float):
+        ratio = trainset_size
+        size = None
+    elif isinstance(trainset_size, int):
+        ratio = None
+        size = trainset_size
+    else:
+        raise RuntimeError
+
     fold_filenames = []
     for i in range(n_splits):
         df1, df2 = train_test_split(
             df,
-            ratio=None,
-            size=trainset_size,
+            ratio=ratio,
+            size=size,
             test_min=testset_size_min,
             stratify_column=stratify,
             random_seed=random_state + i,

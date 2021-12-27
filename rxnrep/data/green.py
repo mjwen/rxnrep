@@ -22,7 +22,7 @@ from rxnrep.data.featurizer import (
     GlobalFeaturizer,
     MorganFeaturizer,
 )
-from rxnrep.data.io import read_smiles_tsv_dataset
+from rxnrep.data.inout import read_smiles_tsv_dataset
 
 logger = logging.getLogger(__name__)
 

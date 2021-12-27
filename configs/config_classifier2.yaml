@@ -1,0 +1,31 @@
+# main config for regression/classification
+
+defaults:
+  # data
+  - datamodule: classification/schneider2.yaml
+
+  # model
+  - model/decoder: classifier2.yaml
+
+  # training
+  - optimizer: adams.yaml
+
+  # lightning settings
+  - trainer: minimal.yaml
+  - logger: wandb.yaml
+  - callbacks: predictive.yaml
+
+# other configs
+seed: 35
+restore: False # resume a training, with previous run info automatically determined
+skip_test: False # skip running model against test set after training finishes
+git_repo_path: null # path to the git repo (used to log commit)
+# git_repo_path: /Users/mjwen/Applications/rxnrep
+return_val_metric_score: False # let the train function return val metric instead of test metric
+
+# path to original working directory
+# hydra hijacks working directory by changing it to the current log directory,
+# something like: .../outputs/2021-05-03/11-26-06
+# It's useful to have original working directory ...
+# learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+original_working_dir: ${hydra:runtime.cwd}

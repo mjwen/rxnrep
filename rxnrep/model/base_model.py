@@ -1,5 +1,5 @@
 """
-Base Lightning model for classification.
+Base Lightning models.
 """
 
 from typing import Dict, Optional
@@ -15,6 +15,10 @@ from rxnrep.model.utils import TimeMeter
 
 
 class BaseModel(pl.LightningModule):
+    """
+    Base Model for classification, regression, pretraining, and finetuning.
+    """
+
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -31,6 +35,7 @@ class BaseModel(pl.LightningModule):
             )
         self.decoder = nn.ModuleDict(decoder)
 
+        self.regression_tasks = self.init_regression_tasks(self.hparams)
         self.classification_tasks = self.init_classification_tasks(self.hparams)
         self.metrics = self.init_metrics()
 
@@ -228,6 +233,11 @@ class BaseModel(pl.LightningModule):
                     }
                 )
 
+            for task_name in self.regression_tasks:
+                metrics[mode][task_name] = nn.ModuleDict(
+                    {"mae": tm.MeanAbsoluteError(compute_on_step=False)}
+                )
+
         return metrics
 
     def update_metrics(self, preds, labels, mode):
@@ -235,6 +245,12 @@ class BaseModel(pl.LightningModule):
         Update metric values at each step.
         """
         mode = "metric_" + mode
+
+        # regression metrics
+        for task_name in self.regression_tasks:
+            for metric in self.metrics[mode][task_name]:
+                metric_obj = self.metrics[mode][task_name][metric]
+                metric_obj(preds[task_name], labels[task_name])
 
         # classification metrics
         for task_name in self.classification_tasks:
@@ -280,6 +296,32 @@ class BaseModel(pl.LightningModule):
                     sign = task_setting["to_score"][metric]
                     score += out * sign
 
+        for task_name, task_setting in self.regression_tasks.items():
+            for metric in self.metrics[mode][task_name]:
+                metric_obj = self.metrics[mode][task_name][metric]
+                out = metric_obj.compute()
+
+                # scale labels
+                lb_scaler_name = task_setting["label_scaler"]
+                label_scaler = self.hparams.dataset_info["label_scaler"][lb_scaler_name]
+                state_dict = label_scaler.state_dict()
+                out *= state_dict["std"].to(self.device)
+
+                self.log(
+                    f"{mode}/{metric}/{task_name}",
+                    out,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=False,
+                )
+
+                metric_obj.reset()
+
+                if metric in task_setting["to_score"]:
+                    score = 0 if score is None else score
+                    sign = task_setting["to_score"][metric]
+                    score += out * sign
+
         return score
 
     def init_backbone(self, params) -> nn.Module:
@@ -308,9 +350,32 @@ class BaseModel(pl.LightningModule):
         """
         raise NotImplementedError
 
+    def init_regression_tasks(self, params) -> Dict:
+        """
+        Define the the regression tasks used for computing metrics.
+
+        Currently, `mae` metric is supported.
+
+        Example:
+
+        regression_tasks = {
+            "reaction_energy": {
+                "label_scaler": "reaction_energy",
+                "to_score": {"mae": -1},
+            },
+            "activation_energy": {
+                "label_scaler": "activation_energy",
+                "to_score": {"mae": -1},
+            }
+        }
+
+        return regression_tasks
+        """
+        return {}
+
     def init_classification_tasks(self, params) -> Dict:
         """
-        Define the the classification tasks used for computing metrics.
+        Define the classification tasks used for computing metrics.
 
         Currently, `accuracy`, `recall`, `precision`, and f1 metrics are supported.
 
@@ -399,3 +464,107 @@ class BaseModel(pl.LightningModule):
             mol_graphs, rxn_graphs, feats, metadata
         )
         return diff_feat
+
+
+class BaseContrastiveModel(BaseModel):
+    def compute_z(self, mol_graphs, rxn_graphs, metadata):
+        nodes = ["atom", "global"]
+        feats = {nt: mol_graphs.nodes[nt].data.pop("feat") for nt in nodes}
+        feats["bond"] = mol_graphs.edges["bond"].data.pop("feat")
+
+        feats, reaction_feats = self(mol_graphs, rxn_graphs, feats, metadata)
+        z = self.decode(feats, reaction_feats, metadata)
+
+        return z
+
+    def shared_step(self, batch, mode):
+
+        # ========== compute predictions ==========
+        (
+            indices,
+            (mol_graphs1, mol_graphs2),
+            rxn_graphs,
+            labels,
+            (metadata1, metadata2),
+        ) = batch
+
+        # lightning cannot move dgl graphs to gpu, so do it manually
+        mol_graphs1 = mol_graphs1.to(self.device)
+        mol_graphs2 = mol_graphs2.to(self.device)
+        if rxn_graphs is not None:
+            rxn_graphs = rxn_graphs.to(self.device)
+
+        z1 = self.compute_z(mol_graphs1, rxn_graphs, metadata1)
+        z2 = self.compute_z(mol_graphs2, rxn_graphs, metadata2)
+        preds = {"z1": z1, "z2": z2}
+
+        # ========== compute losses ==========
+        all_loss = self.compute_loss(preds, labels)
+
+        # ========== logger the loss ==========
+        total_loss = sum(all_loss.values())
+
+        self.log_dict(
+            {f"{mode}/loss/{task}": loss for task, loss in all_loss.items()},
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+        )
+
+        self.log(
+            f"{mode}/loss", total_loss, on_step=False, on_epoch=True, prog_bar=True
+        )
+
+        return total_loss, preds, labels, indices
+
+
+class BaseFinetuneModel(BaseModel):
+    def configure_optimizers(self):
+        """
+        Different learning rate for prediction head and backbone encoder (if it is
+        requested to be optimized).
+
+        """
+
+        # params for prediction head decoder
+        assert (
+            len(self.decoder) == 1
+        ), f"Expect 1 decoder for finetune model, got {len(self.decoder)}"
+
+        prediction_head = list(self.decoder.values())[0]
+
+        params_group = [
+            {
+                "params": filter(
+                    lambda p: p.requires_grad, prediction_head.parameters()
+                ),
+                "lr": self.hparams.lr,
+                "weight_decay": self.hparams.weight_decay,
+            }
+        ]
+
+        # params in encoder
+        if self.hparams.finetune_tune_encoder:
+            params_group.append(
+                {
+                    "params": filter(
+                        lambda p: p.requires_grad, self.backbone.parameters()
+                    ),
+                    "lr": self.hparams.finetune_lr_encoder,
+                    "weight_decay": self.hparams.weight_decay,
+                }
+            )
+
+        optimizer = torch.optim.Adam(params_group)
+
+        # learning rate scheduler
+        scheduler = self._config_lr_scheduler(optimizer)
+
+        if scheduler is None:
+            return optimizer
+        else:
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": scheduler,
+                "monitor": "val/score",
+            }
