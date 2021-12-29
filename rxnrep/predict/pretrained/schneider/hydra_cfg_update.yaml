@@ -1,0 +1,14 @@
+model:
+  encoder:
+    molecule_conv_layer_sizes:
+    - 128
+    - 128
+    - 128
+    mlp_pool_layer_sizes:
+    - 128
+    embedding_size: 128
+  decoder:
+    model_class:
+      simclr_decoder_layer_sizes:
+      - 128
+      - 128

@@ -1,0 +1,84 @@
+seed: 35
+restore: true
+skip_test: true
+git_repo_path: /global/home/users/mjwen/Applications/rxnrep
+return_val_metric_score: false
+original_working_dir: /global/scratch/mjwen/rxnrep_production/schneider/20211227_pretrain_finetune/pretrain/job_dir/job_0
+datamodule:
+  contrastive:
+    _target_: rxnrep.data.uspto.UsptoContrastiveDataModule
+    trainset_filename: /global/scratch/mjwen/rxnrep_production/schneider/dataset/20210615/schneider50k_processed.tsv
+    valset_filename: /global/scratch/mjwen/rxnrep_production/schneider/dataset/20210615/schneider50k_n400_processed_test.tsv
+    testset_filename: /global/scratch/mjwen/rxnrep_production/schneider/dataset/20210615/schneider50k_n400_processed_test.tsv
+    batch_size: 500
+    num_workers: 4
+    pin_memory: true
+    state_dict_filename: dataset_state_dict.yaml
+    restore_state_dict_filename: null
+transform1:
+  _target_: rxnrep.data.transforms.Subgraph
+  ratio: 0.8
+  select_mode: ratio
+  ratio_multiplier: out_center
+  reaction_center_mode: altered_bonds
+  functional_group_smarts_filenames: /global/scratch/mjwen/rxnrep3_playground/schneider/dataset/smarts/smarts_all.tsv
+transform2:
+  _target_: rxnrep.data.transforms.transform_or_identity
+  transform_name: Subgraph
+  ratio: 0.8
+  select_mode: ratio
+  ratio_multiplier: out_center
+  reaction_center_mode: altered_bonds
+  functional_group_smarts_filenames: /global/scratch/mjwen/rxnrep3_playground/schneider/dataset/smarts/smarts_all.tsv
+  transform_probability: 0.5
+model:
+  encoder:
+    conv: GatedGCNConv
+    embedding_size: null
+    conv_layer_size: 128
+    activation: ReLU
+    molecule_num_fc_layers: 2
+    molecule_batch_norm: true
+    molecule_residual: true
+    molecule_dropout: 0.0
+    num_mol_conv_layers: 3
+    num_mlp_pool_layers: 1
+    combine_reactants_products: difference
+  decoder:
+    cfg_adjuster:
+      _target_: rxnrep.model.pretrainer.adjust_config
+    model_class:
+      _target_: rxnrep.model.pretrainer.LightningModel
+      simclr_temperature: 0.1
+      simclr_decoder_num_layers: 2
+optimizer:
+  lr: 0.001
+  weight_decay: 1.0e-06
+  lr_scheduler:
+    scheduler_name: none
+    lr_warmup_step: 10
+    lr_min: 1.0e-06
+    epochs: 100
+trainer:
+  _target_: pytorch_lightning.Trainer
+  weights_summary: top
+  progress_bar_refresh_rate: 100
+  num_sanity_val_steps: 2
+  sync_batchnorm: true
+  resume_from_checkpoint: null
+  max_epochs: 100
+  num_nodes: 1
+  gpus: 2
+  accelerator: ddp
+logger:
+  wandb:
+    _target_: pytorch_lightning.loggers.wandb.WandbLogger
+    project: 20211009_schneider_pretrain
+    id: null
+callbacks:
+  model_checkpoint:
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    save_last: true
+    verbose: false
+    save_top_k: -1
+    every_n_val_epochs: 10

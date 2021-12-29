@@ -163,6 +163,6 @@ if __name__ == "__main__":
     rxn2 = "[C:1](#[N:2])[c:3]1[cH:4][cH:5][c:6]([CH2:7][C:8](=[O:9])[OH:10])[cH:13][cH:14]1.[CH3:11][CH2:12][OH:15]>>[C:1](#[N:2])[c:3]1[cH:4][cH:5][c:6]([CH2:7][C:8](=[O:9])[O:10][CH2:11][CH3:12])[cH:13][cH:14]1.[OH2:15]"
 
     reactions = [rxn1, rxn2]
-    fingerprints = get_rxnrep_fingerprint(reactions)
+    fingerprints = get_rxnrep_fingerprint(reactions, pretrain_dataset="schneider")
 
     print(fingerprints.shape)

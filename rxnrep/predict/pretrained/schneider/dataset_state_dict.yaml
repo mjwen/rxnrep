@@ -1,0 +1,242 @@
+feature_name:
+  atom:
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_type_one_hot
+  - atom_total_degree_one_hot
+  - atom_total_degree_one_hot
+  - atom_total_degree_one_hot
+  - atom_total_degree_one_hot
+  - atom_total_degree_one_hot
+  - atom_total_degree_one_hot
+  - atom_is_in_ring
+  - atom_in_ring_of_size_one_hot
+  - atom_in_ring_of_size_one_hot
+  - atom_in_ring_of_size_one_hot
+  - atom_in_ring_of_size_one_hot
+  - atom_in_ring_of_size_one_hot
+  - atom_total_num_H_one_hot
+  - atom_total_num_H_one_hot
+  - atom_total_num_H_one_hot
+  - atom_total_num_H_one_hot
+  - atom_total_num_H_one_hot
+  - atom_is_aromatic
+  - atom_total_valence_one_hot
+  - atom_total_valence_one_hot
+  - atom_total_valence_one_hot
+  - atom_total_valence_one_hot
+  - atom_total_valence_one_hot
+  - atom_total_valence_one_hot
+  - atom_num_radical_electrons_one_hot
+  - atom_num_radical_electrons_one_hot
+  - atom_num_radical_electrons_one_hot
+  - atom_hybridization_one_hot
+  - atom_hybridization_one_hot
+  - atom_hybridization_one_hot
+  - atom_hybridization_one_hot
+  bond:
+  - bond_is_in_ring
+  - bond_in_ring_of_size_one_hot
+  - bond_in_ring_of_size_one_hot
+  - bond_in_ring_of_size_one_hot
+  - bond_in_ring_of_size_one_hot
+  - bond_in_ring_of_size_one_hot
+  - bond_is_conjugated
+  - bond_type_one_hot
+  - bond_type_one_hot
+  - bond_type_one_hot
+  - bond_type_one_hot
+  global:
+  - global_num_atoms
+  - global_num_bonds
+  - global_molecule_weight
+feature_scaler_state_dict:
+  mean:
+    edge:
+      bond:
+      - 0.576395571231842
+      - 0.0040723239071667194
+      - 0.002806787844747305
+      - 0.1140521839261055
+      - 0.4562992453575134
+      - 0.010060413740575314
+      - 0.6136866211891174
+      - 0.48833560943603516
+      - 0.06217209994792938
+      - 0.0033329457510262728
+      - 0.44615933299064636
+    node:
+      atom:
+      - 2.850202008630731e-06
+      - 0.0027922478038817644
+      - 0.00891353189945221
+      - 0.7111918926239014
+      - 0.020582258701324463
+      - 0.02135276235640049
+      - 9.500673172624374e-07
+      - 0.0023561669513583183
+      - 1.9001346345248749e-06
+      - 6.270444282563403e-05
+      - 5.700404017261462e-06
+      - 0.08925217390060425
+      - 9.500673172624374e-07
+      - 0.12871606647968292
+      - 0.00043988117249682546
+      - 0.012757503427565098
+      - 9.500673172624374e-07
+      - 1.5201077076198999e-05
+      - 0.0008151577785611153
+      - 0.0007372522377409041
+      - 1.9001346345248749e-06
+      - 6.412954098777846e-05
+      - 0.12033694982528687
+      - 0.10525178164243698
+      - 0.5156808495521545
+      - 0.2586216330528259
+      - 3.230228685424663e-05
+      - 0.5759583711624146
+      - 0.0042097484692931175
+      - 0.0028967552352696657
+      - 0.11736846715211868
+      - 0.4646209180355072
+      - 0.010377109982073307
+      - 0.4610363245010376
+      - 0.315786212682724
+      - 0.14145790040493011
+      - 0.08046690374612808
+      - 0.0012526637874543667
+      - 0.4499970078468323
+      - 6.412954098777846e-05
+      - 0.05889609828591347
+      - 0.12999628484249115
+      - 0.0875643789768219
+      - 0.7181753516197205
+      - 0.0004028285329695791
+      - 0.999728262424469
+      - 0.0002717192401178181
+      - 0.0
+      - 7.12550463504158e-05
+      - 0.007525483146309853
+      - 0.6402024030685425
+      - 0.352151483297348
+      global:
+      - 13.59787368774414
+      - 14.056746482849121
+      - 198.0383758544922
+  std:
+    edge:
+      bond:
+      - 0.4941292405128479
+      - 0.06368469446897507
+      - 0.052904725074768066
+      - 0.31787464022636414
+      - 0.4980866014957428
+      - 0.09979580342769623
+      - 0.4869038462638855
+      - 0.4998639225959778
+      - 0.24146786332130432
+      - 0.05763537809252739
+      - 0.49709272384643555
+    node:
+      atom:
+      - 0.0016882517375051975
+      - 0.05276789888739586
+      - 0.0939897894859314
+      - 0.4532085657119751
+      - 0.1419810801744461
+      - 0.14455732703208923
+      - 0.0009747134754434228
+      - 0.048483144491910934
+      - 0.001378452405333519
+      - 0.00791836529970169
+      - 0.002387545071542263
+      - 0.2851073741912842
+      - 0.0009747134754434228
+      - 0.3348854184150696
+      - 0.020968731492757797
+      - 0.11222633719444275
+      - 0.0009747134754434228
+      - 0.0038988261949270964
+      - 0.028539327904582024
+      - 0.027142377570271492
+      - 0.001378452405333519
+      - 0.00800783559679985
+      - 0.3253551423549652
+      - 0.30687758326530457
+      - 0.49975404143333435
+      - 0.43787723779678345
+      - 0.005683418363332748
+      - 0.49419665336608887
+      - 0.06474585831165314
+      - 0.053743503987789154
+      - 0.32185882329940796
+      - 0.49874672293663025
+      - 0.10133817791938782
+      - 0.4984795153141022
+      - 0.464828222990036
+      - 0.3484932780265808
+      - 0.27201464772224426
+      - 0.03537081554532051
+      - 0.4974934160709381
+      - 0.00800783559679985
+      - 0.23543012142181396
+      - 0.3362993597984314
+      - 0.2826603353023529
+      - 0.44988834857940674
+      - 0.02006654627621174
+      - 0.01648166961967945
+      - 0.01648166961967945
+      - 1.0
+      - 0.008440970443189144
+      - 0.08642251044511795
+      - 0.4799409508705139
+      - 0.47764089703559875
+      global:
+      - 11.360336303710938
+      - 12.772176742553711
+      - 147.29421997070312
+feature_size:
+  atom: 52
+  bond: 11
+  global: 3
+label_scaler_state_dict: null
+species:
+- As
+- B
+- Br
+- C
+- Cl
+- F
+- Ge
+- I
+- K
+- Li
+- Mg
+- N
+- Na
+- O
+- P
+- S
+- Sb
+- Se
+- Si
+- Sn
+- Zn
