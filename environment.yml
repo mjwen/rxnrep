@@ -10,12 +10,13 @@ dependencies:
   - scikit-learn
   - pandas
   - rich
+  - python=3.9
+  - pytorch==1.10.1
+  - dgl==0.7.2
   - pytorch-lightning==1.5.7
   - torchmetrics==0.6.2
   - lightning-bolts==0.5.0
   - hydra-core==1.0.6
-  - pymatgen==2020.8.13
-  - rdkit==2020.03.5
+  - pymatgen==2022.0.17
+  - rdkit==2021.09.3
   - openbabel==3.1.1
-  - pytorch==1.8.0
-  - dgl==0.6.0
