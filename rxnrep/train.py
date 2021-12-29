@@ -147,7 +147,7 @@ def train(config: DictConfig) -> Union[float, Dict[str, float]]:
     #
     if not config.get("skip_test", None):
         logger.info("Starting testing!")
-        test_metric_score = trainer.test()
+        test_metric_score = trainer.test(dataloaders=datamodule)
     else:
         test_metric_score = [{}]
 

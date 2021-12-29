@@ -260,7 +260,7 @@ def create_reaction_graph(
     src, dst, eid = products_graph.edges(form="all", order="eid", etype=rel)
     for u, v, e in zip(src, dst, eid):
         # e // 2 because two edges for each bond
-        if e // 2 >= num_unchanged_bonds:
+        if torch.div(e, 2, rounding_mode="floor") >= num_unchanged_bonds:
             a2a.append((u, v))
 
     num_atoms = reactants_graph.num_nodes("atom")

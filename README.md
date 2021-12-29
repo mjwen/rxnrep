@@ -1,6 +1,6 @@
 # RxnRep
 
-Self-supervised contrastive pretraining for chemical reaction representation (RxnRep).
+Self-supervised contrastive pretraining for chemical reaction representation ([RxnRep](https://doi.org/10.26434/chemrxiv-2021-xr8tf)).
 
 <p align="center">
 <img src="rxnrep.png" alt="rxnrep" width="600">
@@ -15,6 +15,26 @@ conda env create -f environment.yml
 conda activate rxnrep
 pip install -e .
 ```
+
+## Get RxnRep reaction fingerprints 
+
+To convert SMILES reactions to RxnRep fingerprints, simply do something like the below:
+
+```python
+from rxnrep.predict.fingerprint import get_rxnrep_fingerprint
+
+rxn1 = "[CH3:6][CH2:7][OH:16].[O:1]=[C:2]([C:3](=[O:4])[OH:5])[CH2:8][CH2:9][c:10]1[cH:11][cH:12][cH:13][cH:14][cH:15]1>>[O:1]=[C:2]([C:3](=[O:4])[O:5][CH2:6][CH3:7])[CH2:8][CH2:9][c:10]1[cH:11][cH:12][cH:13][cH:14][cH:15]1.[OH2:16]"
+rxn2 = "[C:1](#[N:2])[c:3]1[cH:4][cH:5][c:6]([CH2:7][C:8](=[O:9])[OH:10])[cH:13][cH:14]1.[CH3:11][CH2:12][OH:15]>>[C:1](#[N:2])[c:3]1[cH:4][cH:5][c:6]([CH2:7][C:8](=[O:9])[O:10][CH2:11][CH3:12])[cH:13][cH:14]1.[OH2:15]"
+
+smiles_reactions = [rxn1, rxn2]
+fingerprints = get_rxnrep_fingerprint(smiles_reactions)
+
+print(fingerprints.shape)  # torch.size([2, 128])
+```
+
+See the docs of `get_rxnrep_fingerprint()` for more options, e.g. choosing which 
+pretrained model to use and fine-tuning the fingerprints.  
+
 
 ## Train classification models
 
@@ -78,3 +98,17 @@ models. See [here](./configs/README.md) for detailed info.
 
 The training are configured using [hydra](https://github.com/facebookresearch/hydra) 
 and the configuration files are at [configs](./configs).
+
+
+## Cite 
+```
+@article{wen2021improving,
+  title   = {Improving machine learning performance on small chemical reaction data 
+  with unsupervised contrastive pretraining},
+  author  = {Wen, Mingjian and Blau, Samuel M and Xie, Xiaowei and Dwaraknath, Shyam 
+  and Persson, Kristin A},
+  journal = {ChemRxiv},
+  doi     = {10.26434/chemrxiv-2021-xr8tf},
+  year    = 2021,
+}
+```
