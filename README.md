@@ -1,6 +1,6 @@
 # RxnRep
 
-Self-supervised contrastive pretraining for chemical reaction representation ([RxnRep](https://doi.org/10.26434/chemrxiv-2021-xr8tf)).
+Self-supervised contrastive pretraining for chemical reaction representation ([RxnRep](https://doi.org/10.1039/d1sc06515g)).
 
 <p align="center">
 <img src="rxnrep.png" alt="rxnrep" width="600">
@@ -16,7 +16,7 @@ conda activate rxnrep
 pip install -e .
 ```
 
-## Get RxnRep reaction fingerprints 
+## Get RxnRep reaction fingerprints
 
 To convert SMILES reactions to RxnRep fingerprints, simply do something like the below:
 
@@ -32,9 +32,8 @@ fingerprints = get_rxnrep_fingerprint(smiles_reactions)
 print(fingerprints.shape)  # torch.size([2, 128])
 ```
 
-See the docs of `get_rxnrep_fingerprint()` for more options, e.g. choosing which 
-pretrained model to use and fine-tuning the fingerprints.  
-
+See the docs of `get_rxnrep_fingerprint()` for more options, e.g. choosing which
+pretrained model to use and fine-tuning the fingerprints.
 
 ## Train classification models
 
@@ -48,7 +47,6 @@ python run.py --config-name config.yaml  datamodule=classification/schneider.yam
 
 For `TPL100` (`Grambow`) dataset, set `datamodule` to `classification/tpl100.yaml`
 (`classification/grambow.yaml`).
-
 
 ### Pretraining & finetuning
 
@@ -65,7 +63,7 @@ python run.py --config-name config_finetune.yaml datamodule=classification/schne
        pretrained_wandb_id=<wandb_id>
 ```
 
-where `wandb_id` is the [W&B](https://wandb.ai) id for the pretraining run, an eight-character 
+where `wandb_id` is the [W&B](https://wandb.ai) id for the pretraining run, an eight-character
 alphanumeric
 (e.g. `3oep187z`).
 By providing the `wandb_id`, the finetuning script will automatically search for the pretrained model.
@@ -88,27 +86,27 @@ where
 To train for the `TPL100` (`Grambow`) dataset, replace `schneider.yaml` by
 `tpl100.yaml` (`grambow.yaml`) in datamodule.
 
-
 ## Train regression models
 
-Train regression models are very similar to what discussed above for classification 
+Train regression models are very similar to what discussed above for classification
 models. See [here](./configs/README.md) for detailed info.
 
 ## Config the training
 
-The training are configured using [hydra](https://github.com/facebookresearch/hydra) 
+The training are configured using [hydra](https://github.com/facebookresearch/hydra)
 and the configuration files are at [configs](./configs).
 
+## Cite
 
-## Cite 
 ```
-@article{wen2021improving,
-  title   = {Improving machine learning performance on small chemical reaction data 
+@article{wen2022rxnrep,
+  title   = {Improving machine learning performance on small chemical reaction data
   with unsupervised contrastive pretraining},
-  author  = {Wen, Mingjian and Blau, Samuel M and Xie, Xiaowei and Dwaraknath, Shyam 
+  author  = {Wen, Mingjian and Blau, Samuel M and Xie, Xiaowei and Dwaraknath, Shyam
   and Persson, Kristin A},
-  journal = {ChemRxiv},
-  doi     = {10.26434/chemrxiv-2021-xr8tf},
-  year    = 2021,
+  journal = {Chemical Science},
+  year    = 2022,
+  doi     = {10.1039/D1SC06515G},
+  url     = {https://doi.org/10.1039/D1SC06515G},
 }
 ```
