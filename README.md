@@ -56,6 +56,12 @@ To pretrain the model using contrastive learning:
 python run.py --config-name config_contrastive.yaml datamodule=contrastive/schneider.yaml
 ```
 
+Note, you may need to set `functional_group_smarts_filenames` in
+[subgraph.yaml](./configs/transform1/subgraph.yaml) and
+[transform_or_identity.yaml](./configs/transform1/transform_or_identity.yaml)
+to the path of [smarts_daylight.tsv](./assets/smarts_daylight.tsv) before
+running the above command, if you are using the subgraph augmentation method.
+
 To finetune the pretrained model:
 
 ```bash
