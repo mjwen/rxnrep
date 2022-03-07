@@ -1,15 +1,13 @@
 # RxnRep configuration
 
-The directory contains the configuration files for the supervised training, 
-pretriaining, and finetuning tasks. 
-We use [hydra](https://github.com/facebookresearch/hydra) for all the 
-configurations. 
+The directory contains the configuration files for the supervised training,
+pretriaining, and finetuning tasks.
+We use [hydra](https://github.com/facebookresearch/hydra) for all the
+configurations.
 
-It is already discussed in the main [README](../README.md) about how to run the 
-experiments for classification tasks and here are brief notes on how to run the 
-experiments for regression tasks.    
-
-
+It is already discussed in the main [README](../README.md) about how to run the
+experiments for classification tasks and here are brief notes on how to run the
+experiments for regression tasks.
 
 ## Train regression models
 
@@ -22,7 +20,6 @@ python run.py --config-name config.yaml  datamodule=regression/heid.yaml \
        model/decoder=regressor.yaml
 ```
 
-
 ### Pretraining & finetuning
 
 To pretrain the model using contrastive learning:
@@ -30,6 +27,8 @@ To pretrain the model using contrastive learning:
 ```bash
 python run.py --config-name config_contrastive.yaml datamodule=contrastive/heid.yaml
 ```
+
+Note, you may need to set `functional_group_smarts_filenames` in [subgraph.yaml](./configs/transform1/subgraph.yaml) and [transform_or_identity.yaml](./configs/transform1/transform_or_identity.yaml) to the path of [smarts_daylight.tsv](./assets/smarts_daylight.tsv) before running the above command, if you want to use the subgraph augmentation method.
 
 To finetune the pretrained model:
 
@@ -39,7 +38,7 @@ python run.py --config-name config_finetune.yaml datamodule=regression/heid.yaml
        model/finetuner=regressor.yaml  pretrained_wandb_id=<wandb_id>
 ```
 
-where `wandb_id` is the [W&B](https://wandb.ai) id for the pretraining run, an eight-character 
+where `wandb_id` is the [W&B](https://wandb.ai) id for the pretraining run, an eight-character
 alphanumeric
 (e.g. `3oep187z`).
 By providing the `wandb_id`, the finetuning script will automatically search for the pretrained model.
@@ -49,7 +48,7 @@ Alternatively, the pretrained model info can be passed in manually:
 ```bash
 python run.py --config-name config_finetune.yaml datamodule=regression/heid.yaml \
        datamodule.regression.allow_label_scaler_none=true \
-       model/finetuner=regressor.yaml \   
+       model/finetuner=regressor.yaml \
        model.finetuner.model_class.pretrained_checkpoint_filename=<checkpoint> \
        model.finetuner.model_class.pretrained_dataset_state_dict_filename=<dataset_state_dict> \
        model.finetuner.model_class.pretrained_config_filename=<config>

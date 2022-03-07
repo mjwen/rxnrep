@@ -1,0 +1,149 @@
+name	smarts	comment
+Alkyl Carbon	[CX4]
+Allenic Carbon	[$([CX2](=C)=C)]
+Vinylic Carbon	[$([CX3]=[CX3])]
+Acetylenic Carbon	[$([CX2]#C)]
+arene	c	(Ar , aryl-, aromatic hydrocarbons)
+carbonyl	[CX3]=[OX1]	Hits carboxylic acid, ester, ketone, aldehyde, carbonic acid/ester,anhydride, carbamic acid/ester, acyl halide, amide.
+Carbonyl group	[$([CX3]=[OX1]),$([CX3+]-[OX1-])]	Hits either resonance structure
+Carbonyl with Carbon	[CX3](=[OX1])C	Hits aldehyde, ketone, carboxylic acid (except formic), anhydride (except formic), acyl halides (acid halides). Won't hit carbamic acid/ester, carbonic acid/ester.
+Carbonyl with Nitrogen	[OX1]=CN	Hits amide, carbamic acid/ester, poly peptide
+Carbonyl with Oxygen	[CX3](=[OX1])O	Hits ester, carboxylic acid, carbonic acid or ester, carbamic acid or ester, anhydride Won't hit aldehyde or ketone.
+Acyl Halide	[CX3](=[OX1])[F,Cl,Br,I]	acid halide, -oyl halide
+Aldehyde	[CX3H1](=O)[#6]	-al
+Anhydride	[CX3](=[OX1])[OX2][CX3](=[OX1])
+Amide	[NX3][CX3](=[OX1])[#6]	-amide
+Amidinium	[NX3][CX3]=[NX3+]
+Carbamate	[NX3,NX4+][CX3](=[OX1])[OX2,OX1-]	Hits carbamic esters, acids, and zwitterions
+Carbamic ester	[NX3][CX3](=[OX1])[OX2H0]
+Carbamic acid	[NX3,NX4+][CX3](=[OX1])[OX2H,OX1-]	Hits carbamic acids and zwitterions.
+Carboxylate Ion	[CX3](=O)[O-]	Hits conjugate bases of carboxylic, carbamic, and carbonic acids.
+Carbonic Acid or Carbonic Ester	[CX3](=[OX1])(O)O	Carbonic Acid, Carbonic Ester, or combination
+Carbonic Acid or Carbonic Acid-Ester	[CX3](=[OX1])([OX2])[OX2H,OX1H0-1]	Hits acid and conjugate base. Won't hit carbonic acid diester
+Carbonic Ester (carbonic acid diester)	C[OX2][CX3](=[OX1])[OX2]C	Won't hit carbonic acid or combination carbonic acid/ester
+Carboxylic acid	[CX3](=O)[OX2H1]	-oic acid, COOH
+Carboxylic acid or conjugate base	[CX3](=O)[OX1H0-,OX2H1]
+Cyanamide	[NX3][CX2]#[NX1]
+Ester Also hits anhydrides	[#6][CX3](=O)[OX2H0][#6]	won't hit formic anhydride.
+Ketone	[#6][CX3](=O)[#6]	-one
+Ether	[OD2]([#6])[#6]
+Hydrogen Atom	[H]	Hits SMILES that are hydrogen atoms: [H+] [2H] [H][H]
+Not a Hydrogen Atom	[!#1]	Hits SMILES that are not hydrogen atoms.
+Proton	[H+]	Hits positively charged hydrogen atoms: [H+]
+Mono-Hydrogenated Cation	[+H]	Hits atoms that have a positive charge and exactly one attached hydrogen: F[C+](F)[H]
+Not Mono-Hydrogenated	[!H]	Hits atoms that don't have exactly one attached hydrogen.
+Primary or secondary amine, not amide	[NX3;H2,H1;!$(NC=O)]	"Not ammonium ion (N must be 3-connected), not ammonia (H count can't be 3). Primary or secondary is specified by N's H-count (H2 & H1 respectively). Also note that ""&"" (and) is the dafault opperator and is higher precedence that "","" (or), which is higher precedence than "";"" (and). Will hit cyanamides and thioamides"
+Enamine	[NX3][CX3]=[CX3]
+Primary amine, not amide	[NX3;H2;!$(NC=[!#6]);!$(NC#[!#6])][#6]	Not amide (C not double bonded to a hetero-atom), not ammonium ion (N must be 3-connected), not ammonia (N's H-count can't be 3), not cyanamide (C not triple bonded to a hetero-atom)
+Two primary or secondary amines	[NX3;H2,H1;!$(NC=O)].[NX3;H2,H1;!$(NC=O)]	"Here we use the disconnection symbol (""."") to match two separate unbonded identical patterns."
+Enamine or Aniline Nitrogen	[NX3][$(C=C),$(cc)]
+Generic amino acid: low specificity	[NX3,NX4+][CX4H]([*])[CX3](=[OX1])[O,N]	For use w/ non-standard a.a. search. hits pro but not gly. Hits acids and conjugate bases. Hits single a.a.s and specific residues w/in polypeptides (internal, or terminal).
+Dipeptide group. generic amino acid: low specificity	[NX3H2,NH3X4+][CX4H]([*])[CX3](=[OX1])[NX3,NX4+][CX4H]([*])[CX3](=[OX1])[OX2H,OX1-]	Won't hit pro or gly. Hits acids and conjugate bases.
+Amino Acid	[$([NX3H2,NX4H3+]),$([NX3H](C)(C))][CX4H]([*])[CX3](=[OX1])[OX2H,OX1-,N]	Replace * w/ a specific a.a. side chain from the 18_standard_side_chains list to hit a specific standard a.a. Won't work with Proline or Glycine, they have their own SMARTS (see side chain list). Hits acids and conjugate bases. Hits single a.a.s and specific residues w/i n polypeptides (internal, or terminal). {e.g. usage: Alanine side chain is [CH3X4] . Search is [$([NX3H2,NX4H3+]),$([NX3H](C)(C))][CX4H]([ CH3X4])[CX3](=[OX1])[OX2H,OX1-,N]}
+Alanine side chain	[CH3X4]
+Arginine side chain	[CH2X4][CH2X4][CH2X4][NHX3][CH0X3](=[NH2X3+,NHX2+0])[NH2X3]	Hits acid and conjugate base.
+Aspargine side chain	[CH2X4][CX3](=[OX1])[NX3H2]	Also hits Gln side chain when used alone.
+Aspartate (or Aspartic acid) side chain	[CH2X4][CX3](=[OX1])[OH0-,OH]	Hits acid and conjugate base. Also hits Glu side chain when used alone.
+Cysteine side chain	[CH2X4][SX2H,SX1H0-]	Hits acid and conjugate base
+Glutamate (or Glutamic acid) side chain	[CH2X4][CH2X4][CX3](=[OX1])[OH0-,OH]	Hits acid and conjugate base.
+Glycine	[$([$([NX3H2,NX4H3+]),$([NX3H](C)(C))][CX4H2][CX3](=[OX1])[OX2H,OX1-,N])]
+Histidine side chain	[CH2X4][#6X3]1:[$([#7X3H+,#7X2H0+0]:[#6X3H]:[#7X3H]),$([#7X3H])]:[#6X3H]:[$([#7X3H+,#7X2H0+0]:[#6X3H]:[#7X3H]),$([#7X3H])]:[#6X3H]1	Hits acid & conjugate base for either Nitrogen. Note that the Ns can be either ([(Cationic 3-connected with one H) or (Neutral 2-connected without any Hs)] where there is a second-neighbor who is [3-connected with one H]) or (3-connected with one H).
+Isoleucine side chain	[CHX4]([CH3X4])[CH2X4][CH3X4]
+Leucine side chain	[CH2X4][CHX4]([CH3X4])[CH3X4]
+Lysine side chain	[CH2X4][CH2X4][CH2X4][CH2X4][NX4+,NX3+0]	Acid and conjugate base
+Methionine side chain	[CH2X4][CH2X4][SX2][CH3X4]
+Phenylalanine side chain	[CH2X4][cX3]1[cX3H][cX3H][cX3H][cX3H][cX3H]1
+Proline	[$([NX3H,NX4H2+]),$([NX3](C)(C)(C))]1[CX4H]([CH2][CH2][CH2]1)[CX3](=[OX1])[OX2H,OX1-,N]
+Serine side chain	[CH2X4][OX2H]
+Thioamide	[NX3][CX3]=[SX1]
+Threonine side chain	[CHX4]([CH3X4])[OX2H]
+Tryptophan side chain	[CH2X4][cX3]1[cX3H][nX3H][cX3]2[cX3H][cX3H][cX3H][cX3H][cX3]12
+Tyrosine side chain	[CH2X4][cX3]1[cX3H][cX3H][cX3]([OHX2,OH0X1-])[cX3H][cX3H]1	Acid and conjugate base
+Valine side chain	[CHX4]([CH3X4])[CH3X4]
+Alanine side chain	[CH3X4]
+Arginine side chain	[CH2X4][CH2X4][CH2X4][NHX3][CH0X3](=[NH2X3+,NHX2+0])[NH2X3]	Hits acid and conjugate base.
+Aspargine side chain	[CH2X4][CX3](=[OX1])[NX3H2]	Also hits Gln side chain when used alone.
+Aspartate (or Aspartic acid) side chain	[CH2X4][CX3](=[OX1])[OH0-,OH]	Hits acid and conjugate base. Also hits Glu side chain when used alone.
+Cysteine side chain	[CH2X4][SX2H,SX1H0-]	Hits acid and conjugate base
+Glutamate (or Glutamic acid) side chain	[CH2X4][CH2X4][CX3](=[OX1])[OH0-,OH]	Hits acid and conjugate base.
+Glycine	N[CX4H2][CX3](=[OX1])[O,N]
+Histidine side chain	[CH2X4][#6X3]1:[$([#7X3H+,#7X2H0+0]:[#6X3H]:[#7X3H]),$([#7X3H])]:[#6X3H]:[$([#7X3H+,#7X2H0+0]:[#6X3H]:[#7X3H]),$([#7X3H])]:[#6X3H]1	Hits acid & conjugate base for either Nitrogen. Note that the Ns can be either ([(Cationic 3-connected with one H) or (Neutral 2-connected without any Hs)] where there is a second-neighbor who is [3-connected
+Isoleucine side chain	[CHX4]([CH3X4])[CH2X4][CH3X4]
+Leucine side chain	[CH2X4][CHX4]([CH3X4])[CH3X4]
+Lysine side chain	[CH2X4][CH2X4][CH2X4][CH2X4][NX4+,NX3+0]	Acid and conjugate base
+Methionine side chain	[CH2X4][CH2X4][SX2][CH3X4]
+Phenylalanine side chain	[CH2X4][cX3]1[cX3H][cX3H][cX3H][cX3H][cX3H]1
+Proline	N1[CX4H]([CH2][CH2][CH2]1)[CX3](=[OX1])[O,N]
+Serine side chain	[CH2X4][OX2H]
+Threonine side chain	[CHX4]([CH3X4])[OX2H]
+Tryptophan side chain	[CH2X4][cX3]1[cX3H][nX3H][cX3]2[cX3H][cX3H][cX3H][cX3H][cX3]12
+Tyrosine side chain	[CH2X4][cX3]1[cX3H][cX3H][cX3]([OHX2,OH0X1-])[cX3H][cX3H]1	Acid and conjugate base
+Valine side chain	[CHX4]([CH3X4])[CH3X4]
+Azide group	[$(*-[NX2-]-[NX2+]#[NX1]),$(*-[NX2]=[NX2+]=[NX1-])]	Hits any atom with an attached azide.
+Azide ion	[$([NX1-]=[NX2+]=[NX1-]),$([NX1]#[NX2+]-[NX1-2])]	Hits N in azide ion
+Nitrogen	[#7]	"Nitrogen in N-containing compound. aromatic or aliphatic. Most general interpretation of ""azo"""
+Azo Nitrogen. Low specificity	[NX2]=N	Hits diazene, azoxy and some diazo structures
+Azo Nitrogen.diazene	[NX2]=[NX2]	(diaza alkene)
+Azoxy Nitrogen	[$([NX2]=[NX3+]([O-])[#6]),$([NX2]=[NX3+0](=[O])[#6])]
+Diazo Nitrogen	[$([#6]=[N+]=[N-]),$([#6-]-[N+]#[N])]
+Azole	[$([nr5]:[nr5,or5,sr5]),$([nr5]:[cr5]:[nr5,or5,sr5])]	5 member aromatic heterocycle w/ 2double bonds. contains N & another non C (N,O,S) subclasses are furo-, thio-, pyrro- (replace CH o' furfuran, thiophene, pyrrol w/ N)
+Hydrazine H2NNH2	[NX3][NX3]
+Hydrazone C=NNH2	[NX3][NX2]=[*]
+Substituted imine	[CX3;$([C]([#6])[#6]),$([CH][#6])]=[NX2][#6]	Schiff base
+Substituted or un-substituted imine	[$([CX3]([#6])[#6]),$([CX3H][#6])]=[$([NX2][#6]),$([NX2H])]
+Iminium	[NX3+]=[CX3]
+Unsubstituted dicarboximide	[CX3](=[OX1])[NX3H][CX3](=[OX1])
+Substituted dicarboximide	[CX3](=[OX1])[NX3H0]([#6])[CX3](=[OX1])
+Dicarboxdiimide	[CX3](=[OX1])[NX3H0]([NX3H0]([CX3](=[OX1]))[CX3](=[OX1]))[CX3](=[OX1])
+Nitrate group	[$([NX3](=[OX1])(=[OX1])O),$([NX3+]([OX1-])(=[OX1])O)]	Also hits nitrate anion
+Nitrate Anion	[$([OX1]=[NX3](=[OX1])[OX1-]),$([OX1]=[NX3+]([OX1-])[OX1-])]
+Nitrile	[NX1]#[CX2]
+Isonitrile	[CX1-]#[NX2+]
+Nitro group	[$([NX3](=O)=O),$([NX3+](=O)[O-])][!#8]	Hits both forms.
+Two Nitro groups	[$([NX3](=O)=O),$([NX3+](=O)[O-])][!#8].[$([NX3](=O)=O),$([NX3+](=O)[O-])][!#8]
+Nitroso-group	[NX2]=[OX1]
+N-Oxide	[$([#7+][OX1-]),$([#7v5]=[OX1]);!$([#7](~[O])~[O]);!$([#7]=[#7])]	Hits both forms. Won't hit azoxy, nitro, nitroso,or nitrate.
+Hydroxyl	[OX2H]
+Hydroxyl in Alcohol	[#6][OX2H]
+Hydroxyl in Carboxylic Acid	[OX2H][CX3]=[OX1]
+Hydroxyl in H-O-P-	[OX2H]P
+Enol	[OX2H][#6X3]=[#6]
+Phenol	[OX2H][cX3]:[c]
+Enol or Phenol	[OX2H][$(C=C),$(cc)]
+Hydroxyl_acidic	[$([OH]-*=[!#6])]	An acidic hydroxyl is a hydroxyl bonded to an atom which is multiply bonded to a hetero atom, this includes carboxylic, sulphur, phosphorous, halogen and nitrogen oxyacids.
+Peroxide groups	[OX2,OX1-][OX2,OX1-]	Also hits anions.
+Phosphoric_acid groups	[$(P(=[OX1])([$([OX2H]),$([OX1-]),$([OX2]P)])([$([OX2H]),$([OX1-]),$([OX2]P)])[$([OX2H]),$([OX1-]),$([OX2]P)]),$([P+]([OX1-])([$([OX2H]),$([OX1-]),$([OX2]P)])([$([OX2H]),$([OX1-]),$([OX2]P)])[$([OX2H]),$([OX1-]),$([OX2]P)])]	Hits both depiction forms. Hits orthophosphoric acid and polyphosphoric acid anhydrides. Doesn't hit monophosphoric acid anhydride esters (including acidic mono- & di- esters) but will hit some polyphosphoric acid anhydride esters (mono- esters on pyrophosphoric acid and longer, di- esters on linear triphosphoric acid and longer).
+Phosphoric_ester groups	[$(P(=[OX1])([OX2][#6])([$([OX2H]),$([OX1-]),$([OX2][#6])])[$([OX2H]),$([OX1-]),$([OX2][#6]),$([OX2]P)]),$([P+]([OX1-])([OX2][#6])([$([OX2H]),$([OX1-]),$([OX2][#6])])[$([OX2H]),$([OX1-]),$([OX2][#6]),$([OX2]P)])]	Hits both depiction forms. Doesn't hit non-ester phosphoric_acid groups.
+Carbo-Thiocarboxylate	[S-][CX3](=S)[#6]
+Carbo-Thioester	S([#6])[CX3](=O)[#6]
+Thio analog of carbonyl	[#6X3](=[SX1])([!N])[!N]	Where S replaces O. Not a thioamide.
+Thiol, Sulfide or Disulfide Sulfur	[SX2]
+Thiol	[#16X2H]
+Sulfur with at-least one hydrogen	[#16!H0]
+Thioamide	[NX3][CX3]=[SX1]
+Sulfide	[#16X2H0]	-alkylthio Won't hit thiols. Hits disulfides.
+Mono-sulfide	[#16X2H0][!#16]	alkylthio- or alkoxy- Won't hit thiols. Won't hit disulfides.
+Di-sulfide	[#16X2H0][#16X2H0]	Won't hit thiols. Won't hit mono-sulfides.
+Two Sulfides	[#16X2H0][!#16].[#16X2H0][!#16]	Won't hit thiols. Won't hit mono-sulfides. Won't hit disulfides.
+Sulfinate	[$([#16X3](=[OX1])[OX2H0]),$([#16X3+]([OX1-])[OX2H0])]	Won't hit Sulfinic Acid. Hits Both Depiction Forms.
+Sulfinic Acid	[$([#16X3](=[OX1])[OX2H,OX1H0-]),$([#16X3+]([OX1-])[OX2H,OX1H0-])]	Won't hit substituted Sulfinates. Hits Both Depiction Forms. Hits acid and conjugate base (sulfinate).
+Sulfone. Low specificity	[$([#16X4](=[OX1])=[OX1]),$([#16X4+2]([OX1-])[OX1-])]	Hits all sulfones, including heteroatom-substituted sulfones: sulfonic acid, sulfonate, sulfuric acid mono- & di- esters, sulfamic acid, sulfamate, sulfonamide... Hits Both Depiction Forms.
+Sulfone. High specificity	[$([#16X4](=[OX1])(=[OX1])([#6])[#6]),$([#16X4+2]([OX1-])([OX1-])([#6])[#6])]	Only hits carbo- sulfones (Won't hit herteroatom-substituted molecules). Hits Both Depiction Forms.
+Sulfonic acid. High specificity	[$([#16X4](=[OX1])(=[OX1])([#6])[OX2H,OX1H0-]),$([#16X4+2]([OX1-])([OX1-])([#6])[OX2H,OX1H0-])]	Only hits carbo- sulfonic acids (Won't hit herteroatom-substituted molecules). Hits acid and conjugate base. Hits Both Depiction Forms. Hits Arene sulfonic acids.
+Sulfonate	[$([#16X4](=[OX1])(=[OX1])([#6])[OX2H0]),$([#16X4+2]([OX1-])([OX1-])([#6])[OX2H0])]	(sulfonic ester) Only hits carbon-substituted sulfur (Oxygen may be herteroatom-substituted). Hits Both Depiction Forms.
+Sulfonamide	[$([#16X4]([NX3])(=[OX1])(=[OX1])[#6]),$([#16X4+2]([NX3])([OX1-])([OX1-])[#6])]	Only hits carbo- sulfonamide. Hits Both Depiction Forms.
+Carbo-azosulfone	[SX4](C)(C)(=O)=N	Partial N-Analog of Sulfone
+Sulfonamide	[$([SX4](=[OX1])(=[OX1])([!O])[NX3]),$([SX4+2]([OX1-])([OX1-])([!O])[NX3])]	(sulf drugs) Won't hit sulfamic acid or sulfamate. Hits Both Depiction Forms.
+Sulfoxide Low specificity	[$([#16X3]=[OX1]),$([#16X3+][OX1-])]	( sulfinyl, thionyl ) Analog of carbonyl where S replaces C. Hits all sulfoxides, including heteroatom-substituted sulfoxides, dialkylsulfoxides carbo-sulfoxides, sulfinate, sulfinic acids... Hits Both Depiction Forms. Won't hit sulfones.
+Sulfoxide High specificity	[$([#16X3](=[OX1])([#6])[#6]),$([#16X3+]([OX1-])([#6])[#6])]	(sulfinyl , thionyl) Analog of carbonyl where S replaces C. Only hits carbo-sulfoxides (Won't hit herteroatom-substituted molecules). Hits Both Depiction Forms. Won't hit sulfones.
+Sulfate	[$([#16X4](=[OX1])(=[OX1])([OX2H,OX1H0-])[OX2][#6]),$([#16X4+2]([OX1-])([OX1-])([OX2H,OX1H0-])[OX2][#6])]	(sulfuric acid monoester) Only hits when oxygen is carbon-substituted. Hits acid and conjugate base. Hits Both Depiction Forms.
+Sulfuric acid ester (sulfate ester) Low specificity	[$([SX4](=O)(=O)(O)O),$([SX4+2]([O-])([O-])(O)O)]	Hits sulfuric acid, sulfuric acid monoesters (sulfuric acids) and diesters (sulfates). Hits acid and conjugate base. Hits Both Depiction Forms.
+Sulfuric Acid Diester	[$([#16X4](=[OX1])(=[OX1])([OX2][#6])[OX2][#6]),$([#16X4](=[OX1])(=[OX1])([OX2][#6])[OX2][#6])]	Only hits when oxygen is carbon-substituted. Hits Both Depiction Forms.
+Sulfamate	[$([#16X4]([NX3])(=[OX1])(=[OX1])[OX2][#6]),$([#16X4+2]([NX3])([OX1-])([OX1-])[OX2][#6])]	Only hits when oxygen is carbon-substituted. Hits Both Depiction Forms.
+Sulfamic Acid	[$([#16X4]([NX3])(=[OX1])(=[OX1])[OX2H,OX1H0-]),$([#16X4+2]([NX3])([OX1-])([OX1-])[OX2H,OX1H0-])]	Hits acid and conjugate base. Hits Both Depiction Forms.
+Sulfenic acid	[#16X2][OX2H,OX1H0-]	Hits acid and conjugate base.
+Sulfenate	[#16X2][OX2H0]
+Any carbon attached to any halogen	[#6][F,Cl,Br,I]
+Halogen	[F,Cl,Br,I]
+Three_halides groups	[F,Cl,Br,I].[F,Cl,Br,I].[F,Cl,Br,I]	Hits SMILES that have three halides.
+Acyl Halide	[CX3](=[OX1])[F,Cl,Br,I]	(acid halide, -oyl halide)
