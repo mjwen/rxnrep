@@ -33,7 +33,7 @@ print(fingerprints.shape)  # torch.size([2, 128])
 ```
 
 See the docs of `get_rxnrep_fingerprint()` for more options, e.g. choosing which
-pretrained model to use and fine-tuning the fingerprints.
+pretrained model to use, and fine-tuning the fingerprints.
 
 ## Train classification models
 
@@ -112,6 +112,9 @@ and the configuration files are at [configs](./configs).
   and Persson, Kristin A},
   journal = {Chemical Science},
   year    = 2022,
+  volume  = 13,
+  issue   = 5,
+  pages   = {1446--1458},
   doi     = {10.1039/D1SC06515G},
   url     = {https://doi.org/10.1039/D1SC06515G},
 }
