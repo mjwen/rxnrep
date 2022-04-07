@@ -160,15 +160,27 @@ class GatedGCNConv(nn.Module):
         g.edges["bond"].data["He"] = self.H(e)
 
         # edge feats to global
-        # Each bond has two edges, we do not need to divide 2 since divide by num_edges
-        # already takes care of it
         g.update_all(fn.copy_e("He", "m"), fn.sum("m", "He_sum"), etype="bond")
         g.update_all(fn.copy_u("He_sum", "m"), fn.sum("m", "He_sum"), etype="a2g")
-        num_edges = g.num_edges("bond")
-        if num_edges == 0:
-            # single atom molecule
-            num_edges = 1
-        mean_He = g.nodes["global"].data.pop("He_sum") / num_edges
+
+        # get the number of bond in each molecule (note, we cannot use
+        # g.batch_num_edges("bond"), since we've combined all reactants (products) as a
+        # single graph
+        in_degrees = g.in_degrees(etype="bond").reshape(-1, 1).to(torch.float32)
+        g.nodes["atom"].data["num_edges"] = in_degrees
+        g.update_all(
+            fn.copy_u("num_edges", "m"), fn.sum("m", "num_edges_sum"), etype="a2g"
+        )
+
+        # Each bond has two edges, their features are both aggregated to He_sum (below)
+        # num_edges_sum also counts the two edges of each bond, so no not need to
+        # divide 2
+        He_sum = g.nodes["global"].data.pop("He_sum")
+        num_edges_sum = g.nodes["global"].data.pop("num_edges_sum")
+
+        # single atom molecule has no edges, set it to 1
+        num_edges_sum[num_edges_sum == 0] = 1
+        mean_He = He_sum / num_edges_sum
 
         # atom nodes to global
         g.update_all(fn.copy_u("Gh", "m"), fn.mean("m", "Gh_sum"), etype="a2g")
