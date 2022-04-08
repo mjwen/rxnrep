@@ -44,13 +44,18 @@ def save_response_content(response, destination):
                 f.write(chunk)
 
 
-def download_model(file_id: str, date: str, directory: Path):
+def download_model(file_id: str, date: str, directory: Path, format: str = "gz"):
     """
     Download a shared tarball file of the model from Google Drive with `file_id`,
     untar it and move it to `directory`.
 
     For info on how to find the file_id, see
     https://medium.com/@acpanjan/download-google-drive-files-using-wget-3c2c025a8b99
+
+    Args:
+        file_id: shareable google drive file id..
+        date: the name of the file (given by a date) in google drive.
+        format: compression format of the file. {'gz', 'xz'}.
     """
 
     with tempfile.TemporaryDirectory() as dirpath:
@@ -74,7 +79,9 @@ def download_model(file_id: str, date: str, directory: Path):
                 f"$ bondnet --model <path_to_model> ..."
             )
 
-        tf = tarfile.open(fname, "r:gz")
+        assert format in ["gz", "xz"], f"Unsupported file format {format}"
+
+        tf = tarfile.open(fname, f"r:{format}")
         tf.extractall(fname2)
 
         # copy content to the given directory

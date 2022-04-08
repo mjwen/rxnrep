@@ -169,13 +169,24 @@ def cli(data_filename, model):
         if model.exists():
             print("\n\nFind model directory `./rxnrep_model`; will reuse it.")
         else:
-            file_id = "13SS3DMf7CSPMKSimBi_S84AHuv6jVmoi"
-            date = "20210630"
-            download_model(file_id, date, directory=model)
+            ## 20210603 one is an older model
+            # file_id = "13SS3DMf7CSPMKSimBi_S84AHuv6jVmoi"
+            # date = "20210630"
+            # download_model(file_id, date, directory=model, format="gz")
+
+            # the 20220407 file is large when compress it to gz and GDrive does not
+            # work nicely with very large file. So we use xz.
+            file_id = "1YuQXSd9eWVkWdE748UxNE5PJ2mgIEAnZ"
+            date = "20220407"
+            download_model(file_id, date, directory=model, format="xz")
 
     main(model, data_filename)
 
-    print("Finish prediction. Results written to `result.json`.")
+    print(
+        "Finish making predictions. Results written to `result.json`. The bond "
+        "dissociation energy is denoted by `predicted_reaction_energy` in "
+        "each reaction."
+    )
 
 
 class DatasetError(Exception):

@@ -4,7 +4,7 @@
 ## Installation 
 
 ```shell
-git clone git@github.com:mjwen/rxnrep.git  # or $ git clone https://github.com/mjwen/rxnrep.git
+git clone https://github.com/mjwen/rxnrep.git
 cd rxnrep
 git checkout bondnet 
 conda env create -f environment.yml
