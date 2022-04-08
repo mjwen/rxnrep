@@ -1,5 +1,5 @@
 hydra-core==1.0.6
-pytorch-lightning==1.3.2
-lightning-bolts==0.3.2
+pytorch-lightning==1.3.3
+lightning-bolts==0.3.3
 mip==1.13.0
-git+git://github.com/materialsproject/mrnet@84f4814#egg=mrnet
+git+git://github.com/BlauGroup/mrnet@84f4814#egg=mrnet

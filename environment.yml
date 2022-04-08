@@ -13,8 +13,8 @@ dependencies:
   - pyyaml
   - scikit-learn
   - python==3.8.10
-  - pytorch==1.8.0
-  - dgl==0.6.0post1
+  - pytorch==1.8.1
+  - dgl==0.6.1
   - pymatgen==2022.0.5
   - rdkit==2021.03.1
   - openbabel==3.1.1
