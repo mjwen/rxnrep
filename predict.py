@@ -2,6 +2,7 @@
 BonDNet prediction script.
 """
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import List
@@ -21,6 +22,7 @@ from rxnrep.data.featurizer import (
 from rxnrep.model.regressor import LightningModel
 from rxnrep.utils.google_drive import download_model
 from rxnrep.utils.io import to_path, yaml_load
+from rxnrep.utils.wandb import get_wandb_checkpoint_path, get_wandb_identifier
 
 RDLogger.logger().setLevel(RDLogger.CRITICAL)
 
@@ -132,7 +134,7 @@ def main(model_directory: Path, data_filename: Path):
             1. checkpoint.ckpt
             2. dataset_state_dict.yaml
             3. hydra_final.yaml (this is not used in recovery, but we keep it to
-            describe the model
+            describe the model)
         data_filename: path to a json file containing the data
 
     """
@@ -159,6 +161,28 @@ def main(model_directory: Path, data_filename: Path):
         json.dump(data, f)
 
 
+def prepare_model(train_directory: Path):
+    """
+    Prepare model for prediction.
+
+    This creates symlinks for two files:
+    - checkpoint.ckpt linked to the best-performing checkpoint in the training directory
+    - dataset_state_dict.yaml (already there, does not need to do anything)
+    """
+    identifier = get_wandb_identifier(train_directory)
+    checkpoint_path = get_wandb_checkpoint_path(identifier, train_directory)
+
+    # select the last epoch one (example name: epoch=4-step=14.ckpt)
+    checkpoints = [p for p in to_path(checkpoint_path).glob("epoch*.ckpt")]
+    checkpoints.sort(key=lambda p: int(p.name.split("-")[0].split("=")[1]))
+    selected_checkpoint = checkpoints[-1]
+
+    # create symlink to the best performing checkpoint
+    ckpt_symlink = to_path(train_directory).joinpath("checkpoint.ckpt")
+    if not ckpt_symlink.exists():
+        os.symlink(selected_checkpoint, ckpt_symlink)
+
+
 @click.command(context_settings=CONTEXT_SETTINGS)
 @click.argument("data_filename", type=str)
 @click.option("--model", type=click.Path(exists=True))
@@ -179,6 +203,9 @@ def cli(data_filename, model):
             file_id = "1YuQXSd9eWVkWdE748UxNE5PJ2mgIEAnZ"
             date = "20220407"
             download_model(file_id, date, directory=model, format="xz")
+    else:
+        print(f"Using local model `{model}` to make predictions")
+        prepare_model(model)
 
     main(model, data_filename)
 

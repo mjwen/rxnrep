@@ -171,13 +171,26 @@ def get_wandb_identifier_latest_run(
         identifier str, None if cannot find the run
     """
     latest = get_hydra_latest_run(path, index=index)
-
     if latest is not None:
-        latest_run = latest.joinpath("wandb", "latest-run").resolve()
-        if latest_run.exists():
-            identifier = str(latest_run).split("-")[-1]
-            if identifier != "run":
-                return identifier
+        return get_wandb_identifier(latest)
+    return None
+
+
+def get_wandb_identifier(path: Union[str, Path]) -> str:
+    """
+    Find the wandb identifier given that `path` is the run direcotry.
+
+    Args:
+        path: the run directory, e.g. outputs/2022-05-02/11-26-08
+
+    Returns:
+        wandb identifier string
+    """
+    latest_run = to_path(path).joinpath("wandb", "latest-run").resolve()
+    if latest_run.exists():
+        identifier = str(latest_run).split("-")[-1]
+        if identifier != "run":
+            return identifier
 
     return None
 
