@@ -67,8 +67,7 @@ entry, the value of which gives the BDE if the reaction is a one-bond breaking o
 
 ### Use your own model for prediction
 
-If you've trained your own model and want to use it for prediction, you just need to 
-can do
+If you've trained your own model and want to use it for prediction, you can do
 
 ```shell
 bondnet <path_to_data_file>  --model <path_to_model>
@@ -76,8 +75,8 @@ bondnet <path_to_data_file>  --model <path_to_model>
 
 Again, `path_to_data_file` is a file containing the reactions you want to make 
 predictions for. 
-`path_to_model` is the path to the model you've just trained. More specifically, 
-after training, the model will be saved to a directory look like 
+`path_to_model` is the path to the model you've trained. More specifically, 
+after training, models will be saved to a directories looking like 
 ```plain
 - outputs
   ... 
@@ -89,5 +88,6 @@ after training, the model will be saved to a directory look like
     - 15-24-01
 ```
 The latest model will always be the last one in the list. So, for example, you can 
-then set `--model` to `./outputs/2022-08-10/15-24-01` to use the latest model for 
+then set `<path_to_model>` to `./outputs/2022-08-10/15-24-01` to use the latest model 
+for 
 prediction.
